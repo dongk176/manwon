@@ -1,0 +1,694 @@
+'use client'
+
+import { categories, type IllustrationType, type PostStatus, type RequestMode, type RequestPost, type TradeStatus } from '@/data/mockData'
+import type { LocationPermissionState } from '@/lib/location'
+
+export interface ApiTaskPost {
+  id: string
+  creatorId: string
+  postType: 'request' | 'offer'
+  title: string
+  category: string
+  categoryDetail: string | null
+  description: string
+  mode: RequestMode
+  price: number
+  deadlineAt: string | null
+  deadlineText?: string | null
+  availableTimeText: string | null
+  genderVisibility: 'private' | 'male' | 'female'
+  receiptRequired?: boolean
+  photoProofRequired?: boolean
+  locationSource?: 'gps' | 'manual' | null
+  serviceIntro?: string | null
+  serviceScope?: string[]
+  experienceSummary?: string | null
+  careerSummary?: string | null
+  portfolioUrl?: string | null
+  portfolioLinks?: Array<{ title: string; url: string }>
+  responseTimeText?: string | null
+  responseTime?: string | null
+  trustExampleImages?: Array<{ imageUrl: string; storageKey: string; sortOrder: number }>
+  workSampleImages?: Array<{ imageUrl: string; storageKey: string; sortOrder: number }>
+  status: PostStatus
+  recruitmentRound?: number | null
+  latestDealId?: string | null
+  latestDealStatus?: 'pending' | 'accepted' | 'in_progress' | 'complete_requested' | 'completed' | 'cancelled' | 'disputed' | null
+  latestDealCancelledBy?: string | null
+  addressText: string | null
+  region1depth?: string | null
+  region2depth?: string | null
+  region3depth?: string | null
+  regionCode?: string | null
+  latitude: number | null
+  longitude: number | null
+  distanceMeters?: number | null
+  images?: Array<{ id: string; imageUrl: string; storageKey: string; sortOrder: number }>
+  creatorNickname?: string | null
+  creatorAvatarUrl?: string | null
+  creatorRatingAvg?: number | string | null
+  creatorCompletedCount?: number | null
+}
+
+export interface CreateTaskPostPayload {
+  postType: 'request' | 'offer'
+  title: string
+  category: string
+  categoryDetail?: string | null
+  description: string
+  mode: RequestMode
+  price: number
+  deadlineAt?: string | null
+  deadlineText?: string | null
+  availableTimeText?: string | null
+  genderVisibility?: 'private' | 'male' | 'female'
+  receiptRequired?: boolean
+  photoProofRequired?: boolean
+  locationSource?: 'gps' | 'manual' | null
+  serviceIntro?: string | null
+  serviceScope?: string[]
+  experienceSummary?: string | null
+  careerSummary?: string | null
+  portfolioUrl?: string | null
+  portfolioLinks?: Array<{ title: string; url: string }>
+  responseTimeText?: string | null
+  responseTime?: string | null
+  addressText?: string | null
+  region1Depth?: string | null
+  region2Depth?: string | null
+  region3Depth?: string | null
+  regionCode?: string | null
+  latitude?: number | null
+  longitude?: number | null
+  distanceVisible?: boolean
+  images?: Array<{ imageUrl: string; storageKey: string; sortOrder: number }>
+  trustExampleImages?: Array<{ imageUrl: string; storageKey: string; sortOrder: number }>
+  workSampleImages?: Array<{ imageUrl: string; storageKey: string; sortOrder: number }>
+}
+
+export interface ApiConversation {
+  id: string
+  dealId: string | null
+  postId: string | null
+  requesterId: string
+  helperId: string
+  lastMessage: string | null
+  lastMessageAt: string | null
+  postTitle?: string | null
+  postCategory?: string | null
+  postPrice?: number | null
+  postStatus?: ApiTaskPost['status'] | null
+  dealStatus?: 'pending' | 'accepted' | 'in_progress' | 'complete_requested' | 'completed' | 'cancelled' | 'disputed' | null
+  applicationId?: string | null
+  applicationStatus?: 'applied' | 'accepted' | 'rejected' | 'cancelled' | null
+  requesterNickname?: string | null
+  helperNickname?: string | null
+  requesterAvatarUrl?: string | null
+  helperAvatarUrl?: string | null
+  otherUserId?: string | null
+  otherNickname?: string | null
+  unreadCount?: number | null
+}
+
+export interface ApiMessage {
+  id: string
+  conversationId: string
+  senderId: string
+  messageType: 'text' | 'image' | 'system'
+  body: string | null
+  imageUrl: string | null
+  clientMessageId?: string | null
+  deliveredAt?: string | null
+  readAt: string | null
+  createdAt: string
+}
+
+const userIdStorageKey = 'manwon_user_id'
+const nicknameStorageKey = 'manwon_nickname'
+
+export function getCurrentUserId() {
+  if (typeof window === 'undefined') return null
+  try {
+    const existing = window.localStorage.getItem(userIdStorageKey)
+    if (existing) return existing
+
+    const nextId = crypto.randomUUID()
+    window.localStorage.setItem(userIdStorageKey, nextId)
+    window.localStorage.setItem(nicknameStorageKey, '만부탁이')
+    return nextId
+  } catch {
+    return crypto.randomUUID()
+  }
+}
+
+export function setCurrentUserId(userId: string, nickname = '만부탁이') {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(userIdStorageKey, userId)
+    window.localStorage.setItem(nicknameStorageKey, nickname)
+  } catch {
+    // Local storage can be unavailable in private contexts.
+  }
+}
+
+export function clearCurrentUserId() {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.removeItem(userIdStorageKey)
+    window.localStorage.removeItem(nicknameStorageKey)
+  } catch {
+    // Local storage can be unavailable in private contexts.
+  }
+}
+
+function getAuthHeaders() {
+  const headers = new Headers()
+  const userId = getCurrentUserId()
+  if (userId) headers.set('x-manwon-user-id', userId)
+
+  if (typeof window !== 'undefined') {
+    try {
+      headers.set('x-manwon-nickname', encodeURIComponent(window.localStorage.getItem(nicknameStorageKey) ?? '만부탁이'))
+    } catch {
+      headers.set('x-manwon-nickname', encodeURIComponent('만부탁이'))
+    }
+  }
+
+  return headers
+}
+
+async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = getAuthHeaders()
+  new Headers(init?.headers).forEach((value, key) => headers.set(key, value))
+  const isFormDataBody = typeof FormData !== 'undefined' && init?.body instanceof FormData
+  if (!isFormDataBody && !headers.has('content-type')) {
+    headers.set('content-type', 'application/json')
+  }
+
+  const response = await fetch(path, {
+    ...init,
+    headers,
+  })
+  const payload = (await response.json()) as { ok: boolean; data?: T; error?: string }
+  if (!response.ok || !payload.ok) {
+    throw new Error(payload.error ?? 'API 요청에 실패했습니다.')
+  }
+  return payload.data as T
+}
+
+export async function fetchTaskPosts(params: {
+  postType?: 'request' | 'offer'
+  statusScope?: 'open' | 'public'
+  category?: string
+  categoryDetail?: string
+  mode?: RequestMode
+  nearby?: boolean
+  lat?: number
+  lng?: number
+  radiusM?: number
+  maxPrice?: number
+} = {}) {
+  const query = new URLSearchParams()
+  if (params.postType) query.set('post_type', params.postType)
+  if (params.statusScope) query.set('status_scope', params.statusScope)
+  if (params.category && params.category !== '전체') query.set('category', params.category)
+  if (params.categoryDetail) query.set('category_detail', params.categoryDetail)
+  if (params.mode) query.set('mode', params.mode)
+  if (params.nearby) query.set('nearby', 'true')
+  if (params.lat !== undefined) query.set('lat', String(params.lat))
+  if (params.lng !== undefined) query.set('lng', String(params.lng))
+  if (params.maxPrice !== undefined) query.set('max_price', String(params.maxPrice))
+  if (params.radiusM !== undefined) query.set('radius_m', String(params.radiusM))
+
+  return apiFetch<ApiTaskPost[]>(`/api/task-posts?${query.toString()}`)
+}
+
+export async function fetchTaskPost(id: string) {
+  return apiFetch<ApiTaskPost>(`/api/task-posts/${id}`)
+}
+
+export async function createTaskPost(payload: CreateTaskPostPayload) {
+  return apiFetch<ApiTaskPost>('/api/task-posts', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function updateTaskPost(postId: string, payload: Partial<CreateTaskPostPayload> & { status?: PostStatus }) {
+  return apiFetch<ApiTaskPost>(`/api/task-posts/${encodeURIComponent(postId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function reopenTaskPost(postId: string) {
+  return apiFetch<ApiTaskPost>(`/api/task-posts/${encodeURIComponent(postId)}/reopen`, {
+    method: 'POST',
+  })
+}
+
+export async function presignImageUpload(file: File, target: 'task-post' | 'profile-avatar' | 'chat-message') {
+  return apiFetch<{ uploadUrl: string; publicUrl: string; storageKey: string; expiresIn: number }>('/api/uploads/presign', {
+    method: 'POST',
+    body: JSON.stringify({
+      target,
+      fileName: file.name,
+      contentType: file.type,
+      size: file.size,
+    }),
+  })
+}
+
+export async function uploadImageFile(file: File, target: 'task-post' | 'profile-avatar' | 'chat-message') {
+  const formData = new FormData()
+  formData.set('target', target)
+  formData.set('file', file)
+
+  return apiFetch<{ imageUrl: string; storageKey: string }>('/api/uploads/image', {
+    method: 'POST',
+    body: formData,
+  })
+}
+
+export function getDisplayImageUrl(image: { imageUrl?: string | null; storageKey?: string | null } | null | undefined) {
+  if (!image) return undefined
+  if (image.storageKey) return `/api/uploads/image?key=${encodeURIComponent(image.storageKey)}`
+  return image.imageUrl ?? undefined
+}
+
+export async function fetchConversations() {
+  return apiFetch<ApiConversation[]>('/api/conversations')
+}
+
+export async function startConversationFromPost(postId: string, message?: string) {
+  return apiFetch<ApiConversation>(`/api/task-posts/${postId}/start-chat`, {
+    method: 'POST',
+    body: JSON.stringify({ message }),
+  })
+}
+
+export async function fetchMessages(conversationId: string, after?: string | null) {
+  const query = new URLSearchParams()
+  if (after) query.set('after', after)
+  const queryString = query.toString()
+  const suffix = queryString ? `?${queryString}` : ''
+  return apiFetch<ApiMessage[]>(`/api/conversations/${conversationId}/messages${suffix}`)
+}
+
+export async function markConversationRead(conversationId: string) {
+  return apiFetch<{ readCount: number }>(`/api/conversations/${conversationId}/read`, {
+    method: 'PATCH',
+  })
+}
+
+export async function sendConversationMessage(conversationId: string, body: string, clientMessageId?: string) {
+  return apiFetch<ApiMessage>(`/api/conversations/${conversationId}/messages`, {
+    method: 'POST',
+    body: JSON.stringify({ messageType: 'text', body, clientMessageId }),
+  })
+}
+
+export async function fetchRealtimeToken() {
+  return apiFetch<{ token: string; expiresIn: number }>('/api/realtime/token')
+}
+
+export async function updateApplicationStatus(applicationId: string, status: 'accepted' | 'rejected' | 'cancelled') {
+  return apiFetch(`/api/applications/${applicationId}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  })
+}
+
+export async function updateDealStatus(
+  dealId: string,
+  status: 'pending' | 'accepted' | 'in_progress' | 'complete_requested' | 'completed' | 'cancelled' | 'disputed',
+) {
+  return apiFetch(`/api/deals/${dealId}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  })
+}
+
+export async function fetchMyPage() {
+  return apiFetch<Record<string, unknown>>('/api/me/profile')
+}
+
+export async function requestPhoneVerification(phone: string) {
+  return apiFetch<{ phone: string; ttlSeconds: number }>('/api/phone-verifications/request', {
+    method: 'POST',
+    body: JSON.stringify({ phone }),
+  })
+}
+
+export async function confirmPhoneVerification(phone: string, code: string) {
+  return apiFetch<Record<string, unknown>>('/api/phone-verifications/confirm', {
+    method: 'POST',
+    body: JSON.stringify({ phone, code }),
+  })
+}
+
+export async function requestLoginOtp(phone: string) {
+  return apiFetch<{ phone: string; ttlSeconds: number }>('/api/auth/login/request', {
+    method: 'POST',
+    body: JSON.stringify({ phone }),
+  })
+}
+
+export async function confirmLoginOtp(phone: string, code: string) {
+  const profile = await apiFetch<Record<string, unknown>>('/api/auth/login/confirm', {
+    method: 'POST',
+    body: JSON.stringify({ phone, code }),
+  })
+  if (typeof profile.id === 'string') {
+    setCurrentUserId(profile.id, typeof profile.nickname === 'string' ? profile.nickname : '만부탁이')
+  }
+  return profile
+}
+
+export async function checkLoginCredential(input: { loginId: string; password: string }) {
+  const result = await apiFetch<
+    | { mode: 'signup_required'; resume?: boolean }
+    | { mode: 'signed_in'; profile: Record<string, unknown> }
+  >('/api/auth/login/check', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+
+  if (result.mode === 'signed_in' && typeof result.profile.id === 'string') {
+    setCurrentUserId(result.profile.id, typeof result.profile.nickname === 'string' ? result.profile.nickname : '만부탁이')
+  }
+
+  return result
+}
+
+export async function checkSignupLoginId(loginId: string) {
+  return apiFetch<{ available: boolean }>('/api/auth/signup/check-id', {
+    method: 'POST',
+    body: JSON.stringify({ loginId }),
+  })
+}
+
+export interface SignupOnboardingPayload {
+  loginId: string
+  password: string
+  name: string
+  birthDate: string
+  phone: string
+  agreements: {
+    terms: boolean
+    privacy: boolean
+    marketing: boolean
+  }
+}
+
+export async function requestSignupOtp(input: SignupOnboardingPayload) {
+  return apiFetch<{ phone: string; ttlSeconds: number }>('/api/auth/signup/request', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export async function confirmSignupOtp(input: SignupOnboardingPayload & { code: string }) {
+  const profile = await apiFetch<Record<string, unknown>>('/api/auth/signup/confirm', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+  if (typeof profile.id === 'string') {
+    setCurrentUserId(profile.id, typeof profile.nickname === 'string' ? profile.nickname : '만부탁이')
+  }
+  return profile
+}
+
+export async function fetchAuthSession() {
+  const response = await fetch('/api/auth/session', {
+    headers: {
+      'content-type': 'application/json',
+    },
+  })
+  const payload = (await response.json()) as {
+    ok: boolean
+    data?: { authenticated: boolean; userId?: string; profile: Record<string, unknown> | null }
+    error?: string
+  }
+  if (!response.ok || !payload.ok) throw new Error(payload.error ?? '로그인 상태를 확인하지 못했습니다.')
+  const session = payload.data as { authenticated: boolean; userId?: string; profile: Record<string, unknown> | null }
+  if (session.authenticated && session.userId) {
+    setCurrentUserId(session.userId, typeof session.profile?.nickname === 'string' ? session.profile.nickname : '만부탁이')
+  }
+  return session
+}
+
+export async function logout() {
+  const result = await apiFetch<{ success: boolean }>('/api/auth/logout', {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+  clearCurrentUserId()
+  return result
+}
+
+export async function withdrawAccount() {
+  const result = await apiFetch<{ success: boolean; withdrawnAt: string }>('/api/me/withdraw', {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+  clearCurrentUserId()
+  return result
+}
+
+export async function saveMyLocationPreference(input: {
+  latitude?: number | null
+  longitude?: number | null
+  region1Depth?: string | null
+  region2Depth?: string | null
+  region3Depth?: string | null
+  permissionStatus: LocationPermissionState
+}) {
+  return apiFetch<Record<string, unknown>>('/api/me/location-preference', {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  })
+}
+
+export async function fetchMyActivity() {
+  return apiFetch<{
+    myPosts: ApiTaskPost[]
+    helpedDeals: unknown[]
+    favorites: unknown[]
+    receivedReviews: Array<Record<string, unknown>>
+    writtenReviews: Array<Record<string, unknown>>
+    reports: Array<Record<string, unknown>>
+    blocks: Array<Record<string, unknown>>
+  }>('/api/me/activity')
+}
+
+export interface SettlementSummary {
+  totalRevenue: number
+  completedSettlements: number
+  pendingSettlements: number
+  monthRevenue: number
+  monthDealCount: number
+  selectedMonth: string
+  available: number
+  monthlyRevenue: Array<{ month: string; label: string; amount: number }>
+  recentIncome: Array<Record<string, unknown>>
+}
+
+export async function fetchSettlementSummary(month?: string) {
+  const query = month ? `?month=${encodeURIComponent(month)}` : ''
+  return apiFetch<SettlementSummary>(`/api/me/settlement-summary${query}`)
+}
+
+export async function createApplication(postId: string, message?: string) {
+  return apiFetch('/api/applications', {
+    method: 'POST',
+    body: JSON.stringify({ postId, message }),
+  })
+}
+
+export async function createReport(input: {
+  targetUserId?: string
+  postId?: string
+  conversationId?: string
+  messageId?: string
+  reason: string
+  description?: string
+}) {
+  return apiFetch('/api/reports', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export async function createSupportInquiry(input: {
+  type: string
+  contact?: string | null
+  body: string
+}) {
+  return apiFetch('/api/support-inquiries', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export async function createBlock(blockedUserId: string) {
+  return apiFetch('/api/blocks', {
+    method: 'POST',
+    body: JSON.stringify({ blockedUserId }),
+  })
+}
+
+export async function deleteBlock(blockedUserId: string) {
+  return apiFetch('/api/blocks', {
+    method: 'DELETE',
+    body: JSON.stringify({ blockedUserId }),
+  })
+}
+
+export async function addFavorite(postId: string) {
+  return apiFetch('/api/favorites', {
+    method: 'POST',
+    body: JSON.stringify({ postId }),
+  })
+}
+
+export async function removeFavorite(postId: string) {
+  return apiFetch('/api/favorites', {
+    method: 'DELETE',
+    body: JSON.stringify({ postId }),
+  })
+}
+
+export async function registerPushToken(input: {
+  platform: 'ios' | 'android' | 'web'
+  fcmToken: string
+  deviceId?: string | null
+  appVersion?: string | null
+}) {
+  return apiFetch('/api/devices/push-token', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export async function unregisterPushToken(input: { fcmToken?: string | null; deviceId?: string | null }) {
+  return apiFetch('/api/devices/push-token', {
+    method: 'DELETE',
+    body: JSON.stringify(input),
+  })
+}
+
+export async function fetchNotifications(limit = 50) {
+  return apiFetch<Array<Record<string, unknown>>>(`/api/notifications?limit=${encodeURIComponent(String(limit))}`)
+}
+
+export async function markNotificationRead(notificationId: string) {
+  return apiFetch(`/api/notifications/${encodeURIComponent(notificationId)}/read`, {
+    method: 'PATCH',
+  })
+}
+
+export function mapApiPostToRequestPost(post: ApiTaskPost): RequestPost {
+  const firstImage = post.images?.slice().sort((a, b) => a.sortOrder - b.sortOrder)[0]
+  const publicLocation = post.mode === 'online' ? '온라인' : post.addressText ?? '위치 미정'
+  const listLocation = post.mode === 'online' ? '온라인' : formatListLocation(post)
+  return {
+    id: post.id,
+    postType: post.postType,
+    categoryId: inferCategoryId(post.category),
+    category: post.category,
+    categoryDetail: post.categoryDetail ?? undefined,
+    title: post.title,
+    location: publicLocation,
+    listLocation,
+    detailLocation: post.postType === 'request' ? publicLocation : post.region3depth ?? post.region2depth ?? post.addressText ?? '위치 미정',
+    deadline: post.deadlineAt ? formatDeadline(post.deadlineAt) : post.deadlineText ?? post.availableTimeText ?? '시간 협의',
+    price: post.price,
+    mode: post.mode,
+    distance: post.distanceMeters ? `${Math.round(post.distanceMeters)}m` : post.mode === 'online' ? '온라인' : undefined,
+    image: inferIllustration(post.category),
+    imageUrl: getDisplayImageUrl(firstImage),
+    postStatus: post.status,
+    status: mapApiStatus(post.status),
+    description: post.description,
+    requesterId: post.creatorId,
+    requesterName: post.creatorNickname ?? undefined,
+    requesterRating: post.creatorRatingAvg !== undefined && post.creatorRatingAvg !== null ? Number(post.creatorRatingAvg) : undefined,
+    requesterCompletedCount: post.creatorCompletedCount ?? undefined,
+    genderVisibility: post.genderVisibility,
+  }
+}
+
+function formatListLocation(post: ApiTaskPost) {
+  const region = [post.region1depth, post.region2depth, post.region3depth].filter(Boolean).join(' ')
+  if (region) return region
+  return trimAddressToNeighborhood(post.addressText ?? '위치 미정')
+}
+
+function trimAddressToNeighborhood(address: string) {
+  const parts = address.trim().split(/\s+/).filter(Boolean)
+  const neighborhoodIndex = parts.findIndex((part) => /(?:동|읍|면|가)$/.test(part))
+  if (neighborhoodIndex >= 0) return parts.slice(0, neighborhoodIndex + 1).join(' ')
+  return address
+}
+
+function inferCategoryId(category: string) {
+  const map: Record<string, string> = {
+    '동네 심부름': 'errand',
+    '집안 도움': 'home',
+    '문서·자료': 'document',
+    '문서 · 자료': 'document',
+    '디자인·콘텐츠': 'design',
+    디자인: 'design',
+    '영상·사진': 'media',
+    '사진·영상': 'media',
+    '개발 · IT': 'dev_it',
+    레슨: 'lesson',
+    '대신 찾아줘': 'find',
+    반려동물: 'pet',
+    기타: 'etc',
+  }
+  return categories.find((item) => item.label === category)?.id ?? map[category] ?? 'etc'
+}
+
+function inferIllustration(category: string): IllustrationType {
+  const map: Record<string, IllustrationType> = {
+    '동네 심부름': 'store',
+    '집안 도움': 'home',
+    '문서·자료': 'document',
+    '문서 · 자료': 'document',
+    '디자인·콘텐츠': 'design',
+    디자인: 'design',
+    '영상·사진': 'camera',
+    '사진·영상': 'camera',
+    '개발 · IT': 'document',
+    레슨: 'book',
+    '대신 찾아줘': 'find',
+    반려동물: 'pet',
+    기타: 'etc',
+  }
+  return map[category] ?? 'etc'
+}
+
+function mapApiStatus(status: ApiTaskPost['status']): TradeStatus {
+  const map: Record<ApiTaskPost['status'], TradeStatus> = {
+    open: '수락대기',
+    pending: '수락대기',
+    in_progress: '진행중',
+    completed: '거래완료',
+    cancelled: '취소됨',
+    hidden: '취소됨',
+  }
+  return map[status]
+}
+
+function formatDeadline(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '시간 협의'
+  return new Intl.DateTimeFormat('ko-KR', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}

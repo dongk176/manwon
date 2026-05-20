@@ -1,0 +1,962 @@
+'use client'
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { ArrowLeft, Bell, LockKeyhole, MoreVertical, Plus, Send, Smile } from 'lucide-react'
+import {
+  AppHeader,
+  BrandButton,
+  ChipGroup,
+  MoreMenu,
+  RatingStars,
+  RequestCard,
+  StatusBadge,
+} from '@/components/ui/Common'
+import { Avatar } from '@/components/ui/Illustration'
+import {
+  chats as mockChats,
+  getRequest,
+  getUser,
+  type ChatMessage,
+  type ChatThread,
+  type RequestPost,
+  type TradeStatus,
+  type UserProfile,
+} from '@/data/mockData'
+import {
+  fetchConversations,
+  fetchMessages,
+  createBlock,
+  createReport,
+  getCurrentUserId,
+  sendConversationMessage,
+  updateApplicationStatus,
+  updateDealStatus,
+  type ApiConversation,
+  type ApiMessage,
+} from '@/lib/manwonApi'
+import { authorizeRealtimeClient } from '@/lib/realtime'
+
+type ChatFilter = 'all' | 'progress' | 'done' | 'unread'
+
+const chatFilters = [
+  { value: 'all', label: '전체' },
+  { value: 'progress', label: '진행 중' },
+  { value: 'done', label: '거래 완료' },
+  { value: 'unread', label: '읽지 않음' },
+] satisfies Array<{ value: ChatFilter; label: string }>
+
+const reportReasons = [
+  '부적절한 메시지',
+  '거래와 무관한 연락',
+  '사기 의심',
+  '욕설/괴롭힘',
+  '개인정보 요구',
+  '기타',
+] as const
+
+interface UiChat {
+  id: string
+  dealId: string | null
+  applicationId: string | null
+  applicationStatus: ApiConversation['applicationStatus']
+  status: TradeStatus
+  lastMessage: string
+  lastTime: string
+  unreadCount: number
+  user: UserProfile
+  request: RequestPost
+}
+
+interface UiMessage extends ChatMessage {
+  clientMessageId?: string | null
+  createdAt?: string
+  failed?: boolean
+  pending?: boolean
+}
+
+export function ChatScreens({ conversationId }: { conversationId?: string }) {
+  const router = useRouter()
+  const [filter, setFilter] = useState<ChatFilter>('all')
+  const [chats, setChats] = useState<UiChat[]>([])
+  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
+
+  const loadChats = useCallback(async () => {
+    try {
+      const currentUserId = getCurrentUserId()
+      const conversations = await fetchConversations()
+      setChats(conversations.map((conversation) => mapConversationToChat(conversation, currentUserId)))
+      setLoadState('ready')
+    } catch {
+      setChats(mockChats.map(mapMockChatToChat))
+      setLoadState('ready')
+    }
+  }, [])
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      void loadChats()
+    })
+  }, [loadChats])
+
+  useEffect(() => {
+    if (conversationId) return undefined
+
+    const currentUserId = getCurrentUserId()
+    if (!currentUserId) return undefined
+
+    let cleanup: (() => void) | undefined
+    let cancelled = false
+
+    void authorizeRealtimeClient()
+      .then((client) => {
+        if (cancelled || !client) return
+        const channel = client
+          .channel(`user:${currentUserId}:conversations`, {
+            config: {
+              private: true,
+            },
+          })
+          .on('broadcast', { event: 'INSERT' }, () => void loadChats())
+          .on('broadcast', { event: 'UPDATE' }, () => void loadChats())
+          .subscribe()
+
+        cleanup = () => {
+          void client.removeChannel(channel)
+        }
+      })
+      .catch(() => {
+        cleanup = undefined
+      })
+
+    return () => {
+      cancelled = true
+      cleanup?.()
+    }
+  }, [conversationId, loadChats])
+
+  const activeChat = conversationId ? chats.find((chat) => chat.id === conversationId) : null
+  const filteredChats = useMemo(() => {
+    return chats.filter((chat) => {
+      if (filter === 'progress') return chat.status === '진행중' || chat.status === '완료요청' || chat.status === '수락대기'
+      if (filter === 'done') return chat.status === '거래완료'
+      if (filter === 'unread') return chat.unreadCount > 0
+      return true
+    })
+  }, [chats, filter])
+
+  if (conversationId) {
+    if (loadState === 'loading') {
+      return (
+        <section className="screen chat-detail-screen">
+          <p className="inline-status">채팅방을 불러오는 중입니다.</p>
+        </section>
+      )
+    }
+
+    if (!activeChat) {
+      return (
+        <section className="screen chat-detail-screen">
+          <AppHeader title="채팅" centered onBack={() => router.push('/chat')} />
+          <div className="empty-state">
+            <strong>채팅방을 찾지 못했어요</strong>
+            <span>목록에서 다시 선택해주세요.</span>
+          </div>
+        </section>
+      )
+    }
+
+    return <ChatDetail chat={activeChat} onBack={() => router.push('/chat')} onRefresh={loadChats} />
+  }
+
+  return (
+    <section className="screen chat-screen">
+      <AppHeader title="채팅" subtitle="거래 대화를 확인하세요" showSearch />
+      <ChipGroup options={chatFilters} value={filter} onChange={setFilter} className="chat-filter" />
+      <div className="chat-list">
+        {loadState === 'loading' && <p className="inline-status">채팅 목록을 불러오는 중입니다.</p>}
+        {loadState === 'error' && <p className="inline-status is-error">채팅 목록을 불러오지 못했습니다.</p>}
+        {loadState === 'ready' && filteredChats.length === 0 && (
+          <div className="empty-state">
+            <strong>대화가 아직 없어요</strong>
+            <span>부탁에서 문의하거나 지원하면 채팅방이 만들어집니다.</span>
+          </div>
+        )}
+        {filteredChats.map((chat) => (
+          <ChatCard key={chat.id} chat={chat} onOpen={() => router.push(`/chat/${encodeURIComponent(chat.id)}`)} />
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function ChatCard({ chat, onOpen }: { chat: UiChat; onOpen: () => void }) {
+  const hasUnread = chat.unreadCount > 0
+
+  return (
+    <button className={`chat-card ${hasUnread ? 'has-unread' : ''}`} type="button" onClick={onOpen}>
+      <Avatar user={chat.user} size="lg" />
+      <span className="chat-card-body">
+        <span className="chat-card-top">
+          <span className="chat-card-name-wrap">
+            <strong className="chat-card-name">
+              <span>{chat.user.name}</span>
+              {hasUnread && <i />}
+            </strong>
+            <StatusBadge status={chat.status} />
+          </span>
+          <time>{chat.lastTime}</time>
+        </span>
+        <span className="chat-card-bottom">
+          <span>{chat.lastMessage}</span>
+        </span>
+      </span>
+      {hasUnread && <b className="unread-count">{formatUnreadCount(chat.unreadCount)}</b>}
+    </button>
+  )
+}
+
+function formatUnreadCount(count: number) {
+  return count >= 10 ? '10+' : String(count)
+}
+
+function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => void; onRefresh: () => Promise<void> }) {
+  const [showMore, setShowMore] = useState(false)
+  const [showReportSheet, setShowReportSheet] = useState(false)
+  const [showBlockConfirm, setShowBlockConfirm] = useState(false)
+  const [messages, setMessages] = useState<UiMessage[]>([])
+  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [moderationStatus, setModerationStatus] = useState('')
+  const [moderationError, setModerationError] = useState('')
+  const messagesRef = useRef<UiMessage[]>([])
+
+  const loadMessages = useCallback(async (after?: string | null) => {
+    try {
+      const currentUserId = getCurrentUserId()
+      const data = await fetchMessages(chat.id, after)
+      const nextMessages = data.map((message) => mapApiMessage(message, currentUserId))
+      setMessages((previous) => (after ? mergeMessages(previous, nextMessages) : nextMessages))
+      setLoadState('ready')
+    } catch {
+      const fallback = mockChats.find((thread) => thread.id === chat.id)
+      setMessages(fallback?.messages ?? [])
+      setLoadState('ready')
+    }
+  }, [chat.id])
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      void loadMessages()
+    })
+  }, [loadMessages])
+
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
+
+  useEffect(() => {
+    const currentUserId = getCurrentUserId()
+    let cleanup: (() => void) | undefined
+    let cancelled = false
+
+    void authorizeRealtimeClient()
+      .then((client) => {
+        if (cancelled || !client) return
+        const channel = client
+          .channel(`conversation:${chat.id}`, {
+            config: {
+              private: true,
+              broadcast: {
+                self: false,
+              },
+            },
+          })
+          .on('broadcast', { event: 'INSERT' }, (payload) => {
+            const message = mapRealtimePayload(payload)
+            if (!message || message.conversationId !== chat.id) return
+            setMessages((previous) => mergeMessages(previous, [mapApiMessage(message, currentUserId)]))
+            void onRefresh()
+          })
+          .on('broadcast', { event: 'UPDATE' }, (payload) => {
+            const message = mapRealtimePayload(payload)
+            if (!message || message.conversationId !== chat.id) return
+            setMessages((previous) => mergeMessages(previous, [mapApiMessage(message, currentUserId)]))
+          })
+          .subscribe((status) => {
+            if (status !== 'SUBSCRIBED') return
+            const lastCreatedAt = getLastCreatedAt(messagesRef.current)
+            if (lastCreatedAt) void loadMessages(lastCreatedAt)
+          })
+
+        cleanup = () => {
+          void client.removeChannel(channel)
+        }
+      })
+      .catch(() => {
+        cleanup = undefined
+      })
+
+    return () => {
+      cancelled = true
+      cleanup?.()
+    }
+  }, [chat.id, loadMessages, onRefresh])
+
+  async function refreshAll() {
+    await Promise.all([loadMessages(), onRefresh()])
+  }
+
+  function addOptimisticMessage(text: string, clientMessageId: string) {
+    const createdAt = new Date().toISOString()
+    setMessages((previous) =>
+      mergeMessages(previous, [
+        {
+          id: `pending-${clientMessageId}`,
+          sender: 'me',
+          text,
+          time: formatTime(createdAt),
+          clientMessageId,
+          createdAt,
+          pending: true,
+        },
+      ]),
+    )
+  }
+
+  async function replaceOptimisticMessage(message: ApiMessage, clientMessageId: string) {
+    const currentUserId = getCurrentUserId()
+    setMessages((previous) =>
+      mergeMessages(
+        previous.filter((item) => item.clientMessageId !== clientMessageId || !item.pending),
+        [mapApiMessage(message, currentUserId)],
+      ),
+    )
+    await onRefresh()
+  }
+
+  function markMessageFailed(clientMessageId: string) {
+    setMessages((previous) =>
+      previous.map((message) =>
+        message.clientMessageId === clientMessageId
+          ? {
+              ...message,
+              failed: true,
+              pending: false,
+            }
+          : message,
+      ),
+    )
+  }
+
+  async function retryMessage(message: UiMessage) {
+    const text = message.text.trim()
+    if (!text) return
+
+    const clientMessageId = createClientMessageId()
+    setMessages((previous) => previous.filter((item) => item.id !== message.id))
+    addOptimisticMessage(text, clientMessageId)
+
+    try {
+      const sentMessage = await sendConversationMessage(chat.id, text, clientMessageId)
+      await replaceOptimisticMessage(sentMessage, clientMessageId)
+    } catch {
+      markMessageFailed(clientMessageId)
+    }
+  }
+
+  async function blockUser() {
+    setModerationStatus('')
+    setModerationError('')
+    try {
+      await createBlock(chat.user.id)
+      setShowBlockConfirm(false)
+      setShowMore(false)
+      setModerationStatus(`${chat.user.name}님을 차단했습니다.`)
+      await onRefresh()
+      onBack()
+    } catch (error) {
+      setModerationError(error instanceof Error ? error.message : '차단하지 못했습니다.')
+    }
+  }
+
+  async function submitReport(input: { reason: string; description: string; blockAfterReport: boolean }) {
+    setModerationStatus('')
+    setModerationError('')
+    try {
+      await createReport({
+        targetUserId: chat.user.id,
+        postId: isUuid(chat.request.id) ? chat.request.id : undefined,
+        conversationId: chat.id,
+        reason: input.reason,
+        description: input.description.trim() || undefined,
+      })
+      if (input.blockAfterReport) {
+        await createBlock(chat.user.id)
+        await onRefresh()
+        onBack()
+      }
+      setShowReportSheet(false)
+      setShowMore(false)
+      setModerationStatus(input.blockAfterReport ? '신고를 접수하고 사용자를 차단했습니다.' : '신고가 접수되었습니다.')
+    } catch (error) {
+      setModerationError(error instanceof Error ? error.message : '신고를 접수하지 못했습니다.')
+    }
+  }
+
+  return (
+    <section className="screen chat-detail-screen">
+      <header className="chat-detail-header">
+        <button className="icon-button" type="button" onClick={onBack} aria-label="뒤로가기">
+          <ArrowLeft size={24} />
+        </button>
+        <Avatar user={chat.user} size="md" online />
+        <div>
+          <h1>{chat.user.name}</h1>
+        </div>
+        <button className="icon-button detail-more" type="button" onClick={() => setShowMore((value) => !value)} aria-label="더보기">
+          <MoreVertical size={23} />
+        </button>
+        {showMore && (
+          <MoreMenu
+            onReport={() => {
+              setShowMore(false)
+              setShowReportSheet(true)
+            }}
+            onBlock={() => {
+              setShowMore(false)
+              setShowBlockConfirm(true)
+            }}
+          />
+        )}
+      </header>
+
+      <RequestCard request={chat.request} variant="preview" />
+      {moderationStatus && <p className="inline-status moderation-feedback">{moderationStatus}</p>}
+      {moderationError && <p className="inline-status is-error moderation-feedback">{moderationError}</p>}
+
+      <div className="date-pill">오늘</div>
+      <div className="message-list">
+        {loadState === 'loading' && <p className="inline-status">메시지를 불러오는 중입니다.</p>}
+        {loadState === 'error' && <p className="inline-status is-error">메시지를 불러오지 못했습니다.</p>}
+        {loadState === 'ready' && messages.length === 0 && (
+          <div className="empty-state compact">
+            <strong>아직 메시지가 없어요</strong>
+            <span>첫 메시지를 보내 거래 조건을 확인해보세요.</span>
+          </div>
+        )}
+        {messages.map((message) => {
+          if (message.sender === 'system') {
+            return (
+              <div className="system-message" key={message.id}>
+                <Bell size={18} />
+                <span>{message.text}</span>
+                <time>{message.time}</time>
+              </div>
+            )
+          }
+
+          const mine = message.sender === 'me'
+          return (
+            <div className={`message-row ${mine ? 'is-mine' : ''} ${message.pending ? 'is-pending' : ''} ${message.failed ? 'is-failed' : ''}`} key={message.id}>
+              {!mine && <Avatar user={chat.user} size="sm" />}
+              <div className="bubble-wrap">
+                <p className="message-bubble">{message.text}</p>
+                {message.failed && <span className="message-state">전송 실패</span>}
+                {message.failed && mine && (
+                  <button className="message-retry" type="button" onClick={() => void retryMessage(message)}>
+                    재전송
+                  </button>
+                )}
+                {message.pending && <span className="message-state">전송 중</span>}
+                <time>{message.time}</time>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <TradeActionPanel chat={chat} onRefresh={refreshAll} />
+      <MessageComposer
+        conversationId={chat.id}
+        disabled={chat.status === '거래완료' || chat.status === '취소됨'}
+        onFailed={markMessageFailed}
+        onOptimistic={addOptimisticMessage}
+        onSent={replaceOptimisticMessage}
+      />
+      {showBlockConfirm && (
+        <BlockConfirmDialog
+          userName={chat.user.name}
+          error={moderationError}
+          onCancel={() => setShowBlockConfirm(false)}
+          onConfirm={() => void blockUser()}
+        />
+      )}
+      {showReportSheet && (
+        <ReportSheet
+          userName={chat.user.name}
+          error={moderationError}
+          onClose={() => setShowReportSheet(false)}
+          onSubmit={(input) => void submitReport(input)}
+        />
+      )}
+    </section>
+  )
+}
+
+function BlockConfirmDialog({
+  userName,
+  error,
+  onCancel,
+  onConfirm,
+}: {
+  userName: string
+  error?: string
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  return (
+    <div className="modal-overlay" role="presentation">
+      <div className="confirm-dialog block-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="block-confirm-title">
+        <h2 id="block-confirm-title">{userName}님을 차단할까요?</h2>
+        <p>차단하면 상대방은 나에게 메시지를 보낼 수 없고, 내 채팅 목록에서도 숨겨집니다.</p>
+        {error && <p className="inline-status is-error">{error}</p>}
+        <div>
+          <button type="button" onClick={onCancel}>
+            취소
+          </button>
+          <button type="button" onClick={onConfirm}>
+            차단하기
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ReportSheet({
+  userName,
+  error,
+  onClose,
+  onSubmit,
+}: {
+  userName: string
+  error?: string
+  onClose: () => void
+  onSubmit: (input: { reason: string; description: string; blockAfterReport: boolean }) => void
+}) {
+  const [reason, setReason] = useState<string>(reportReasons[0])
+  const [description, setDescription] = useState('')
+
+  return (
+    <div className="sheet-overlay" role="presentation" onClick={onClose}>
+      <div className="report-sheet" role="dialog" aria-modal="true" aria-labelledby="report-sheet-title" onClick={(event) => event.stopPropagation()}>
+        <div className="drag-handle" />
+        <button className="sheet-x" type="button" onClick={onClose} aria-label="닫기">
+          ×
+        </button>
+        <h2 id="report-sheet-title">{userName}님 신고하기</h2>
+        <p>신고 내용은 관리자에게 전달됩니다. 필요한 경우 상세 내용을 함께 적어주세요.</p>
+        <div className="report-reason-grid" role="radiogroup" aria-label="신고 사유">
+          {reportReasons.map((item) => (
+            <button
+              key={item}
+              className={reason === item ? 'is-active' : ''}
+              type="button"
+              onClick={() => setReason(item)}
+              role="radio"
+              aria-checked={reason === item}
+            >
+              {item}
+            </button>
+          ))}
+        </div>
+        <label className="report-textarea">
+          <span>상세 내용</span>
+          <textarea
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            maxLength={1000}
+            placeholder="상황을 자세히 적어주세요."
+          />
+          <em>{description.length}/1000</em>
+        </label>
+        {error && <p className="inline-status is-error">{error}</p>}
+        <div className="report-sheet-actions">
+          <BrandButton variant="outline" size="lg" onClick={() => onSubmit({ reason, description, blockAfterReport: false })}>
+            신고하기
+          </BrandButton>
+          <BrandButton size="lg" onClick={() => onSubmit({ reason, description, blockAfterReport: true })}>
+            차단하고 신고하기
+          </BrandButton>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TradeActionPanel({ chat, onRefresh }: { chat: UiChat; onRefresh: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  async function run(action: () => Promise<unknown>) {
+    setBusy(true)
+    setError('')
+    try {
+      await action()
+      await onRefresh()
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : '상태를 변경하지 못했습니다.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (chat.status === '거래완료') {
+    return (
+      <div className="complete-panel">
+        <div className="complete-icon">✓</div>
+        <strong>거래가 완료되었어요. 수고하셨어요!</strong>
+        <span>거래는 어떠셨나요?</span>
+        <RatingStars rating={5} />
+        <div className="two-buttons">
+          <BrandButton variant="outline">후기 남기기</BrandButton>
+          <BrandButton>다시 부탁하기</BrandButton>
+        </div>
+      </div>
+    )
+  }
+
+  if (chat.status === '취소됨') {
+    return (
+      <div className="complete-panel">
+        <div className="complete-icon">!</div>
+        <strong>거래가 취소되었어요</strong>
+        <span>필요하다면 게시글 상세에서 다시 모집을 시작할 수 있습니다.</span>
+      </div>
+    )
+  }
+
+  if (chat.status === '완료요청') {
+    const dealId = chat.dealId
+    return (
+      <div className="request-complete-panel">
+        <div>
+          <strong>상대방이 완료 요청을 보냈습니다.</strong>
+          <span>물건을 전달받았거나 작업을 확인했다면 승인해주세요.</span>
+        </div>
+        <div className="two-buttons">
+          <BrandButton disabled={busy || !dealId} onClick={() => dealId && run(() => updateDealStatus(dealId, 'completed'))}>
+            완료 승인
+          </BrandButton>
+          <BrandButton variant="outline" disabled={busy || !dealId} onClick={() => dealId && run(() => updateDealStatus(dealId, 'disputed'))}>
+            문제 신고
+          </BrandButton>
+        </div>
+        {error && <p className="inline-status is-error">{error}</p>}
+      </div>
+    )
+  }
+
+  if (chat.status === '진행중') {
+    const dealId = chat.dealId
+    return (
+      <div className="two-buttons chat-action-bar">
+        <BrandButton disabled={busy || !dealId} onClick={() => dealId && run(() => updateDealStatus(dealId, 'complete_requested'))}>
+          완료 요청
+        </BrandButton>
+        <BrandButton variant="outline" disabled={busy || !dealId} onClick={() => dealId && run(() => updateDealStatus(dealId, 'cancelled'))}>
+          취소
+        </BrandButton>
+        {error && <p className="inline-status is-error">{error}</p>}
+      </div>
+    )
+  }
+
+  if (chat.status === '수락대기') {
+    const dealId = chat.dealId
+    return (
+      <div className="two-buttons chat-action-bar">
+        <BrandButton disabled={busy || !dealId} onClick={() => dealId && run(() => updateDealStatus(dealId, 'in_progress'))}>
+          진행 시작
+        </BrandButton>
+        <BrandButton variant="outline" disabled={busy || !dealId} onClick={() => dealId && run(() => updateDealStatus(dealId, 'cancelled'))}>
+          취소
+        </BrandButton>
+        {error && <p className="inline-status is-error">{error}</p>}
+      </div>
+    )
+  }
+
+  const applicationId = chat.applicationId
+  return (
+    <div className="two-buttons chat-action-bar">
+      <BrandButton disabled={busy || !applicationId} onClick={() => applicationId && run(() => updateApplicationStatus(applicationId, 'accepted'))}>
+        수락하기
+      </BrandButton>
+      <BrandButton variant="outline" disabled={busy || !applicationId} onClick={() => applicationId && run(() => updateApplicationStatus(applicationId, 'rejected'))}>
+        거절하기
+      </BrandButton>
+      {error && <p className="inline-status is-error">{error}</p>}
+    </div>
+  )
+}
+
+function MessageComposer({
+  conversationId,
+  disabled = false,
+  onFailed,
+  onOptimistic,
+  onSent,
+}: {
+  conversationId: string
+  disabled?: boolean
+  onFailed: (clientMessageId: string) => void
+  onOptimistic: (text: string, clientMessageId: string) => void
+  onSent: (message: ApiMessage, clientMessageId: string) => Promise<void>
+}) {
+  const [body, setBody] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  async function send() {
+    const text = body.trim()
+    if (!text || busy) return
+    const clientMessageId = createClientMessageId()
+    setBusy(true)
+    setError('')
+    onOptimistic(text, clientMessageId)
+    setBody('')
+    try {
+      const message = await sendConversationMessage(conversationId, text, clientMessageId)
+      await onSent(message, clientMessageId)
+    } catch (nextError) {
+      onFailed(clientMessageId)
+      setError(nextError instanceof Error ? nextError.message : '메시지를 보내지 못했습니다.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="message-composer-wrap">
+      {error && <p className="inline-status is-error">{error}</p>}
+      <div className={`message-composer ${disabled ? 'is-disabled' : ''}`}>
+        <button type="button" aria-label="첨부">
+          {disabled ? <LockKeyhole size={18} /> : <Plus size={22} />}
+        </button>
+        <input
+          disabled={disabled}
+          placeholder={disabled ? '종료된 거래라 메시지를 보낼 수 없어요.' : '메시지를 입력하세요'}
+          value={body}
+          onChange={(event) => setBody(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') void send()
+          }}
+        />
+        {!disabled && (
+          <>
+            <button type="button" aria-label="이모지">
+              <Smile size={20} />
+            </button>
+            <button className="send-button" type="button" aria-label="전송" onClick={send} disabled={busy || body.trim().length === 0}>
+              <Send size={18} />
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function mapConversationToChat(conversation: ApiConversation, currentUserId: string | null): UiChat {
+  const otherIsRequester = conversation.helperId === currentUserId
+  const otherId = conversation.otherUserId ?? (otherIsRequester ? conversation.requesterId : conversation.helperId)
+  const otherName = conversation.otherNickname ?? (otherIsRequester ? conversation.requesterNickname : conversation.helperNickname) ?? '사용자'
+  const user: UserProfile = {
+    id: otherId,
+    name: otherName,
+    intro: '만원부탁소 사용자',
+    rating: 4.9,
+    completedCount: 0,
+    verified: true,
+    avatarTone: otherIsRequester ? 'green' : 'blue',
+  }
+
+  const status = mapTradeStatus(conversation)
+  const request: RequestPost = {
+    id: conversation.postId ?? conversation.id,
+    categoryId: 'errand',
+    category: conversation.postCategory ?? '동네 심부름',
+    title: conversation.postTitle ?? '거래 대화',
+    location: '위치 협의',
+    detailLocation: '위치 협의',
+    deadline: '시간 협의',
+    price: conversation.postPrice ?? 0,
+    mode: 'both',
+    image: 'store',
+    status,
+    description: '',
+    requesterId: conversation.requesterId,
+  }
+
+  return {
+    id: conversation.id,
+    dealId: conversation.dealId,
+    applicationId: conversation.applicationId ?? null,
+    applicationStatus: conversation.applicationStatus,
+    status,
+    lastMessage: conversation.lastMessage ?? '새 채팅방이 생성되었어요.',
+    lastTime: formatTime(conversation.lastMessageAt),
+    unreadCount: conversation.unreadCount ?? 0,
+    user,
+    request,
+  }
+}
+
+function mapMockChatToChat(thread: ChatThread): UiChat {
+  return {
+    id: thread.id,
+    dealId: null,
+    applicationId: null,
+    applicationStatus: null,
+    status: thread.status,
+    lastMessage: thread.lastMessage,
+    lastTime: thread.lastTime,
+    unreadCount: thread.unreadCount,
+    user: getUser(thread.userId),
+    request: getRequest(thread.requestId),
+  }
+}
+
+function mapApiMessage(message: ApiMessage, currentUserId: string | null): UiMessage {
+  return {
+    id: message.id,
+    sender: message.messageType === 'system' ? 'system' : message.senderId === currentUserId ? 'me' : 'other',
+    text: message.body ?? (message.messageType === 'image' ? '사진을 보냈습니다.' : '시스템 메시지'),
+    time: formatTime(message.createdAt),
+    clientMessageId: message.clientMessageId,
+    createdAt: message.createdAt,
+  }
+}
+
+function mergeMessages(previous: UiMessage[], incoming: UiMessage[]) {
+  const messages = [...previous]
+
+  incoming.forEach((message) => {
+    const existingIndex = messages.findIndex(
+      (item) => item.id === message.id || Boolean(message.clientMessageId && item.clientMessageId === message.clientMessageId),
+    )
+    if (existingIndex >= 0) {
+      messages[existingIndex] = {
+        ...messages[existingIndex],
+        ...message,
+        failed: message.failed ?? false,
+        pending: message.pending ?? false,
+      }
+      return
+    }
+
+    messages.push(message)
+  })
+
+  return messages.sort((a, b) => {
+    const left = a.createdAt ? new Date(a.createdAt).getTime() : 0
+    const right = b.createdAt ? new Date(b.createdAt).getTime() : 0
+    return left - right
+  })
+}
+
+function getLastCreatedAt(messages: UiMessage[]) {
+  return messages.reduce<string | null>((latest, message) => {
+    if (!message.createdAt) return latest
+    if (!latest) return message.createdAt
+    return new Date(message.createdAt).getTime() > new Date(latest).getTime() ? message.createdAt : latest
+  }, null)
+}
+
+function mapRealtimePayload(payload: unknown): ApiMessage | null {
+  const record = getRealtimeRecord(payload)
+  if (!record) return null
+
+  const id = readString(record, 'id')
+  const conversationId = readString(record, 'conversationId', 'conversation_id')
+  const senderId = readString(record, 'senderId', 'sender_id')
+  const createdAt = readString(record, 'createdAt', 'created_at')
+  const messageType = readString(record, 'messageType', 'message_type')
+
+  if (!id || !conversationId || !senderId || !createdAt || !isMessageType(messageType)) return null
+
+  return {
+    id,
+    conversationId,
+    senderId,
+    messageType,
+    body: readNullableString(record, 'body'),
+    imageUrl: readNullableString(record, 'imageUrl', 'image_url'),
+    clientMessageId: readNullableString(record, 'clientMessageId', 'client_message_id'),
+    deliveredAt: readNullableString(record, 'deliveredAt', 'delivered_at'),
+    readAt: readNullableString(record, 'readAt', 'read_at'),
+    createdAt,
+  }
+}
+
+function getRealtimeRecord(payload: unknown): Record<string, unknown> | null {
+  const value = isRecord(payload) && isRecord(payload.payload) ? payload.payload : payload
+  const candidates = [
+    isRecord(value) ? value.record : null,
+    isRecord(value) ? value.new : null,
+    isRecord(value) ? value.new_record : null,
+    value,
+  ]
+
+  return candidates.find(isRecord) ?? null
+}
+
+function readString(record: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === 'string') return value
+  }
+  return null
+}
+
+function readNullableString(record: Record<string, unknown>, ...keys: string[]) {
+  return readString(record, ...keys)
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isMessageType(value: string | null): value is ApiMessage['messageType'] {
+  return value === 'text' || value === 'image' || value === 'system'
+}
+
+function createClientMessageId() {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
+  return `00000000-0000-4000-8000-${Math.random().toString(16).slice(2, 14).padEnd(12, '0')}`
+}
+
+function mapTradeStatus(conversation: ApiConversation): TradeStatus {
+  if (conversation.dealStatus === 'completed') return '거래완료'
+  if (conversation.dealStatus === 'complete_requested') return '완료요청'
+  if (conversation.dealStatus === 'in_progress') return '진행중'
+  if (conversation.dealStatus === 'cancelled' || conversation.dealStatus === 'disputed') return '취소됨'
+  if (conversation.dealStatus === 'accepted' || conversation.dealStatus === 'pending') return '수락대기'
+  if (conversation.applicationStatus === 'rejected' || conversation.applicationStatus === 'cancelled') return '취소됨'
+  return '문의중'
+}
+
+function formatTime(value?: string | null) {
+  if (!value) return '대화 전'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '방금 전'
+  return new Intl.DateTimeFormat('ko-KR', {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date)
+}
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+}

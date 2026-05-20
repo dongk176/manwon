@@ -1,0 +1,40 @@
+{
+  "name": "@manwon/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start --dev-client",
+    "ios": "expo run:ios",
+    "android": "expo run:android",
+    "prebuild": "expo prebuild",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@react-native-async-storage/async-storage": "^2.2.0",
+    "@react-native-firebase/app": "^23.7.0",
+    "@react-native-firebase/messaging": "^23.7.0",
+    "@supabase/supabase-js": "^2.106.0",
+    "@tanstack/react-query": "^5.90.0",
+    "expo": "~55.0.0",
+    "expo-application": "latest",
+    "expo-constants": "latest",
+    "expo-dev-client": "latest",
+    "expo-device": "latest",
+    "expo-image-picker": "latest",
+    "expo-linking": "latest",
+    "expo-location": "latest",
+    "expo-router": "latest",
+    "expo-secure-store": "latest",
+    "react": "19.2.0",
+    "react-native": "0.83.0",
+    "react-native-gesture-handler": "~2.29.0",
+    "react-native-reanimated": "~4.2.0",
+    "react-native-safe-area-context": "~5.6.0",
+    "react-native-screens": "~4.18.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.15",
+    "typescript": "^6.0.3"
+  }
+}

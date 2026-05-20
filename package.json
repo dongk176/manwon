@@ -1,0 +1,39 @@
+{
+  "name": "manwon-mvp",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "tsc --noEmit",
+    "mobile:dev": "pnpm --dir apps/mobile start",
+    "mobile:ios": "pnpm --dir apps/mobile ios",
+    "mobile:android": "pnpm --dir apps/mobile android",
+    "mobile:typecheck": "pnpm --dir apps/mobile typecheck",
+    "db:manwon:migrate": "node --env-file=.env.local scripts/apply-manwon-migration.mjs",
+    "db:manwon:check": "node --env-file=.env.local scripts/check-manwon-db.mjs",
+    "db:manwon:seed-my-page": "node --env-file=.env.local scripts/seed-my-page-data.mjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1049.0",
+    "@aws-sdk/s3-request-presigner": "^3.1049.0",
+    "@supabase/supabase-js": "^2.106.0",
+    "lucide-react": "^1.16.0",
+    "next": "^16.2.6",
+    "postgres": "^3.4.9",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "solapi": "^6.0.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "eslint": "^9.39.4",
+    "eslint-config-next": "^16.2.6",
+    "typescript": "^6.0.3"
+  }
+}
