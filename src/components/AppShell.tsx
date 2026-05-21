@@ -56,7 +56,12 @@ function useOverlayScrollLock() {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const hideBottomNav = pathname.startsWith('/chat/') || pathname.startsWith('/posts/') || pathname === '/register/request' || pathname === '/register/offer'
+  const hideBottomNav =
+    pathname.startsWith('/chat/') ||
+    pathname.startsWith('/posts/') ||
+    pathname.startsWith('/nearby/') ||
+    pathname === '/register/request' ||
+    pathname === '/register/offer'
 
   useOverlayScrollLock()
 

@@ -118,6 +118,7 @@ export async function requestSignupOtp(input: SignupOtpRequestInput, request: Re
           update ${sql(schema)}.profiles
           set nickname = ${input.name},
               display_name = ${input.name},
+              gender = ${input.gender}::manwon_happiness.gender_type,
               login_id = ${input.loginId},
               password_hash = ${passwordHash},
               birth_date = ${birthDate}::date,
@@ -133,6 +134,7 @@ export async function requestSignupOtp(input: SignupOtpRequestInput, request: Re
           insert into ${sql(schema)}.profiles (
             nickname,
             display_name,
+            gender,
             login_id,
             password_hash,
             birth_date,
@@ -144,6 +146,7 @@ export async function requestSignupOtp(input: SignupOtpRequestInput, request: Re
           values (
             ${input.name},
             ${input.name},
+            ${input.gender}::manwon_happiness.gender_type,
             ${input.loginId},
             ${passwordHash},
             ${birthDate}::date,

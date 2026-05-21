@@ -392,6 +392,7 @@ export interface SignupOnboardingPayload {
   loginId: string
   password: string
   name: string
+  gender: 'male' | 'female'
   birthDate: string
   phone: string
   agreements: {

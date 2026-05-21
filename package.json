@@ -8,10 +8,7 @@
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
-    "mobile:dev": "pnpm --dir apps/mobile start",
-    "mobile:ios": "pnpm --dir apps/mobile ios",
-    "mobile:android": "pnpm --dir apps/mobile android",
-    "mobile:typecheck": "pnpm --dir apps/mobile typecheck",
+    "ios:list": "xcodebuild -list -project apps/ios/Manwon.xcodeproj",
     "db:manwon:migrate": "node --env-file=.env.local scripts/apply-manwon-migration.mjs",
     "db:manwon:check": "node --env-file=.env.local scripts/check-manwon-db.mjs",
     "db:manwon:seed-my-page": "node --env-file=.env.local scripts/seed-my-page-data.mjs"

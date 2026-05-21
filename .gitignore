@@ -7,3 +7,13 @@ out
 .vercel
 .DS_Store
 tsconfig.tsbuildinfo
+DerivedData
+*.xcuserstate
+xcuserdata/
+apps/ios/Manwon/GoogleService-Info.plist
+apps/android/.gradle/
+apps/android/**/build/
+apps/android/local.properties
+apps/android/.idea/
+apps/android/app/google-services.json
+*.iml

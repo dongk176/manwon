@@ -1,9 +1,19 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import './globals.css'
+import { NativeIOSBridge } from '@/components/NativeIOSBridge'
 
 export const metadata: Metadata = {
   title: '만원부탁소',
   description: '작은 부탁 거래앱',
+}
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  minimumScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: 'cover',
 }
 
 export default function RootLayout({
@@ -13,7 +23,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko">
-      <body>{children}</body>
+      <body>
+        <NativeIOSBridge />
+        {children}
+      </body>
     </html>
   )
 }

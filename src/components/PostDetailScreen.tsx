@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
-import { Check, CheckCircle2, ChevronLeft, ChevronRight, Clock, Clock3, Globe2, Heart, MapPin, Navigation, ShieldCheck, UsersRound, X } from 'lucide-react'
-import { AppHeader, BrandButton, CategoryImageFrame, MoreMenu, RatingStars, ReportConfirmSheet } from '@/components/ui/Common'
+import { Check, CheckCircle2, ChevronLeft, ChevronRight, Clock, Clock3, Globe2, Heart, MapPin, MoreHorizontal, Navigation, ShieldCheck, UsersRound, X } from 'lucide-react'
+import { BrandButton, CategoryImageFrame, MoreMenu, RatingStars, ReportConfirmSheet } from '@/components/ui/Common'
 import { categoryDetailOptions, formatPrice, getCategoryLabel, getUser, postCategories, type PostStatus, type RequestMode, type RequestPost } from '@/data/mockData'
 import { LocationPermissionSheet, NeighborhoodSelectSheet } from '@/components/location/LocationSheets'
 import {
@@ -124,6 +124,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
   const [post, setPost] = useState<ApiTaskPost | null>(null)
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'fallback' | 'error'>('loading')
   const [showMore, setShowMore] = useState(false)
+  const [floatingActionsVisible, setFloatingActionsVisible] = useState(true)
   const [favorite, setFavorite] = useState(false)
   const [actionState, setActionState] = useState<'idle' | 'saving' | 'done' | 'error'>('idle')
   const [message, setMessage] = useState('')
@@ -140,6 +141,8 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
   const [showLocationPrompt, setShowLocationPrompt] = useState(false)
   const [showNeighborhoodSheet, setShowNeighborhoodSheet] = useState(false)
   const [showReopenNotice, setShowReopenNotice] = useState(false)
+  const detailScrollYRef = useRef(0)
+  const detailScrollFrameRef = useRef<number | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -214,6 +217,55 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
     editMode || (isOwner && !showOwnerReopenActions) ? 'is-single' : '',
     showOwnerReopenActions ? 'is-owner-actions' : '',
   ].filter(Boolean).join(' ')
+  const floatingActionsClassName = [
+    'post-detail-floating-actions',
+    floatingActionsVisible ? '' : 'is-hidden-by-scroll',
+  ].filter(Boolean).join(' ')
+
+  useEffect(() => {
+    if (!displayPost) return
+
+    const appContent = document.querySelector<HTMLElement>('.app-content')
+    const getScrollTop = () => Math.max(
+      window.scrollY,
+      document.documentElement.scrollTop,
+      document.body.scrollTop,
+      appContent?.scrollTop ?? 0,
+    )
+
+    detailScrollYRef.current = getScrollTop()
+
+    const handleScroll = () => {
+      if (detailScrollFrameRef.current !== null) return
+      detailScrollFrameRef.current = window.requestAnimationFrame(() => {
+        const currentY = getScrollTop()
+        const deltaY = currentY - detailScrollYRef.current
+
+        if (currentY < 24) {
+          setFloatingActionsVisible(true)
+        } else if (deltaY > 6) {
+          setFloatingActionsVisible(false)
+        } else if (deltaY < -6) {
+          setFloatingActionsVisible(true)
+        }
+
+        detailScrollYRef.current = currentY
+        detailScrollFrameRef.current = null
+      })
+    }
+
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    appContent?.addEventListener('scroll', handleScroll, { passive: true })
+
+    return () => {
+      window.removeEventListener('scroll', handleScroll)
+      appContent?.removeEventListener('scroll', handleScroll)
+      if (detailScrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(detailScrollFrameRef.current)
+        detailScrollFrameRef.current = null
+      }
+    }
+  }, [displayPost])
 
   useEffect(() => {
     if (!post || !currentUserId || !isOwner) return
@@ -373,6 +425,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
 
   function handleBack() {
     if (editMode) {
+      setFloatingActionsVisible(true)
       setEditMode(false)
       setEditDraft(null)
       setEditErrors({})
@@ -388,6 +441,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
     setEditDraft(createEditDraft(post, displayPost))
     setEditErrors({})
     setMessage('')
+    setFloatingActionsVisible(true)
     setEditMode(true)
   }
 
@@ -458,25 +512,6 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
 
   return (
     <section className="screen post-detail-screen">
-      <div className="detail-header-wrap">
-        <AppHeader
-          title={editMode ? '게시글 수정' : '부탁 상세'}
-          centered
-          onBack={handleBack}
-          onMore={!editMode && !isOwner ? () => setShowMore((value) => !value) : undefined}
-        />
-        {showMore && (
-          <MoreMenu
-            onReport={() => {
-              setShowMore(false)
-              setReportSheetError('')
-              setShowReportSheet(true)
-            }}
-            onBlock={handleBlock}
-          />
-        )}
-      </div>
-
       {loadState === 'loading' && <p className="inline-status">게시글을 불러오는 중입니다.</p>}
       {loadState === 'error' && <p className="inline-status is-error">게시글을 불러오지 못했습니다.</p>}
       {loadState === 'fallback' && <p className="inline-status">개발용 데이터를 기준으로 상세를 표시합니다.</p>}
@@ -484,6 +519,34 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
       {displayPost && (
         <>
           <div className="post-detail-visual">
+            <div className={floatingActionsClassName}>
+              <button type="button" className="post-detail-floating-icon" onClick={handleBack} aria-label="뒤로가기">
+                <ChevronLeft size={24} />
+              </button>
+              {!editMode && !isOwner && (
+                <div className="post-detail-floating-more">
+                  <button
+                    type="button"
+                    className="post-detail-floating-icon"
+                    onClick={() => setShowMore((value) => !value)}
+                    aria-label="더보기"
+                    aria-expanded={showMore}
+                  >
+                    <MoreHorizontal size={24} />
+                  </button>
+                  {showMore && (
+                    <MoreMenu
+                      onReport={() => {
+                        setShowMore(false)
+                        setReportSheetError('')
+                        setShowReportSheet(true)
+                      }}
+                      onBlock={handleBlock}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
             <PostDetailImageCarousel
               key={`${displayPost.id}-${detailImageUrls.join('|')}`}
               categoryId={displayPost.categoryId}
@@ -545,6 +608,10 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
                   <ShieldCheck size={20} />
                 </div>
               </section>
+
+              {!isOwner && (
+                <p className="detail-platform-note">만원부탁소는 거래를 연결하는 플랫폼입니다. 실제 거래의 내용과 이행 책임은 이용자 당사자에게 있습니다.</p>
+              )}
             </>
           )}
 
@@ -564,9 +631,6 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
             <BrandButton full={!showOwnerReopenActions} size="lg" onClick={handlePrimaryAction} disabled={primaryActionDisabled}>
               {primaryActionLabel}
             </BrandButton>
-            {!editMode && !isOwner && (
-              <p>만원부탁소는 거래를 연결하는 플랫폼입니다. 실제 거래의 내용과 이행 책임은 이용자 당사자에게 있습니다.</p>
-            )}
           </div>
           {showReopenNotice && (
             <ReopenNoticeDialog

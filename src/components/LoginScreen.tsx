@@ -14,6 +14,7 @@ import {
 } from '@/lib/manwonApi'
 
 type SignupStep = 'credentials' | 'profile'
+type SignupGender = 'male' | 'female' | ''
 
 const agreementItems = [
   {
@@ -54,6 +55,10 @@ const PASSWORD_MIN_LENGTH = 8
 const PASSWORD_MAX_LENGTH = 72
 const unsupportedLoginIdPattern = /[^a-zA-Z0-9_]/
 const unsupportedLoginIdGlobalPattern = /[^a-zA-Z0-9_]/g
+const signupGenderOptions: Array<{ value: Exclude<SignupGender, ''>; label: string }> = [
+  { value: 'male', label: '남성' },
+  { value: 'female', label: '여성' },
+]
 
 function normalizeLoginIdInput(value: string) {
   return value.replace(unsupportedLoginIdGlobalPattern, '').slice(0, LOGIN_ID_MAX_LENGTH)
@@ -243,6 +248,7 @@ export function SignupScreen() {
   const [loginIdCheckHint, setLoginIdCheckHint] = useState('')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
+  const [gender, setGender] = useState<SignupGender>('')
   const [birthDate, setBirthDate] = useState('')
   const [phone, setPhone] = useState('')
   const [code, setCode] = useState('')
@@ -256,18 +262,19 @@ export function SignupScreen() {
   const canSubmitCredentials = loginId.length >= LOGIN_ID_MIN_LENGTH && password.length >= PASSWORD_MIN_LENGTH && !loginIdInputHint && !loginIdCheckHint
   const requiredAgreed = agreements.terms && agreements.privacy
   const allAgreed = agreementItems.every((item) => agreements[item.key])
-  const canRequestCode = name.trim().length >= 2 && birthDate.length === 8 && phone.length >= 10 && requiredAgreed
+  const canRequestCode = name.trim().length >= 2 && Boolean(gender) && birthDate.length === 8 && phone.length >= 10 && requiredAgreed
 
   const signupPayload = useMemo<SignupOnboardingPayload>(
     () => ({
       loginId,
       password,
       name,
+      gender: gender || 'male',
       birthDate,
       phone,
       agreements,
     }),
-    [agreements, birthDate, loginId, name, password, phone],
+    [agreements, birthDate, gender, loginId, name, password, phone],
   )
 
   function completeLogin() {
@@ -430,6 +437,22 @@ export function SignupScreen() {
               <span className="sr-only">이름</span>
               <input value={name} autoComplete="name" placeholder="이름" disabled={status === 'sending' || status === 'verifying'} onChange={(event) => setName(event.target.value.slice(0, 30))} />
             </label>
+
+            <div className="auth-gender-field" role="radiogroup" aria-label="성별">
+              {signupGenderOptions.map((option) => (
+                <button
+                  className={gender === option.value ? 'is-active' : ''}
+                  type="button"
+                  key={option.value}
+                  role="radio"
+                  aria-checked={gender === option.value}
+                  disabled={status === 'sending' || status === 'verifying'}
+                  onClick={() => setGender(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
 
             <label className="auth-field">
               <span className="sr-only">생년월일</span>
