@@ -1,10 +1,5 @@
-import { NearbyDetailScreen } from '@/components/NearbyScreens'
+import { redirect } from 'next/navigation'
 
-export default async function NearbyDetailPage({
-  params,
-}: {
-  params: Promise<{ postId: string }>
-}) {
-  const { postId } = await params
-  return <NearbyDetailScreen postId={decodeURIComponent(postId)} />
+export default function NearbyDetailPage() {
+  redirect('/')
 }

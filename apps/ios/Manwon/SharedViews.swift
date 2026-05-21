@@ -43,6 +43,7 @@ private let manwonBottomNavItems = [
 
 struct ManwonBottomNav: View {
     @Binding var selectedTab: AppTab
+    var onUnavailableNearby: () -> Void = {}
 
     var body: some View {
         VStack(spacing: 0) {
@@ -53,6 +54,11 @@ struct ManwonBottomNav: View {
             HStack(alignment: .top, spacing: 0) {
                 ForEach(manwonBottomNavItems) { item in
                     Button {
+                        if item.id == .nearby {
+                            onUnavailableNearby()
+                            return
+                        }
+
                         withAnimation(ManwonMotion.select) {
                             selectedTab = item.id
                         }
@@ -76,6 +82,42 @@ struct ManwonBottomNav: View {
         .frame(maxWidth: 430)
         .background(Color.white.opacity(0.96))
         .offset(y: 16)
+    }
+}
+
+struct MapUnavailableNotice: View {
+    let onClose: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.42)
+                .ignoresSafeArea()
+                .onTapGesture(perform: onClose)
+
+            VStack(spacing: 18) {
+                Text("지도 기능은 현재 준비중입니다.")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(ManwonColor.text)
+                    .multilineTextAlignment(.center)
+
+                Button(action: onClose) {
+                    Text("확인")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(Color.white)
+                        .frame(maxWidth: .infinity, minHeight: 46)
+                        .background(ManwonColor.brand)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(PressableScaleButtonStyle(scale: 0.98, pressedOpacity: 0.9))
+            }
+            .padding(20)
+            .frame(maxWidth: 350)
+            .padding(.horizontal, 20)
+            .background(ManwonColor.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .shadow(color: Color.black.opacity(0.14), radius: 22, x: 0, y: 12)
+        }
+        .transition(.opacity)
     }
 }
 

@@ -3,6 +3,7 @@ package com.manwon.app
 import android.animation.ValueAnimator
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Canvas
@@ -53,6 +54,7 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
     private var homeIsAtTop = true
     private var writeButtonExpanded: Boolean? = null
     private var writeButtonWidthAnimator: ValueAnimator? = null
+    private var mapUnavailableDialog: AlertDialog? = null
     private var imagePickCallback: ((ByteArray?) -> Unit)? = null
     private var locationCallback: ((Double, Double, Boolean) -> Unit)? = null
 
@@ -185,7 +187,7 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
                         showChatList()
                         selectTab(AppTab.CHAT)
                     }
-                    AppTab.NEARBY -> selectTab(AppTab.NEARBY)
+                    AppTab.NEARBY -> showMapUnavailableDialog()
                     AppTab.MY -> openWebPath("/my")
                     AppTab.HOME -> openWebPath("/")
                     AppTab.REGISTER -> openWebPath("/register")
@@ -327,9 +329,22 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
                 showChatDetail(normalized.removePrefix("/chat/").substringBefore("?"))
                 selectTab(AppTab.CHAT)
             }
-            normalized == "/nearby" || normalized.startsWith("/nearby/") -> selectTab(AppTab.NEARBY)
+            normalized == "/nearby" || normalized.startsWith("/nearby/") -> showMapUnavailableDialog()
             else -> openWebPath(normalized)
         }
+    }
+
+    private fun showMapUnavailableDialog() {
+        if (mapUnavailableDialog?.isShowing == true) return
+
+        mapUnavailableDialog = AlertDialog.Builder(this)
+            .setMessage("지도 기능은 현재 준비중입니다.")
+            .setPositiveButton("확인", null)
+            .create()
+            .also { dialog ->
+                dialog.setOnDismissListener { mapUnavailableDialog = null }
+                dialog.show()
+            }
     }
 
     override fun openWebPath(path: String) {

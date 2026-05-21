@@ -50,7 +50,9 @@ struct RootTabView: View {
         .overlay(alignment: .bottom) {
             if !router.hidesBottomNav && !keyboardVisible {
                 ZStack(alignment: .bottomTrailing) {
-                    ManwonBottomNav(selectedTab: $router.selectedTab)
+                    ManwonBottomNav(selectedTab: $router.selectedTab) {
+                        router.showMapUnavailableNotice()
+                    }
 
                     if router.selectedTab == .home {
                         ManwonFloatingWriteButton(expanded: router.homeIsAtTop) {
@@ -65,9 +67,18 @@ struct RootTabView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        .overlay {
+            if router.mapUnavailableNoticeVisible {
+                MapUnavailableNotice {
+                    router.mapUnavailableNoticeVisible = false
+                }
+                .zIndex(200)
+            }
+        }
         .animation(.easeInOut(duration: 0.18), value: router.selectedTab)
         .animation(.easeInOut(duration: 0.18), value: router.hidesBottomNav)
         .animation(.easeInOut(duration: 0.16), value: keyboardVisible)
+        .animation(.easeInOut(duration: 0.18), value: router.mapUnavailableNoticeVisible)
         .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.86), value: router.homeIsAtTop)
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             keyboardVisible = true

@@ -108,7 +108,7 @@ html.native-ios-shell .bottom-nav {
 }
 
 html.native-ios-shell .screen {
-  padding-bottom: calc(94px + env(safe-area-inset-bottom));
+  padding-bottom: calc(58px + env(safe-area-inset-bottom));
 }
 
 html.native-ios-shell .auth-shell .screen {
@@ -427,12 +427,17 @@ html.native-ios-shell [role="button"] {
 }
 
 .bottom-nav-item {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
   gap: 4px;
   color: #1d1d1f;
+  font: inherit;
   font-size: 11px;
   font-weight: 600;
   text-decoration: none;
@@ -3030,6 +3035,19 @@ html.native-ios-shell [role="button"] {
 .confirm-dialog button:last-child {
   background: var(--brand);
   color: #fff;
+}
+
+.map-unavailable-dialog {
+  text-align: center;
+}
+
+.map-unavailable-dialog h2 {
+  margin-bottom: 18px;
+  line-height: 1.35;
+}
+
+.confirm-dialog .dialog-actions {
+  grid-template-columns: 1fr;
 }
 
 .registration-toast {

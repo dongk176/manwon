@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type TouchEvent as ReactTouchEvent } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { AppHeader, CategoryScroller, ReportConfirmSheet, RequestCard, SegmentedControl } from '@/components/ui/Common'
+import { AppHeader, CategoryScroller, MapUnavailableOverlay, ReportConfirmSheet, RequestCard, SegmentedControl } from '@/components/ui/Common'
 import { categoryDetailOptions, getCategoryLabel, requests, type RequestPost } from '@/data/mockData'
 import { createReport, fetchMyPage, fetchTaskPosts, mapApiPostToRequestPost } from '@/lib/manwonApi'
 import {
@@ -26,6 +26,7 @@ export function HomeScreen() {
   const router = useRouter()
   const [mode, setMode] = useState<HomeMode>('ask')
   const [showRegionMenu, setShowRegionMenu] = useState(false)
+  const [showMapUnavailableNotice, setShowMapUnavailableNotice] = useState(false)
   const [currentRegion, setCurrentRegion] = useState<LocationRegion | null>(null)
   const [hasCheckedStoredRegion, setHasCheckedStoredRegion] = useState(false)
   const [categoryId, setCategoryId] = useState('all')
@@ -273,7 +274,7 @@ export function HomeScreen() {
                   role="menuitem"
                   onClick={() => {
                     setShowRegionMenu(false)
-                    router.push('/nearby')
+                    setShowMapUnavailableNotice(true)
                   }}
                 >
                   동네 변경하기
@@ -354,6 +355,7 @@ export function HomeScreen() {
           ))}
         </div>
       </div>
+      {showMapUnavailableNotice && <MapUnavailableOverlay onClose={() => setShowMapUnavailableNotice(false)} />}
       {reportTarget && (
         <ReportConfirmSheet
           targetLabel={reportTarget.title}

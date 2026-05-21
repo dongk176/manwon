@@ -1,5 +1,5 @@
-import { NearbyScreens } from '@/components/NearbyScreens'
+import { redirect } from 'next/navigation'
 
 export default function NearbyPage() {
-  return <NearbyScreens />
+  redirect('/')
 }

@@ -14,7 +14,7 @@ export default async function Page({
   if (tab === 'register' && register === 'ask') redirect('/register/request')
   if (tab === 'register' && register === 'offer') redirect('/register/offer')
   if (tab === 'register') redirect('/register')
-  if (tab === 'nearby') redirect('/nearby')
+  if (tab === 'nearby') redirect('/')
   if (tab === 'my') redirect('/my')
 
   return <HomeScreen />

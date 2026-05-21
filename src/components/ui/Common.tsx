@@ -120,29 +120,64 @@ export function AppHeader({
 
 export function BottomNav() {
   const pathname = usePathname()
+  const [showNearbyNotice, setShowNearbyNotice] = useState(false)
 
   return (
-    <nav className="bottom-nav" aria-label="하단 탭">
-      {navItems.map((item) => {
-        const Icon = item.icon
-        const active = isNavItemActive(item.key, pathname)
-        const isRegister = item.key === 'register'
+    <>
+      <nav className="bottom-nav" aria-label="하단 탭">
+        {navItems.map((item) => {
+          const Icon = item.icon
+          const active = isNavItemActive(item.key, pathname)
+          const isRegister = item.key === 'register'
+          const className = `bottom-nav-item ${active ? 'is-active' : ''} ${isRegister ? 'is-register' : ''}`
+          const content = (
+            <>
+              <span className="bottom-nav-icon">
+                <Icon size={isRegister ? 29 : 24} strokeWidth={isRegister ? 2.1 : 1.9} />
+              </span>
+              <span>{item.label}</span>
+            </>
+          )
 
-        return (
-          <Link
-            key={item.key}
-            href={item.href}
-            className={`bottom-nav-item ${active ? 'is-active' : ''} ${isRegister ? 'is-register' : ''}`}
-            aria-current={active ? 'page' : undefined}
-          >
-            <span className="bottom-nav-icon">
-              <Icon size={isRegister ? 29 : 24} strokeWidth={isRegister ? 2.1 : 1.9} />
-            </span>
-            <span>{item.label}</span>
-          </Link>
-        )
-      })}
-    </nav>
+          if (item.key === 'nearby') {
+            return (
+              <button
+                key={item.key}
+                type="button"
+                className={className}
+                aria-current={active ? 'page' : undefined}
+                onClick={() => setShowNearbyNotice(true)}
+              >
+                {content}
+              </button>
+            )
+          }
+
+          return (
+            <Link key={item.key} href={item.href} className={className} aria-current={active ? 'page' : undefined}>
+              {content}
+            </Link>
+          )
+        })}
+      </nav>
+
+      {showNearbyNotice && <MapUnavailableOverlay onClose={() => setShowNearbyNotice(false)} />}
+    </>
+  )
+}
+
+export function MapUnavailableOverlay({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="modal-overlay" role="presentation" onClick={onClose}>
+      <div className="confirm-dialog map-unavailable-dialog" role="dialog" aria-modal="true" aria-labelledby="map-unavailable-title" onClick={(event) => event.stopPropagation()}>
+        <h2 id="map-unavailable-title">지도 기능은 현재 준비중입니다.</h2>
+        <div className="dialog-actions">
+          <button type="button" onClick={onClose}>
+            확인
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 

@@ -18,6 +18,7 @@ final class AppRouter: ObservableObject {
     @Published var chatDetailActive = false
     @Published var nearbySheetCoversBottomNav = false
     @Published var homeIsAtTop = true
+    @Published var mapUnavailableNoticeVisible = false
     @Published private var displayedWebPaths: [AppTab: String] = [
         .home: "/",
         .register: "/register",
@@ -54,7 +55,7 @@ final class AppRouter: ObservableObject {
         }
 
         if normalized == "/nearby" || normalized.hasPrefix("/nearby/") {
-            selectedTab = .nearby
+            showMapUnavailableNotice()
             return
         }
 
@@ -96,6 +97,10 @@ final class AppRouter: ObservableObject {
 
     func homeScrollDidChange(isAtTop: Bool) {
         homeIsAtTop = isAtTop
+    }
+
+    func showMapUnavailableNotice() {
+        mapUnavailableNoticeVisible = true
     }
 
     func openPush(userInfo: [AnyHashable: Any]) {
