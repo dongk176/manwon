@@ -71,16 +71,10 @@ struct ManwonBottomNav: View {
             .frame(height: 66)
             .padding(.horizontal, 10)
             .padding(.top, 7)
-            .padding(.bottom, 2)
+            .padding(.bottom, 0)
         }
         .frame(maxWidth: 430)
-        .background(
-            Rectangle()
-                .fill(.white.opacity(0.96))
-                .background(.ultraThinMaterial)
-                .shadow(color: .black.opacity(0.05), radius: 18, x: 0, y: -8)
-                .ignoresSafeArea(edges: .bottom)
-        )
+        .background(Color.white.opacity(0.96))
         .offset(y: 16)
     }
 }

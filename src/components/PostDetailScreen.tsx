@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
-import { Check, CheckCircle2, ChevronLeft, ChevronRight, Clock, Clock3, Globe2, Heart, MapPin, MoreHorizontal, Navigation, ShieldCheck, UsersRound, X } from 'lucide-react'
+import { Check, CheckCircle2, ChevronLeft, ChevronRight, Clock, Clock3, Globe2, Heart, MapPin, MoreHorizontal, Navigation, Share2, ShieldCheck, UsersRound, X } from 'lucide-react'
 import { BrandButton, CategoryImageFrame, MoreMenu, RatingStars, ReportConfirmSheet } from '@/components/ui/Common'
 import { categoryDetailOptions, formatPrice, getCategoryLabel, getUser, postCategories, type PostStatus, type RequestMode, type RequestPost } from '@/data/mockData'
 import { LocationPermissionSheet, NeighborhoodSelectSheet } from '@/components/location/LocationSheets'
@@ -510,6 +510,32 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
     void handleStartChat()
   }
 
+  async function handleSharePost() {
+    if (!displayPost || typeof window === 'undefined') return
+    const shareUrl = window.location.href
+    const shareTitle = displayPost.title
+    const shareText = `${displayPost.title} - 만원부탁소`
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: shareTitle,
+          text: shareText,
+          url: shareUrl,
+        })
+        return
+      }
+
+      await navigator.clipboard.writeText(shareUrl)
+      setActionState('done')
+      setMessage('공유 링크를 복사했어요.')
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return
+      setActionState('error')
+      setMessage('공유 링크를 준비하지 못했습니다.')
+    }
+  }
+
   return (
     <section className="screen post-detail-screen">
       {loadState === 'loading' && <p className="inline-status">게시글을 불러오는 중입니다.</p>}
@@ -523,27 +549,34 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
               <button type="button" className="post-detail-floating-icon" onClick={handleBack} aria-label="뒤로가기">
                 <ChevronLeft size={24} />
               </button>
-              {!editMode && !isOwner && (
-                <div className="post-detail-floating-more">
-                  <button
-                    type="button"
-                    className="post-detail-floating-icon"
-                    onClick={() => setShowMore((value) => !value)}
-                    aria-label="더보기"
-                    aria-expanded={showMore}
-                  >
-                    <MoreHorizontal size={24} />
-                  </button>
-                  {showMore && (
-                    <MoreMenu
-                      onReport={() => {
-                        setShowMore(false)
-                        setReportSheetError('')
-                        setShowReportSheet(true)
-                      }}
-                      onBlock={handleBlock}
-                    />
+              {!editMode && (
+                <div className="post-detail-floating-right">
+                  {!isOwner && (
+                    <div className="post-detail-floating-more">
+                      <button
+                        type="button"
+                        className="post-detail-floating-icon"
+                        onClick={() => setShowMore((value) => !value)}
+                        aria-label="더보기"
+                        aria-expanded={showMore}
+                      >
+                        <MoreHorizontal size={24} />
+                      </button>
+                      {showMore && (
+                        <MoreMenu
+                          onReport={() => {
+                            setShowMore(false)
+                            setReportSheetError('')
+                            setShowReportSheet(true)
+                          }}
+                          onBlock={handleBlock}
+                        />
+                      )}
+                    </div>
                   )}
+                  <button type="button" className="post-detail-floating-icon" onClick={() => void handleSharePost()} aria-label="공유">
+                    <Share2 size={22} />
+                  </button>
                 </div>
               )}
             </div>
