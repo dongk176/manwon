@@ -473,14 +473,15 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
     setActionState('saving')
     setMessage('')
     try {
-      await createBlock(post.creatorId)
+      await createBlock(post.creatorId, {
+        postId: isUuid(post.id) ? post.id : undefined,
+        reason: '게시글 작성자 차단',
+        description: `게시글 상세에서 차단됨: [${post.category}] ${post.title}`,
+      })
       setShowMore(false)
       setActionState('done')
-      setGuideOverlay({
-        title: '차단이 완료되었습니다.',
-        description: '이 사용자의 게시글과 대화는 더 이상 보이지 않습니다.',
-        note: '차단한 사용자는 마이페이지 차단/신고 관리에서 언제든 관리할 수 있습니다.',
-      })
+      router.replace('/')
+      router.refresh()
     } catch (error) {
       setActionState('error')
       setMessage(error instanceof Error ? error.message : '차단에 실패했습니다.')

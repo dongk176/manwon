@@ -37,11 +37,11 @@ final class PushManager: NSObject, UNUserNotificationCenterDelegate {
         UNUserNotificationCenter.current().delegate = self
 
         #if canImport(FirebaseCore) && canImport(FirebaseMessaging)
-        if FirebaseApp.app() == nil, Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") != nil {
-            FirebaseApp.configure()
-            isFirebaseConfigured = true
-            Messaging.messaging().delegate = self
-        }
+        guard !isFirebaseConfigured else { return }
+        guard Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") != nil else { return }
+        FirebaseApp.configure()
+        isFirebaseConfigured = true
+        Messaging.messaging().delegate = self
         #endif
     }
 
@@ -256,6 +256,7 @@ enum PushPayload {
 
 extension Notification.Name {
     static let manwonConversationPushReceived = Notification.Name("manwonConversationPushReceived")
+    static let manwonModerationChanged = Notification.Name("manwonModerationChanged")
 }
 
 enum PushPromptContext: String {

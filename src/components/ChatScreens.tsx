@@ -427,7 +427,12 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
     setModerationStatus('')
     setModerationError('')
     try {
-      await createBlock(chat.user.id)
+      await createBlock(chat.user.id, {
+        postId: isUuid(chat.request.id) ? chat.request.id : undefined,
+        conversationId: chat.id,
+        reason: '채팅 상대 차단',
+        description: `채팅방에서 차단됨: ${chat.request.title}`,
+      })
       setShowBlockConfirm(false)
       setShowMore(false)
       setModerationStatus(`${chat.user.name}님을 차단했습니다.`)
@@ -450,7 +455,12 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
         description: input.description.trim() || undefined,
       })
       if (input.blockAfterReport) {
-        await createBlock(chat.user.id)
+        await createBlock(chat.user.id, {
+          postId: isUuid(chat.request.id) ? chat.request.id : undefined,
+          conversationId: chat.id,
+          reason: '신고 후 차단',
+          description: input.description.trim() || `채팅방 신고 후 차단됨: ${chat.request.title}`,
+        })
         await onRefresh()
         onBack()
       }

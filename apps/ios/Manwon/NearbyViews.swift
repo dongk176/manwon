@@ -30,7 +30,7 @@ private enum NearbyStyle {
 }
 
 @MainActor
-final class LocationProvider: NSObject, ObservableObject, CLLocationManagerDelegate {
+final class LocationProvider: NSObject, ObservableObject, @preconcurrency CLLocationManagerDelegate {
     @Published var coordinate = CLLocationCoordinate2D(latitude: 37.5009, longitude: 127.0365)
     @Published var authorizationDenied = false
 

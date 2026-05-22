@@ -1,6 +1,8 @@
 import CoreLocation
+import PhotosUI
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 import WebKit
 
 struct WebTabView: View {
@@ -140,6 +142,7 @@ struct NativeWebView: UIViewRepresentable {
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsLinkPreview = false
         webView.backgroundColor = .white
@@ -168,10 +171,11 @@ struct NativeWebView: UIViewRepresentable {
 
     static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
         uiView.scrollView.delegate = nil
+        uiView.uiDelegate = nil
         uiView.configuration.userContentController.removeScriptMessageHandler(forName: "manwonNative")
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler, UIScrollViewDelegate, CLLocationManagerDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, UIScrollViewDelegate, CLLocationManagerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, PHPickerViewControllerDelegate {
         var onNativeRoute: (String) -> Void
         var onProfileOnboardingCompleted: () -> Void
         var onRouteChange: (String) -> Void
@@ -189,6 +193,7 @@ struct NativeWebView: UIViewRepresentable {
         private weak var webView: WKWebView?
         private var pendingLocationRequestId: String?
         private var locationTimeoutTask: Task<Void, Never>?
+        private var filePickerCompletion: (([URL]?) -> Void)?
 
         init(
             onNativeRoute: @escaping (String) -> Void,
@@ -363,6 +368,172 @@ struct NativeWebView: UIViewRepresentable {
             webView?.evaluateJavaScript("window.dispatchEvent(new CustomEvent('manwonNativeLocation', { detail: \(json) }));")
         }
 
+        @available(iOS 18.4, *)
+        func webView(
+            _ webView: WKWebView,
+            runOpenPanelWith parameters: WKOpenPanelParameters,
+            initiatedByFrame frame: WKFrameInfo,
+            completionHandler: @escaping ([URL]?) -> Void
+        ) {
+            guard filePickerCompletion == nil else {
+                completionHandler(nil)
+                return
+            }
+
+            filePickerCompletion = completionHandler
+            let pickerSheet = UIAlertController(title: "사진 첨부", message: nil, preferredStyle: .actionSheet)
+
+            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                pickerSheet.addAction(UIAlertAction(title: "사진 촬영", style: .default) { [weak self] _ in
+                    self?.presentCameraPicker()
+                })
+            }
+
+            pickerSheet.addAction(UIAlertAction(title: "사진 보관함", style: .default) { [weak self] _ in
+                self?.presentPhotoLibraryPicker(allowsMultipleSelection: parameters.allowsMultipleSelection)
+            })
+            pickerSheet.addAction(UIAlertAction(title: "취소", style: .cancel) { [weak self] _ in
+                self?.finishFilePicker(with: nil)
+            })
+
+            if let popover = pickerSheet.popoverPresentationController {
+                popover.sourceView = webView
+                popover.sourceRect = CGRect(x: webView.bounds.midX, y: webView.bounds.maxY - 1, width: 1, height: 1)
+                popover.permittedArrowDirections = []
+            }
+
+            guard let presenter = topViewController() else {
+                finishFilePicker(with: nil)
+                return
+            }
+            presenter.present(pickerSheet, animated: true)
+        }
+
+        private func presentCameraPicker() {
+            guard UIImagePickerController.isSourceTypeAvailable(.camera), let presenter = topViewController() else {
+                finishFilePicker(with: nil)
+                return
+            }
+
+            let picker = UIImagePickerController()
+            picker.sourceType = .camera
+            picker.mediaTypes = [UTType.image.identifier]
+            picker.delegate = self
+            presenter.present(picker, animated: true)
+        }
+
+        private func presentPhotoLibraryPicker(allowsMultipleSelection: Bool) {
+            guard let presenter = topViewController() else {
+                finishFilePicker(with: nil)
+                return
+            }
+
+            var configuration = PHPickerConfiguration(photoLibrary: .shared())
+            configuration.filter = .images
+            configuration.selectionLimit = allowsMultipleSelection ? 0 : 1
+
+            let picker = PHPickerViewController(configuration: configuration)
+            picker.delegate = self
+            presenter.present(picker, animated: true)
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            picker.dismiss(animated: true) { [weak self] in
+                self?.finishFilePicker(with: nil)
+            }
+        }
+
+        func imagePickerController(
+            _ picker: UIImagePickerController,
+            didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+        ) {
+            let image = info[.originalImage] as? UIImage
+            let imageURL = info[.imageURL] as? URL
+
+            picker.dismiss(animated: true) { [weak self] in
+                if let imageURL {
+                    self?.finishFilePicker(with: [imageURL])
+                    return
+                }
+
+                guard let data = image?.jpegData(compressionQuality: 0.86),
+                      let url = self?.temporaryImageURL(data: data, fileExtension: "jpg")
+                else {
+                    self?.finishFilePicker(with: nil)
+                    return
+                }
+                self?.finishFilePicker(with: [url])
+            }
+        }
+
+        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+            picker.dismiss(animated: true)
+            guard !results.isEmpty else {
+                finishFilePicker(with: nil)
+                return
+            }
+
+            Task { [weak self] in
+                var urls: [URL] = []
+                for result in results {
+                    guard let self else { return }
+                    guard let data = await self.loadImageData(from: result.itemProvider) else {
+                        continue
+                    }
+                    let uploadData = UIImage(data: data)?.jpegData(compressionQuality: 0.86) ?? data
+                    guard let url = self.temporaryImageURL(data: uploadData, fileExtension: "jpg")
+                    else {
+                        continue
+                    }
+                    urls.append(url)
+                }
+
+                await MainActor.run {
+                    self?.finishFilePicker(with: urls.isEmpty ? nil : urls)
+                }
+            }
+        }
+
+        private func loadImageData(from provider: NSItemProvider) async -> Data? {
+            await withCheckedContinuation { continuation in
+                provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
+                    continuation.resume(returning: data)
+                }
+            }
+        }
+
+        private func temporaryImageURL(data: Data, fileExtension: String) -> URL? {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("manwon-upload-\(UUID().uuidString)")
+                .appendingPathExtension(fileExtension)
+            do {
+                try data.write(to: url, options: .atomic)
+                return url
+            } catch {
+                return nil
+            }
+        }
+
+        private func finishFilePicker(with urls: [URL]?) {
+            let completion = filePickerCompletion
+            filePickerCompletion = nil
+            completion?(urls)
+        }
+
+        private func topViewController() -> UIViewController? {
+            let windowScenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            let root = windowScenes
+                .flatMap(\.windows)
+                .first(where: \.isKeyWindow)?
+                .rootViewController
+
+            var top = root
+            while let presented = top?.presentedViewController {
+                top = presented
+            }
+            return top
+        }
+
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             onStartLoading()
         }
@@ -436,6 +607,7 @@ struct NativeWebView: UIViewRepresentable {
         private func handle(_ error: Error) {
             let nsError = error as NSError
             guard nsError.code != NSURLErrorCancelled else { return }
+            guard !(nsError.domain == "WebKitErrorDomain" && nsError.code == 102) else { return }
             onError()
         }
 

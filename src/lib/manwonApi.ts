@@ -736,10 +736,16 @@ export async function createSupportInquiry(input: {
   })
 }
 
-export async function createBlock(blockedUserId: string) {
+export async function createBlock(blockedUserId: string, context?: {
+  postId?: string
+  conversationId?: string
+  messageId?: string
+  reason?: string
+  description?: string
+}) {
   return apiFetch('/api/blocks', {
     method: 'POST',
-    body: JSON.stringify({ blockedUserId }),
+    body: JSON.stringify({ blockedUserId, ...context }),
   })
 }
 

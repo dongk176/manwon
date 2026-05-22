@@ -21,6 +21,7 @@
 		100000000000000000000012 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000012 /* LaunchScreen.storyboard */; };
 		100000000000000000000013 /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = 900000000000000000000002 /* FirebaseMessaging */; };
 		100000000000000000000014 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000016 /* GoogleService-Info.plist */; };
+		100000000000000000000015 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 200000000000000000000017 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -40,6 +41,7 @@
 		200000000000000000000014 /* Manwon.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Manwon.entitlements; sourceTree = "<group>"; };
 		200000000000000000000015 /* Manwon.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Manwon.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		200000000000000000000016 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
+		200000000000000000000017 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -78,6 +80,7 @@
 				200000000000000000000012 /* LaunchScreen.storyboard */,
 				200000000000000000000013 /* Info.plist */,
 				200000000000000000000016 /* GoogleService-Info.plist */,
+				200000000000000000000017 /* PrivacyInfo.xcprivacy */,
 				200000000000000000000014 /* Manwon.entitlements */,
 				200000000000000000000011 /* Assets.xcassets */,
 			);
@@ -160,6 +163,7 @@
 				100000000000000000000011 /* Assets.xcassets in Resources */,
 				100000000000000000000012 /* LaunchScreen.storyboard in Resources */,
 				100000000000000000000014 /* GoogleService-Info.plist in Resources */,
+				100000000000000000000015 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

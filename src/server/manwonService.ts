@@ -2412,13 +2412,54 @@ export async function listAdminReports() {
 
 export async function createBlock(userId: string, input: BlockInput) {
   const sql = getSql()
-  const rows = await sql`
-    insert into manwon_happiness.blocks (blocker_id, blocked_user_id)
-    values (${userId}, ${input.blockedUserId})
-    on conflict (blocker_id, blocked_user_id) do update set blocker_id = excluded.blocker_id
-    returning *
-  `
-  return rows[0]
+  if (input.blockedUserId === userId) {
+    throw new HttpError('본인은 차단할 수 없습니다.', 400)
+  }
+
+  return sql.begin(async (tx) => {
+    const [target] = await tx`
+      select id
+      from manwon_happiness.users
+      where id = ${input.blockedUserId}
+      limit 1
+    `
+    if (!target) throw new HttpError('차단할 사용자를 찾을 수 없습니다.', 404)
+
+    const rows = await tx`
+      insert into manwon_happiness.blocks (blocker_id, blocked_user_id)
+      values (${userId}, ${input.blockedUserId})
+      on conflict (blocker_id, blocked_user_id) do update set blocker_id = excluded.blocker_id
+      returning *
+    `
+
+    const description = [
+      input.description?.trim(),
+      '사용자가 차단하기를 실행하여 운영팀 검토용 신고가 자동 접수되었습니다.',
+    ].filter(Boolean).join('\n\n')
+
+    await tx`
+      insert into manwon_happiness.reports (
+        reporter_id,
+        target_user_id,
+        post_id,
+        conversation_id,
+        message_id,
+        reason,
+        description
+      )
+      values (
+        ${userId},
+        ${input.blockedUserId},
+        ${input.postId ?? null},
+        ${input.conversationId ?? null},
+        ${input.messageId ?? null},
+        ${input.reason ?? '사용자 차단'},
+        ${description}
+      )
+    `
+
+    return rows[0]
+  })
 }
 
 export async function deleteBlock(userId: string, blockedUserId: string) {

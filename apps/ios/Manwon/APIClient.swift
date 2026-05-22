@@ -41,6 +41,24 @@ private struct ReviewReminderPayload: Encodable {
     let dealId: String
 }
 
+private struct ReportPayload: Encodable {
+    let targetUserId: String?
+    let postId: String?
+    let conversationId: String?
+    let messageId: String?
+    let reason: String
+    let description: String?
+}
+
+private struct BlockPayload: Encodable {
+    let blockedUserId: String
+    let postId: String?
+    let conversationId: String?
+    let messageId: String?
+    let reason: String?
+    let description: String?
+}
+
 struct RealtimeToken: Decodable {
     let token: String
     let expiresIn: Int
@@ -351,6 +369,50 @@ final class APIClient {
 
     func scheduleReviewReminder(dealId: String) async throws {
         try await requestNoData("/api/review-reminders", method: "POST", body: ReviewReminderPayload(dealId: dealId))
+    }
+
+    func createReport(
+        targetUserId: String?,
+        postId: String?,
+        conversationId: String?,
+        messageId: String? = nil,
+        reason: String,
+        description: String?
+    ) async throws {
+        try await requestNoData(
+            "/api/reports",
+            method: "POST",
+            body: ReportPayload(
+                targetUserId: targetUserId,
+                postId: postId,
+                conversationId: conversationId,
+                messageId: messageId,
+                reason: reason,
+                description: description
+            )
+        )
+    }
+
+    func createBlock(
+        blockedUserId: String,
+        postId: String?,
+        conversationId: String?,
+        messageId: String? = nil,
+        reason: String? = nil,
+        description: String? = nil
+    ) async throws {
+        try await requestNoData(
+            "/api/blocks",
+            method: "POST",
+            body: BlockPayload(
+                blockedUserId: blockedUserId,
+                postId: postId,
+                conversationId: conversationId,
+                messageId: messageId,
+                reason: reason,
+                description: description
+            )
+        )
     }
 
     func fetchDueReviewReminder() async throws -> DueReviewReminder? {

@@ -86,6 +86,9 @@ struct ChatListView: View {
         .onReceive(viewModel.$unreadCount) { unreadCount in
             router.chatUnreadCount = unreadCount
         }
+        .onReceive(NotificationCenter.default.publisher(for: .manwonModerationChanged)) { _ in
+            Task { await viewModel.load(silent: true) }
+        }
     }
 
     private func syncRouterConversation() {
@@ -546,6 +549,55 @@ final class ChatDetailViewModel: ObservableObject {
         }
     }
 
+    func reportConversation(reason: String, description: String, blockAfterReport: Bool) async -> Bool {
+        guard let conversation, let otherUserId = conversation.otherUserId else { return false }
+        let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        let reportDescription = trimmedDescription.isEmpty ? nil : trimmedDescription
+
+        do {
+            try await APIClient.shared.createReport(
+                targetUserId: otherUserId,
+                postId: conversation.postId,
+                conversationId: conversation.id,
+                reason: reason,
+                description: reportDescription
+            )
+
+            if blockAfterReport {
+                try await APIClient.shared.createBlock(
+                    blockedUserId: otherUserId,
+                    postId: conversation.postId,
+                    conversationId: conversation.id,
+                    reason: "신고 후 차단",
+                    description: reportDescription ?? "네이티브 채팅방 신고 후 차단"
+                )
+            }
+
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    func blockConversationUser() async -> Bool {
+        guard let conversation, let otherUserId = conversation.otherUserId else { return false }
+
+        do {
+            try await APIClient.shared.createBlock(
+                blockedUserId: otherUserId,
+                postId: conversation.postId,
+                conversationId: conversation.id,
+                reason: "채팅 상대 차단",
+                description: "네이티브 채팅방에서 차단"
+            )
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
     private func mergeMessages(_ incoming: [Message]) {
         for message in incoming {
             messages.removeAll { existing in
@@ -643,6 +695,10 @@ struct ChatDetailView: View {
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var showProfileSheet = false
     @State private var showReviewPrompt = false
+    @State private var showModerationActions = false
+    @State private var showReportOverlay = false
+    @State private var showBlockConfirmation = false
+    @State private var moderationBusy = false
     @State private var pendingTradeConfirmation: ChatTradeAction?
     @State private var pendingQuickMessage: QuickMessageSuggestion?
     @FocusState private var composerFocused: Bool
@@ -655,6 +711,8 @@ struct ChatDetailView: View {
         VStack(spacing: 0) {
             ChatDetailHeader(title: viewModel.conversation?.otherNickname ?? "채팅", onProfile: {
                 showProfileSheet = true
+            }, onMore: {
+                showModerationActions = true
             }) {
                 dismiss()
             }
@@ -746,6 +804,47 @@ struct ChatDetailView: View {
                         }
                     )
                 }
+                if showReportOverlay, let conversation = viewModel.conversation {
+                    ChatReportOverlay(
+                        userName: conversation.otherNickname ?? "상대방",
+                        busy: moderationBusy,
+                        onCancel: {
+                            showReportOverlay = false
+                        },
+                        onSubmit: { reason, description, blockAfterReport in
+                            submitModerationReport(
+                                reason: reason,
+                                description: description,
+                                blockAfterReport: blockAfterReport
+                            )
+                        }
+                    )
+                }
+                if showBlockConfirmation, let conversation = viewModel.conversation {
+                    BlockUserConfirmationOverlay(
+                        userName: conversation.otherNickname ?? "상대방",
+                        busy: moderationBusy,
+                        onCancel: {
+                            showBlockConfirmation = false
+                        },
+                        onConfirm: {
+                            blockConversationUser()
+                        }
+                    )
+                }
+            }
+            .confirmationDialog("채팅 관리", isPresented: $showModerationActions, titleVisibility: .visible) {
+                Button("신고하기") {
+                    dismissComposerKeyboard()
+                    showReportOverlay = true
+                }
+                Button("차단하기", role: .destructive) {
+                    dismissComposerKeyboard()
+                    showBlockConfirmation = true
+                }
+                Button("취소", role: .cancel) {}
+            } message: {
+                Text("문제가 있는 채팅이나 사용자를 운영팀에 알릴 수 있습니다.")
             }
             .sheet(isPresented: $showProfileSheet) {
                 if let conversation = viewModel.conversation {
@@ -783,6 +882,42 @@ struct ChatDetailView: View {
     private func dismissComposerKeyboard() {
         if composerFocused {
             composerFocused = false
+        }
+    }
+
+    private func submitModerationReport(reason: String, description: String, blockAfterReport: Bool) {
+        guard !moderationBusy else { return }
+        moderationBusy = true
+        Task {
+            let succeeded = await viewModel.reportConversation(
+                reason: reason,
+                description: description,
+                blockAfterReport: blockAfterReport
+            )
+            await MainActor.run {
+                moderationBusy = false
+                guard succeeded else { return }
+                showReportOverlay = false
+                NotificationCenter.default.post(name: .manwonModerationChanged, object: nil)
+                if blockAfterReport {
+                    dismiss()
+                }
+            }
+        }
+    }
+
+    private func blockConversationUser() {
+        guard !moderationBusy else { return }
+        moderationBusy = true
+        Task {
+            let succeeded = await viewModel.blockConversationUser()
+            await MainActor.run {
+                moderationBusy = false
+                guard succeeded else { return }
+                showBlockConfirmation = false
+                NotificationCenter.default.post(name: .manwonModerationChanged, object: nil)
+                dismiss()
+            }
         }
     }
 
@@ -984,6 +1119,153 @@ private struct TradeActionConfirmationOverlay: View {
     }
 }
 
+private let chatReportReasons = ["부적절한 메시지", "사기 의심", "개인정보 요구", "외부 결제 유도", "욕설/괴롭힘", "기타"]
+
+private struct ChatReportOverlay: View {
+    let userName: String
+    let busy: Bool
+    let onCancel: () -> Void
+    let onSubmit: (String, String, Bool) -> Void
+    @State private var reason = chatReportReasons[0]
+    @State private var description = ""
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.45)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    if !busy { onCancel() }
+                }
+
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("\(userName)님 신고하기")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(ManwonColor.text)
+                    Text("신고 내용과 채팅 정보는 운영팀 검토용으로 접수됩니다.")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(ManwonColor.muted)
+                        .lineSpacing(2)
+                }
+
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                    ForEach(chatReportReasons, id: \.self) { item in
+                        Button {
+                            reason = item
+                        } label: {
+                            Text(item)
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(reason == item ? ManwonColor.brand : ManwonColor.text)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 38)
+                                .background(reason == item ? ManwonColor.brandSoft : Color(red: 0.965, green: 0.965, blue: 0.97))
+                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .stroke(reason == item ? ManwonColor.brand.opacity(0.35) : ManwonColor.line, lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(busy)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("상세 내용")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(ManwonColor.text)
+                    TextEditor(text: $description)
+                        .frame(minHeight: 100)
+                        .padding(8)
+                        .background(Color.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(ManwonColor.line, lineWidth: 1)
+                        )
+                        .disabled(busy)
+                        .onChange(of: description) { value in
+                            if value.count > 1000 {
+                                description = String(value.prefix(1000))
+                            }
+                        }
+                    Text("\(description.count)/1000")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(ManwonColor.muted)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+
+                VStack(spacing: 9) {
+                    HStack(spacing: 10) {
+                        Button("취소", action: onCancel)
+                            .buttonStyle(PrimaryButtonStyle(isSecondary: true))
+                            .disabled(busy)
+                        Button(busy ? "접수 중" : "신고하기") {
+                            onSubmit(reason, description, false)
+                        }
+                        .buttonStyle(PrimaryButtonStyle())
+                        .disabled(busy)
+                    }
+
+                    Button(busy ? "접수 중" : "차단하고 신고하기") {
+                        onSubmit(reason, description, true)
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .disabled(busy)
+                }
+            }
+            .padding(20)
+            .background(ManwonColor.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .padding(.horizontal, 18)
+            .shadow(color: .black.opacity(0.18), radius: 28, y: 14)
+        }
+    }
+}
+
+private struct BlockUserConfirmationOverlay: View {
+    let userName: String
+    let busy: Bool
+    let onCancel: () -> Void
+    let onConfirm: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.45)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    if !busy { onCancel() }
+                }
+
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("\(userName)님을 차단할까요?")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(ManwonColor.text)
+                    Text("차단하면 이 사용자의 게시글과 채팅이 내 화면에서 숨겨지고, 운영팀에 검토용 신고가 접수됩니다.")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(ManwonColor.muted)
+                        .lineSpacing(2)
+                }
+
+                HStack(spacing: 10) {
+                    Button("취소", action: onCancel)
+                        .buttonStyle(PrimaryButtonStyle(isSecondary: true))
+                        .disabled(busy)
+                    Button(busy ? "차단 중" : "차단하기", action: onConfirm)
+                        .buttonStyle(PrimaryButtonStyle())
+                        .disabled(busy)
+                }
+            }
+            .padding(20)
+            .background(ManwonColor.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .padding(.horizontal, 18)
+            .shadow(color: .black.opacity(0.18), radius: 28, y: 14)
+        }
+    }
+}
+
 private struct ReviewPromptOverlay: View {
     let conversation: Conversation
     let onLater: () async -> Void
@@ -1113,6 +1395,7 @@ private func clearDeferredReview(dealId: String) {
 private struct ChatDetailHeader: View {
     let title: String
     let onProfile: () -> Void
+    let onMore: () -> Void
     let onBack: () -> Void
 
     var body: some View {
@@ -1135,10 +1418,19 @@ private struct ChatDetailHeader: View {
                 Image(systemName: "person.crop.circle")
                     .font(.system(size: 21, weight: .semibold))
                     .foregroundStyle(ManwonColor.text)
-                    .frame(width: 42, height: 42)
+                    .frame(width: 38, height: 42)
             }
             .buttonStyle(PressableScaleButtonStyle(scale: 0.94, pressedOpacity: 0.8))
             .accessibilityLabel("상대방 프로필 보기")
+
+            Button(action: onMore) {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 21, weight: .bold))
+                    .foregroundStyle(ManwonColor.text)
+                    .frame(width: 38, height: 42)
+            }
+            .buttonStyle(PressableScaleButtonStyle(scale: 0.94, pressedOpacity: 0.8))
+            .accessibilityLabel("신고 및 차단")
         }
         .padding(.horizontal, 8)
         .padding(.top, 8)

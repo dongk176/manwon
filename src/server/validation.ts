@@ -238,6 +238,11 @@ export const supportInquirySchema = z.object({
 
 export const blockSchema = z.object({
   blockedUserId: z.string().uuid(),
+  postId: z.string().uuid().nullable().optional(),
+  conversationId: z.string().uuid().nullable().optional(),
+  messageId: z.string().uuid().nullable().optional(),
+  reason: z.string().trim().min(1).max(80).optional(),
+  description: z.string().trim().max(1000).nullable().optional(),
 })
 
 export const favoriteSchema = z.object({

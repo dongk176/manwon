@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 const sessionCookieName = 'manwon_session'
-const publicPagePaths = ['/login', '/signup']
+const publicPagePaths = ['/login', '/signup', '/support']
 
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl

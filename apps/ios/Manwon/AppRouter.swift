@@ -150,6 +150,7 @@ final class AppRouter: ObservableObject {
 
     func webRouteDidChange(_ path: String, for tab: AppTab) {
         let normalized = path.isEmpty ? "/" : path
+        let routeCameFromActiveTab = tab == selectedTab
         if onboardingRequired {
             routeToProfileOnboarding()
             return
@@ -180,8 +181,11 @@ final class AppRouter: ObservableObject {
         }
 
         if normalized == "/" || matchesPath(normalized, "/login") || matchesPath(normalized, "/signup") {
-            setWebPath(normalized, for: .home)
-            setSelectedTab(.home)
+            setWebPath(normalized, for: tab)
+            if routeCameFromActiveTab && tab != .home {
+                setWebPath(normalized, for: .home)
+                setSelectedTab(.home)
+            }
             return
         }
 
