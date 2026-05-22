@@ -3600,6 +3600,100 @@ html.native-ios-shell [role="button"] {
   grid-template-columns: 1fr;
 }
 
+.withdraw-confirm-dialog {
+  display: grid;
+  gap: 14px;
+  width: min(100%, 388px);
+}
+
+.withdraw-confirm-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: #fff1ee;
+  color: #f03a22;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.withdraw-confirm-dialog h2 {
+  margin: 0;
+}
+
+.withdraw-confirm-dialog > p {
+  margin: -4px 0 0;
+}
+
+.withdraw-confirm-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 14px 16px 14px 34px;
+  border-radius: 16px;
+  background: #fff6f4;
+  color: #66666c;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.withdraw-confirm-field {
+  display: grid;
+  gap: 8px;
+}
+
+.withdraw-confirm-field span {
+  color: #35353a;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.withdraw-confirm-field input {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  color: #111113;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.withdraw-confirm-field input:focus {
+  border-color: var(--brand);
+  outline: 0;
+}
+
+.withdraw-confirm-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.withdraw-confirm-actions button {
+  min-height: 44px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 850;
+}
+
+.withdraw-confirm-actions button:first-child {
+  border: 1px solid var(--line);
+}
+
+.withdraw-confirm-actions button:last-child {
+  background: #ff5b49;
+  color: #fff;
+}
+
+.withdraw-confirm-actions button:disabled {
+  opacity: 0.55;
+}
+
 .registration-toast {
   position: fixed;
   z-index: 90;
@@ -6375,6 +6469,10 @@ html.native-ios-shell [role="button"] {
   color: var(--brand);
 }
 
+.my-main-withdraw-button {
+  margin-top: 10px;
+}
+
 .settlement-card {
   position: relative;
   display: grid;
@@ -6660,6 +6758,23 @@ html.native-ios-shell [role="button"] {
   padding: 16px;
 }
 
+button.my-activity-card {
+  width: 100%;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.my-activity-card:active {
+  transform: scale(0.992);
+}
+
+button.my-activity-card:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
 .my-activity-card-body {
   min-width: 0;
 }
@@ -6753,6 +6868,75 @@ html.native-ios-shell [role="button"] {
 
 .my-activity-card > svg:last-child {
   color: #77777c;
+}
+
+.activity-route-overlay {
+  padding: 18px;
+}
+
+.activity-route-dialog {
+  position: relative;
+  width: min(100%, 352px);
+  padding: 24px 18px 18px;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.16);
+}
+
+.activity-route-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 50%;
+  background: #f4f4f5;
+  color: #4b4b50;
+}
+
+.activity-route-dialog > span {
+  display: inline-flex;
+  max-width: calc(100% - 44px);
+  padding: 5px 9px;
+  border-radius: 9px;
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.activity-route-dialog h2 {
+  margin: 12px 0 6px;
+  color: #111113;
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.activity-route-dialog p {
+  margin: 0;
+  color: #68686e;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.activity-route-actions {
+  display: grid;
+  gap: 9px;
+  margin-top: 18px;
+}
+
+.activity-route-dialog small {
+  display: block;
+  margin-top: 11px;
+  color: #8a8a90;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
 }
 
 .my-request-modern-card {

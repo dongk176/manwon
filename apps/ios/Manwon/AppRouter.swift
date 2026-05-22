@@ -20,6 +20,7 @@ final class AppRouter: ObservableObject {
     @Published var chatDetailActive = false
     @Published var chatUnreadCount = 0
     @Published var nearbySheetCoversBottomNav = false
+    @Published private var webOverlayCoversBottomNav: [AppTab: Bool] = [:]
     @Published var homeIsAtTop = true
     @Published var mapUnavailableNoticeVisible = false
     @Published var onboardingRequired = false
@@ -34,6 +35,7 @@ final class AppRouter: ObservableObject {
         if onboardingRequired { return true }
         if selectedTab == .chat && chatDetailActive { return true }
         if selectedTab == .nearby && nearbySheetCoversBottomNav { return true }
+        if webOverlayCoversBottomNav[selectedTab] == true { return true }
 
         guard let path = displayedWebPaths[selectedTab] else { return false }
         return matchesPath(path, "/login")
@@ -161,6 +163,13 @@ final class AppRouter: ObservableObject {
         if homeIsAtTop != isAtTop {
             homeIsAtTop = isAtTop
         }
+    }
+
+    func webOverlayDidChange(isPresented: Bool, for tab: AppTab) {
+        guard webOverlayCoversBottomNav[tab] != isPresented else { return }
+        var nextState = webOverlayCoversBottomNav
+        nextState[tab] = isPresented
+        webOverlayCoversBottomNav = nextState
     }
 
     func showMapUnavailableNotice() {

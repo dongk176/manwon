@@ -233,19 +233,19 @@ struct ManwonFloatingWriteButton: View {
                     .frame(width: 22, height: 22)
 
                 if expanded {
-                    Text("글쓰기")
+                    Text("등록")
                         .font(.system(size: 15, weight: .bold))
                         .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .trailing)))
                 }
             }
             .foregroundStyle(Color.white)
-            .frame(width: expanded ? 104 : 48, height: 48)
+            .frame(width: expanded ? 86 : 48, height: 48)
             .background(ManwonColor.brand)
             .clipShape(Capsule())
             .shadow(color: ManwonColor.brand.opacity(0.22), radius: 10, x: 0, y: 5)
         }
         .buttonStyle(PressableScaleButtonStyle(scale: 0.94, pressedOpacity: 0.9))
-        .accessibilityLabel("글쓰기")
+        .accessibilityLabel("등록")
     }
 }
 

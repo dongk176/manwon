@@ -360,7 +360,8 @@ export async function listTaskPosts(input: ListPostsInput, viewerId?: string | n
         ${currentUserId}::uuid is null
         or not exists (
           select 1 from manwon_happiness.blocks b
-          where b.blocker_id = ${currentUserId}::uuid and b.blocked_user_id = p.creator_id
+          where (b.blocker_id = ${currentUserId}::uuid and b.blocked_user_id = p.creator_id)
+             or (b.blocker_id = p.creator_id and b.blocked_user_id = ${currentUserId}::uuid)
         )
       )
     group by p.id, creator.nickname, creator.avatar_url, creator.gender, creator.phone_verified, creator.identity_verified, creator.rating_avg, creator.review_count, creator.completed_count, creator_profile.id, creator_profile.nickname, creator_profile.avatar_url, creator_profile.bio
@@ -446,6 +447,20 @@ export async function getTaskPost(postId: string, viewerId?: string | null) {
   `
 
   if (!rows[0]) return null
+
+  if (currentUserId) {
+    const creatorId = rows[0].creatorId
+    const [blocked] = await sql`
+      select 1
+      from manwon_happiness.blocks b
+      where (b.blocker_id = ${currentUserId}::uuid and b.blocked_user_id = ${creatorId}::uuid)
+         or (b.blocker_id = ${creatorId}::uuid and b.blocked_user_id = ${currentUserId}::uuid)
+      limit 1
+    `
+    if (blocked) {
+      throw new HttpError('차단된 사용자의 게시글은 볼 수 없습니다.', 403)
+    }
+  }
 
   await sql`
     update manwon_happiness.task_posts
@@ -814,6 +829,18 @@ export async function createApplication(userId: string, input: CreateApplication
     where p.id = ${input.postId}
       and p.creator_id <> ${userId}
       and p.status = 'open'
+      and not exists (
+        select 1
+        from manwon_happiness.blocks b
+        where (
+          b.blocker_id = ${userId}
+          and b.blocked_user_id = p.creator_id
+        )
+        or (
+          b.blocker_id = p.creator_id
+          and b.blocked_user_id = ${userId}
+        )
+      )
     on conflict (post_id, applicant_id, recruitment_round) do update
       set applicant_profile_id = excluded.applicant_profile_id,
           message = excluded.message,
@@ -1318,8 +1345,13 @@ export async function listConversations(userId: string) {
     where (c.requester_id = ${userId} or c.helper_id = ${userId})
       and not exists (
         select 1 from manwon_happiness.blocks b
-        where b.blocker_id = ${userId}
+        where (
+          b.blocker_id = ${userId}
           and b.blocked_user_id = case when c.requester_id = ${userId} then c.helper_id else c.requester_id end
+        ) or (
+          b.blocker_id = case when c.requester_id = ${userId} then c.helper_id else c.requester_id end
+          and b.blocked_user_id = ${userId}
+        )
       )
     order by coalesce(c.last_message_at, c.created_at) desc
   `
@@ -1515,6 +1547,18 @@ export async function listMessages(userId: string, conversationId: string, optio
       from manwon_happiness.conversations c
       where c.id = ${conversationId}
         and (c.requester_id = ${userId} or c.helper_id = ${userId})
+        and not exists (
+          select 1
+          from manwon_happiness.blocks b
+          where (
+            b.blocker_id = ${userId}
+            and b.blocked_user_id = case when c.requester_id = ${userId} then c.helper_id else c.requester_id end
+          )
+          or (
+            b.blocker_id = case when c.requester_id = ${userId} then c.helper_id else c.requester_id end
+            and b.blocked_user_id = ${userId}
+          )
+        )
       limit 1
     `
 
@@ -1555,6 +1599,18 @@ export async function markConversationRead(userId: string, conversationId: strin
       from manwon_happiness.conversations c
       where c.id = ${conversationId}
         and (c.requester_id = ${userId} or c.helper_id = ${userId})
+        and not exists (
+          select 1
+          from manwon_happiness.blocks b
+          where (
+            b.blocker_id = ${userId}
+            and b.blocked_user_id = case when c.requester_id = ${userId} then c.helper_id else c.requester_id end
+          )
+          or (
+            b.blocker_id = case when c.requester_id = ${userId} then c.helper_id else c.requester_id end
+            and b.blocked_user_id = ${userId}
+          )
+        )
       limit 1
     `
     if (!conversationRows[0]) return null
@@ -1886,6 +1942,14 @@ export async function getMyActivity(userId: string) {
     sql`
       select
         p.*,
+        (
+          select c.id
+          from manwon_happiness.conversations c
+          where c.post_id = p.id
+            and (c.requester_id = ${userId} or c.helper_id = ${userId})
+          order by c.last_message_at desc nulls last, c.created_at desc
+          limit 1
+        ) as conversation_id,
         count(distinct f.id)::integer as favorite_count,
         count(distinct a.id)::integer as application_count
       from manwon_happiness.task_posts p
@@ -1899,6 +1963,7 @@ export async function getMyActivity(userId: string) {
     sql`
       select
         d.*,
+        c.id as conversation_id,
         p.title as post_title,
         p.category as post_category,
         p.mode as post_mode,
@@ -1913,6 +1978,7 @@ export async function getMyActivity(userId: string) {
       from manwon_happiness.deals d
       join manwon_happiness.task_posts p on p.id = d.post_id
       join manwon_happiness.users requester on requester.id = d.requester_id
+      left join manwon_happiness.conversations c on c.deal_id = d.id
       where d.helper_id = ${userId}
       order by d.created_at desc
       limit 50
@@ -2154,13 +2220,18 @@ export async function withdrawMyAccount(userId: string) {
           display_name = null,
           login_id = null,
           password_hash = null,
-          phone = null,
           avatar_url = null,
           withdrawn_at = coalesce(withdrawn_at, ${withdrawnAt}),
+          withdrawal_reason = coalesce(withdrawal_reason, 'user_requested'),
           is_blocked = true,
           updated_at = now()
       where id = ${userId}
       returning id, withdrawn_at
+    `
+
+    await tx`
+      delete from manwon_happiness.device_push_tokens
+      where user_id = ${userId}
     `
 
     return { success: Boolean(profile), withdrawnAt: profile?.withdrawnAt ?? withdrawnAt }
@@ -2169,20 +2240,80 @@ export async function withdrawMyAccount(userId: string) {
 
 export async function createReport(userId: string, input: ReportInput) {
   const sql = getSql()
-  const rows = await sql`
-    insert into manwon_happiness.reports (reporter_id, target_user_id, post_id, conversation_id, message_id, reason, description)
-    values (
-      ${userId},
-      ${input.targetUserId ?? null},
-      ${input.postId ?? null},
-      ${input.conversationId ?? null},
-      ${input.messageId ?? null},
-      ${input.reason},
-      ${input.description ?? null}
-    )
-    returning *
-  `
-  return rows[0]
+  return sql.begin(async (tx) => {
+    let targetUserId = input.targetUserId ?? null
+    let conversationId = input.conversationId ?? null
+
+    if (input.messageId) {
+      const [message] = await tx`
+        select
+          m.sender_id,
+          m.conversation_id
+        from manwon_happiness.messages m
+        join manwon_happiness.conversations c on c.id = m.conversation_id
+        where m.id = ${input.messageId}
+          and (c.requester_id = ${userId} or c.helper_id = ${userId})
+        limit 1
+      `
+      if (!message) throw new HttpError('신고할 메시지를 찾을 수 없습니다.', 404)
+      targetUserId = targetUserId ?? String(message.senderId)
+      conversationId = conversationId ?? String(message.conversationId)
+    }
+
+    if (input.postId) {
+      const [post] = await tx`
+        select creator_id
+        from manwon_happiness.task_posts
+        where id = ${input.postId}
+        limit 1
+      `
+      if (!post) throw new HttpError('신고할 게시글을 찾을 수 없습니다.', 404)
+      targetUserId = targetUserId ?? String(post.creatorId)
+    }
+
+    if (conversationId) {
+      const [conversation] = await tx`
+        select requester_id, helper_id
+        from manwon_happiness.conversations
+        where id = ${conversationId}
+          and (requester_id = ${userId} or helper_id = ${userId})
+        limit 1
+      `
+      if (!conversation) throw new HttpError('신고할 채팅을 찾을 수 없습니다.', 404)
+      targetUserId = targetUserId
+        ?? (String(conversation.requesterId) === userId ? String(conversation.helperId) : String(conversation.requesterId))
+    }
+
+    if (!targetUserId) {
+      throw new HttpError('신고 대상을 확인할 수 없습니다.', 400)
+    }
+    if (targetUserId === userId) {
+      throw new HttpError('본인은 신고할 수 없습니다.', 400)
+    }
+
+    const [target] = await tx`
+      select id
+      from manwon_happiness.users
+      where id = ${targetUserId}
+      limit 1
+    `
+    if (!target) throw new HttpError('신고 대상을 찾을 수 없습니다.', 404)
+
+    const rows = await tx`
+      insert into manwon_happiness.reports (reporter_id, target_user_id, post_id, conversation_id, message_id, reason, description)
+      values (
+        ${userId},
+        ${targetUserId},
+        ${input.postId ?? null},
+        ${conversationId},
+        ${input.messageId ?? null},
+        ${input.reason},
+        ${input.description ?? null}
+      )
+      returning *
+    `
+    return rows[0]
+  })
 }
 
 export async function createSupportInquiry(userId: string, input: SupportInquiryInput) {

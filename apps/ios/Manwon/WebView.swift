@@ -34,12 +34,16 @@ struct WebTabView: View {
                         unreadCount: unreadCount
                     )
                 },
+                onOverlayChange: { isPresented in
+                    router.webOverlayDidChange(isPresented: isPresented, for: tab)
+                },
                 onScrollTopChange: { isAtTop in
                     if tab == .home {
                         router.homeScrollDidChange(isAtTop: isAtTop)
                     }
                 },
                 onStartLoading: {
+                    router.webOverlayDidChange(isPresented: false, for: tab)
                     errorMessage = nil
                 },
                 onFinishLoading: {
@@ -103,6 +107,7 @@ struct NativeWebView: UIViewRepresentable {
     let onProfileOnboardingCompleted: () -> Void
     let onRouteChange: (String) -> Void
     let onPermissionPrompt: (String, String?, Int?) -> Void
+    let onOverlayChange: (Bool) -> Void
     let onScrollTopChange: (Bool) -> Void
     let onStartLoading: () -> Void
     let onFinishLoading: () -> Void
@@ -114,6 +119,7 @@ struct NativeWebView: UIViewRepresentable {
             onProfileOnboardingCompleted: onProfileOnboardingCompleted,
             onRouteChange: onRouteChange,
             onPermissionPrompt: onPermissionPrompt,
+            onOverlayChange: onOverlayChange,
             onScrollTopChange: onScrollTopChange,
             onStartLoading: onStartLoading,
             onFinishLoading: onFinishLoading,
@@ -152,6 +158,7 @@ struct NativeWebView: UIViewRepresentable {
         context.coordinator.onProfileOnboardingCompleted = onProfileOnboardingCompleted
         context.coordinator.onRouteChange = onRouteChange
         context.coordinator.onPermissionPrompt = onPermissionPrompt
+        context.coordinator.onOverlayChange = onOverlayChange
         context.coordinator.onScrollTopChange = onScrollTopChange
         context.coordinator.onStartLoading = onStartLoading
         context.coordinator.onFinishLoading = onFinishLoading
@@ -169,6 +176,7 @@ struct NativeWebView: UIViewRepresentable {
         var onProfileOnboardingCompleted: () -> Void
         var onRouteChange: (String) -> Void
         var onPermissionPrompt: (String, String?, Int?) -> Void
+        var onOverlayChange: (Bool) -> Void
         var onScrollTopChange: (Bool) -> Void
         var onStartLoading: () -> Void
         var onFinishLoading: () -> Void
@@ -187,6 +195,7 @@ struct NativeWebView: UIViewRepresentable {
             onProfileOnboardingCompleted: @escaping () -> Void,
             onRouteChange: @escaping (String) -> Void,
             onPermissionPrompt: @escaping (String, String?, Int?) -> Void,
+            onOverlayChange: @escaping (Bool) -> Void,
             onScrollTopChange: @escaping (Bool) -> Void,
             onStartLoading: @escaping () -> Void,
             onFinishLoading: @escaping () -> Void,
@@ -196,6 +205,7 @@ struct NativeWebView: UIViewRepresentable {
             self.onProfileOnboardingCompleted = onProfileOnboardingCompleted
             self.onRouteChange = onRouteChange
             self.onPermissionPrompt = onPermissionPrompt
+            self.onOverlayChange = onOverlayChange
             self.onScrollTopChange = onScrollTopChange
             self.onStartLoading = onStartLoading
             self.onFinishLoading = onFinishLoading
@@ -240,6 +250,12 @@ struct NativeWebView: UIViewRepresentable {
                 if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
                     UIApplication.shared.open(settingsURL)
                 }
+                return
+            }
+
+            if type == "overlayState" {
+                let isPresented = (payload["isPresented"] as? Bool) ?? false
+                onOverlayChange(isPresented)
                 return
             }
 
@@ -484,6 +500,10 @@ struct NativeWebView: UIViewRepresentable {
         frame: 0,
         observer: null
       };
+      var overlayWatch = {
+        lastIsPresented: null,
+        frame: 0
+      };
       function currentHomeScroller() {
         return document.querySelector('.home-feed-scroll') || document.scrollingElement || document.documentElement;
       }
@@ -519,6 +539,29 @@ struct NativeWebView: UIViewRepresentable {
         }
         scheduleHomeScrollTop();
       }
+      function hasBlockingOverlay() {
+        return Boolean(document.querySelector('.sheet-overlay, .modal-overlay, .selection-overlay, .profile-photo-viewer-overlay, .profile-extra-modal-overlay'));
+      }
+      function postOverlayState(isPresented) {
+        if (overlayWatch.lastIsPresented === isPresented) return;
+        overlayWatch.lastIsPresented = isPresented;
+        try {
+          window.webkit.messageHandlers.manwonNative.postMessage({
+            type: 'overlayState',
+            isPresented: isPresented
+          });
+        } catch (error) {}
+      }
+      function readOverlayState() {
+        postOverlayState(hasBlockingOverlay());
+      }
+      function scheduleOverlayState() {
+        if (overlayWatch.frame) return;
+        overlayWatch.frame = window.requestAnimationFrame(function() {
+          overlayWatch.frame = 0;
+          readOverlayState();
+        });
+      }
       function postNativeRoute(rawUrl) {
         try {
           var target = new URL(rawUrl, window.location.origin);
@@ -531,12 +574,14 @@ struct NativeWebView: UIViewRepresentable {
         }
       }
       postWebRoute();
+      scheduleOverlayState();
       var originalPushState = history.pushState;
       history.pushState = function(state, title, url) {
         if (url && postNativeRoute(url)) return;
         var result = originalPushState.apply(this, arguments);
         postWebRoute(url);
         setTimeout(bindHomeScroller, 0);
+        setTimeout(scheduleOverlayState, 0);
         return result;
       };
       var originalReplaceState = history.replaceState;
@@ -545,12 +590,14 @@ struct NativeWebView: UIViewRepresentable {
         var result = originalReplaceState.apply(this, arguments);
         postWebRoute(url);
         setTimeout(bindHomeScroller, 0);
+        setTimeout(scheduleOverlayState, 0);
         return result;
       };
       window.addEventListener('popstate', function() {
         setTimeout(function() {
           postWebRoute();
           bindHomeScroller();
+          scheduleOverlayState();
         }, 0);
       });
       document.addEventListener('click', function(event) {
@@ -562,10 +609,14 @@ struct NativeWebView: UIViewRepresentable {
         }
       }, true);
       if (window.MutationObserver && document.body) {
-        scrollWatch.observer = new MutationObserver(bindHomeScroller);
+        scrollWatch.observer = new MutationObserver(function() {
+          bindHomeScroller();
+          scheduleOverlayState();
+        });
         scrollWatch.observer.observe(document.body, { childList: true, subtree: true });
       }
       bindHomeScroller();
+      scheduleOverlayState();
     })();
     """
 }

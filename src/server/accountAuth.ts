@@ -111,6 +111,18 @@ export async function requestSignupOtp(input: SignupOtpRequestInput, request: Re
     `
     if (phoneOwner) throw new HttpError('이미 가입된 휴대폰 번호입니다.', 409)
 
+    const [recentWithdrawal] = await tx`
+      select id
+      from ${sql(schema)}.users
+      where phone = ${phone}
+        and withdrawn_at is not null
+        and withdrawn_at > now() - interval '30 days'
+      limit 1
+    `
+    if (recentWithdrawal) {
+      throw new HttpError('탈퇴 후 30일 동안은 재가입이 제한됩니다.', 400)
+    }
+
     const agreementTimestamp = new Date()
     const passwordHash = hashPassword(input.password)
 
@@ -204,6 +216,18 @@ export async function completeSignup(input: SignupOtpRequestInput) {
       limit 1
     `
     if (phoneOwner) throw new HttpError('이미 가입된 휴대폰 번호입니다.', 409)
+
+    const [recentWithdrawal] = await tx`
+      select id
+      from ${sql(schema)}.users
+      where phone = ${phone}
+        and withdrawn_at is not null
+        and withdrawn_at > now() - interval '30 days'
+      limit 1
+    `
+    if (recentWithdrawal) {
+      throw new HttpError('탈퇴 후 30일 동안은 재가입이 제한됩니다.', 400)
+    }
 
     const [created] = await tx`
       insert into ${sql(schema)}.users (

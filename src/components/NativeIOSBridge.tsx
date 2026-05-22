@@ -15,6 +15,7 @@ declare global {
             permission?: 'push' | 'location'
             context?: IOSPushPromptContext
             unreadCount?: number
+            isPresented?: boolean
           }) => void
         }
       }
@@ -35,7 +36,7 @@ export function isNativeAppShell() {
   if (typeof window === 'undefined') return false
   const userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent
   return userAgent.includes('ManwonIOS')
-    || userAgent.includes('ManwonAndroid')
+    || userAgent.includes('ManwonIOS')
     || Boolean(window.webkit?.messageHandlers?.manwonNative)
     || Boolean(window.ManwonNative?.postMessage)
 }
@@ -47,9 +48,18 @@ function postNativeMessage(payload: {
   permission?: 'push' | 'location'
   context?: IOSPushPromptContext
   unreadCount?: number
+  isPresented?: boolean
 }) {
   window.webkit?.messageHandlers?.manwonNative?.postMessage(payload)
   return Boolean(window.webkit?.messageHandlers?.manwonNative)
+}
+
+export function setNativeOverlayState(isPresented: boolean) {
+  if (typeof window === 'undefined' || !isManwonIOS()) return false
+  return postNativeMessage({
+    type: 'overlayState',
+    isPresented,
+  })
 }
 
 export function requestIOSPushPermission(context: IOSPushPromptContext, metadata?: { unreadCount?: number }) {

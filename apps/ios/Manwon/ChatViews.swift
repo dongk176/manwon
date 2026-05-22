@@ -635,6 +635,8 @@ private enum ChatTradeAction: Identifiable, Equatable {
 }
 
 struct ChatDetailView: View {
+    private static let scrollBottomAnchorId = "chat-scroll-bottom-anchor"
+
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var permissionPrompts: PermissionPromptManager
     @StateObject private var viewModel: ChatDetailViewModel
@@ -862,6 +864,9 @@ struct ChatDetailView: View {
                                 TypingIndicatorBubble()
                                     .id("typing-indicator")
                             }
+                            Color.clear
+                                .frame(height: 1)
+                                .id(Self.scrollBottomAnchorId)
                         }
                         .padding(.bottom, 12)
                     }
@@ -872,17 +877,23 @@ struct ChatDetailView: View {
                         dismissComposerKeyboard()
                     }
                     .onAppear {
-                        scrollToBottom(proxy, animated: false)
+                        scrollToBottom(proxy, animated: false, delays: [0, 0.05])
                     }
                     .onChange(of: viewModel.messages.last?.id) { _ in
-                        scrollToBottom(proxy, animated: true)
+                        scrollToBottom(proxy, animated: true, delays: [0, 0.08, 0.22])
                     }
                     .onChange(of: viewModel.otherTyping) { _ in
-                        scrollToBottom(proxy, animated: true)
+                        scrollToBottom(proxy, animated: true, delays: [0, 0.08])
                     }
                     .onChange(of: composerFocused) { focused in
                         guard focused else { return }
-                        scrollToBottom(proxy, animated: true, delay: 0.25)
+                        scrollToBottom(proxy, animated: true, delays: [0.05, 0.22, 0.42])
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+                        scrollToBottom(proxy, animated: true, delays: [0.05, 0.22, 0.42])
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+                        scrollToBottom(proxy, animated: true)
                     }
                 }
 
@@ -916,17 +927,21 @@ struct ChatDetailView: View {
         }
     }
 
-    private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool, delay: TimeInterval = 0) {
-        let targetId = viewModel.otherTyping ? "typing-indicator" : viewModel.messages.last?.id
-        guard let targetId else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-            if animated {
-                withAnimation(.easeOut(duration: 0.2)) {
-                    proxy.scrollTo(targetId, anchor: .bottom)
-                }
-            } else {
-                proxy.scrollTo(targetId, anchor: .bottom)
+    private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool, delays: [TimeInterval] = [0]) {
+        for delay in delays {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                scrollToBottomNow(proxy, animated: animated)
             }
+        }
+    }
+
+    private func scrollToBottomNow(_ proxy: ScrollViewProxy, animated: Bool) {
+        if animated {
+            withAnimation(.easeOut(duration: 0.2)) {
+                proxy.scrollTo(Self.scrollBottomAnchorId, anchor: .bottom)
+            }
+        } else {
+            proxy.scrollTo(Self.scrollBottomAnchorId, anchor: .bottom)
         }
     }
 }

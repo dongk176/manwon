@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type TouchEvent as ReactTouchEvent } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import { setNativeOverlayState } from '@/components/NativeIOSBridge'
 import { AppHeader, CategoryScroller, MapUnavailableOverlay, ReportConfirmSheet, RequestCard, SegmentedControl } from '@/components/ui/Common'
 import { categoryDetailOptions, customCategoryDetailOption, getCategoryLabel, requests, type RequestPost } from '@/data/mockData'
 import { createReport, fetchMyPage, fetchTaskPosts, mapApiPostToRequestPost } from '@/lib/manwonApi'
@@ -127,6 +128,13 @@ export function HomeScreen() {
       document.removeEventListener('touchstart', closeOnOutside)
     }
   }, [showRegionMenu])
+
+  useEffect(() => {
+    setNativeOverlayState(Boolean(reportTarget))
+    return () => {
+      setNativeOverlayState(false)
+    }
+  }, [reportTarget])
 
   async function refreshHomePosts() {
     if (isRefreshing || loadState === 'loading') return
@@ -283,8 +291,6 @@ export function HomeScreen() {
             )}
           </div>
         }
-        showBell
-        showSearch
       />
 
       <SegmentedControl value={mode} onChange={setMode} options={homeModeOptions} />

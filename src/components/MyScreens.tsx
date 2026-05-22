@@ -106,6 +106,8 @@ type MyActivity = {
 type FilterStatus = '진행중' | '완료' | '취소' | '마감임박'
 type TaskItem = {
   id: string
+  postId: string
+  conversationId?: string | null
   title: string
   category: string
   price: number
@@ -137,6 +139,9 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [authBusy, setAuthBusy] = useState(false)
   const [withdrawBusy, setWithdrawBusy] = useState(false)
+  const [withdrawConfirmOpen, setWithdrawConfirmOpen] = useState(false)
+  const [withdrawConfirmText, setWithdrawConfirmText] = useState('')
+  const [withdrawConfirmError, setWithdrawConfirmError] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -164,23 +169,67 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
     }
   }
 
+  function openWithdrawConfirm() {
+    if (withdrawBusy) return
+    setWithdrawConfirmText('')
+    setWithdrawConfirmError('')
+    setWithdrawConfirmOpen(true)
+  }
+
+  function closeWithdrawConfirm() {
+    if (withdrawBusy) return
+    setWithdrawConfirmOpen(false)
+    setWithdrawConfirmText('')
+    setWithdrawConfirmError('')
+  }
+
   async function handleWithdraw() {
-    if (typeof window !== 'undefined' && !window.confirm('회원 탈퇴 시 계정이 비활성화되고 개인정보가 마스킹됩니다. 탈퇴하시겠어요?')) return
+    if (withdrawConfirmText.trim() !== '탈퇴하기') {
+      setWithdrawConfirmError('"탈퇴하기"를 정확히 입력해주세요.')
+      return
+    }
+
     setWithdrawBusy(true)
+    setWithdrawConfirmError('')
     try {
       await withdrawAccount()
+      setWithdrawConfirmOpen(false)
+      setWithdrawConfirmText('')
       setMyPage(null)
       setActivity(emptyActivity)
-      router.push('/login')
+      router.replace('/login')
+    } catch (error) {
+      setWithdrawConfirmError(error instanceof Error ? error.message : '탈퇴를 처리하지 못했습니다.')
     } finally {
       setWithdrawBusy(false)
     }
   }
 
+  function withWithdrawOverlay(content: ReactNode) {
+    return (
+      <>
+        {content}
+        {withdrawConfirmOpen && (
+          <WithdrawConfirmOverlay
+            value={withdrawConfirmText}
+            busy={withdrawBusy}
+            error={withdrawConfirmError}
+            onChange={(value) => {
+              setWithdrawConfirmText(value)
+              if (withdrawConfirmError) setWithdrawConfirmError('')
+            }}
+            onClose={closeWithdrawConfirm}
+            onConfirm={() => void handleWithdraw()}
+          />
+        )}
+      </>
+    )
+  }
+
   const userGender = toProfileGender(myPage?.gender)
 
   if (section === 'activity' || section === 'requests' || section === 'helped') {
-    return (
+    return withWithdrawOverlay(
       <MyActivityScreen
         posts={activity.myPosts}
         deals={activity.helpedDeals}
@@ -191,11 +240,11 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
   }
 
   if (section === 'favorites') {
-    return <MyFavoritesScreen favorites={activity.favorites} loading={loadState === 'loading'} onBack={() => router.push('/my')} />
+    return withWithdrawOverlay(<MyFavoritesScreen favorites={activity.favorites} loading={loadState === 'loading'} onBack={() => router.push('/my')} />)
   }
 
   if (section === 'settlement') {
-    return (
+    return withWithdrawOverlay(
       <SettlementScreen
         initialSummary={settlementSummary}
         onBack={() => router.push('/my')}
@@ -205,15 +254,15 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
   }
 
   if (section === 'reviews') {
-    return <ReviewsScreen reviews={activity.receivedReviews} loading={loadState === 'loading'} onBack={() => router.push('/my')} />
+    return withWithdrawOverlay(<ReviewsScreen reviews={activity.receivedReviews} loading={loadState === 'loading'} onBack={() => router.push('/my')} />)
   }
 
   if (section === 'account') {
-    return (
+    return withWithdrawOverlay(
       <AccountScreen
         onBack={() => router.push('/my')}
         onLogout={() => void handleLogout()}
-        onWithdraw={() => void handleWithdraw()}
+        onWithdraw={openWithdrawConfirm}
         authBusy={authBusy}
         withdrawBusy={withdrawBusy}
       />
@@ -221,15 +270,15 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
   }
 
   if (section === 'support') {
-    return <SupportScreen onBack={() => router.push('/my/account')} />
+    return withWithdrawOverlay(<SupportScreen onBack={() => router.push('/my/account')} />)
   }
 
   if (section === 'profiles') {
-    return <ActivityProfilesScreen onBack={() => router.push('/my')} userGender={userGender} />
+    return withWithdrawOverlay(<ActivityProfilesScreen onBack={() => router.push('/my')} userGender={userGender} />)
   }
 
   if (section === 'profileOnboarding') {
-    return (
+    return withWithdrawOverlay(
       <ActivityProfilesScreen
         onboarding
         userGender={userGender}
@@ -242,7 +291,7 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
   }
 
   if (section === 'manage') {
-    return (
+    return withWithdrawOverlay(
       <ManageScreen
         onBack={() => router.push('/my')}
         onOpenBlocks={() => router.push('/my/blocks')}
@@ -254,13 +303,13 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
   }
 
   if (section === 'blocks' || section === 'reports') {
-    return (
+    return withWithdrawOverlay(
       <BlocksReportsScreen
         initialTab={section === 'reports' ? 'reports' : 'blocks'}
         blocks={activity.blocks}
         reports={activity.reports}
         onBack={() => router.push('/my')}
-        onWithdraw={() => void handleWithdraw()}
+        onWithdraw={openWithdrawConfirm}
         withdrawBusy={withdrawBusy}
         onRemoved={(blockedUserId) => {
           setActivity((current) => ({
@@ -282,7 +331,7 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
   const phoneVerified = myPage?.phoneVerified === true
 
   if (loadState === 'loading') {
-    return (
+    return withWithdrawOverlay(
       <section className="screen my-screen my-page-loading">
         <AppHeader title="마이" showSettings onSettings={() => router.push('/my/account')} />
         <div className="my-page-loading-indicator" role="status" aria-label="마이페이지 로딩 중">
@@ -292,7 +341,7 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
     )
   }
 
-  return (
+  return withWithdrawOverlay(
     <section className="screen my-screen my-page-ready">
       <AppHeader title="마이" showSettings onSettings={() => router.push('/my/account')} />
       {loadState === 'error' && <p className="inline-status is-error">마이페이지 정보를 불러오지 못했습니다.</p>}
@@ -336,6 +385,10 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
         <Headphones size={18} />
         고객센터
       </button>
+      <button className="withdraw-cta my-main-withdraw-button" type="button" disabled={withdrawBusy} onClick={openWithdrawConfirm}>
+        <UserMinus size={18} />
+        {withdrawBusy ? '탈퇴 처리 중' : '탈퇴하기'}
+      </button>
     </section>
   )
 }
@@ -355,6 +408,8 @@ function MyActivityScreen({
 }) {
   const [activeTab, setActiveTab] = useState<MyActivityTab>(initialTab)
   const [activeStatus, setActiveStatus] = useState('전체')
+  const [selectedItem, setSelectedItem] = useState<TaskItem | null>(null)
+  const router = useRouter()
   const postItems = useMemo(() => posts.map(postToTaskItem), [posts])
   const dealItems = useMemo(() => deals.map(dealToTaskItem), [deals])
   const activeItems = activeTab === '내 부탁' ? postItems : dealItems
@@ -369,7 +424,21 @@ function MyActivityScreen({
       <AppHeader title="내 활동" centered />
       <ChipTabs tabs={['내 부탁', '내가 해준 일']} active={activeTab} onChange={(tab) => setActiveTab(tab as MyActivityTab)} />
       <SegmentTabs tabs={['전체', '진행중', '완료', '취소']} active={activeStatus} onChange={setActiveStatus} />
-      <TaskList items={filteredItems} loading={loading} emptyTitle={emptyTitle} emptyText={emptyText} />
+      <TaskList items={filteredItems} loading={loading} emptyTitle={emptyTitle} emptyText={emptyText} onItemSelect={setSelectedItem} />
+      {selectedItem && (
+        <ActivityRouteOverlay
+          item={selectedItem}
+          onClose={() => setSelectedItem(null)}
+          onOpenChat={() => {
+            if (!selectedItem.conversationId) return
+            router.push(`/chat/${encodeURIComponent(selectedItem.conversationId)}`)
+          }}
+          onOpenPost={() => {
+            if (!selectedItem.postId) return
+            router.push(`/posts/${encodeURIComponent(selectedItem.postId)}`)
+          }}
+        />
+      )}
     </section>
   )
 }
@@ -1112,7 +1181,19 @@ function ProfileTextField({
   )
 }
 
-function TaskList({ items, loading, emptyTitle, emptyText }: { items: TaskItem[]; loading: boolean; emptyTitle: string; emptyText: string }) {
+function TaskList({
+  items,
+  loading,
+  emptyTitle,
+  emptyText,
+  onItemSelect,
+}: {
+  items: TaskItem[]
+  loading: boolean
+  emptyTitle: string
+  emptyText: string
+  onItemSelect?: (item: TaskItem) => void
+}) {
   if (loading) {
     return <p className="inline-status">목록을 불러오는 중입니다.</p>
   }
@@ -1128,14 +1209,14 @@ function TaskList({ items, loading, emptyTitle, emptyText }: { items: TaskItem[]
 
   return (
     <div className="my-post-list">
-      {items.map((item) => <TaskCard key={item.id} item={item} />)}
+      {items.map((item) => <TaskCard key={item.id} item={item} onSelect={onItemSelect ? () => onItemSelect(item) : undefined} />)}
     </div>
   )
 }
 
-function TaskCard({ item }: { item: TaskItem }) {
-  return (
-    <article className="my-activity-card">
+function TaskCard({ item, onSelect }: { item: TaskItem; onSelect?: () => void }) {
+  const content = (
+    <>
       <div className="my-activity-card-body">
         <span>{item.category}</span>
         <h2>{item.title}</h2>
@@ -1155,7 +1236,58 @@ function TaskCard({ item }: { item: TaskItem }) {
       </div>
       <em className={item.filterStatus === '완료' || item.filterStatus === '취소' ? 'is-muted' : ''}>{item.dueSoon ? '마감임박' : item.statusLabel}</em>
       <ChevronRight size={19} />
+    </>
+  )
+
+  if (onSelect) {
+    return (
+      <button className="my-activity-card" type="button" onClick={onSelect}>
+        {content}
+      </button>
+    )
+  }
+
+  return (
+    <article className="my-activity-card">
+      {content}
     </article>
+  )
+}
+
+function ActivityRouteOverlay({
+  item,
+  onClose,
+  onOpenChat,
+  onOpenPost,
+}: {
+  item: TaskItem
+  onClose: () => void
+  onOpenChat: () => void
+  onOpenPost: () => void
+}) {
+  const hasChat = Boolean(item.conversationId)
+  const hasPost = Boolean(item.postId)
+
+  return (
+    <div className="sheet-overlay is-centered activity-route-overlay" role="presentation" onClick={onClose}>
+      <section className="activity-route-dialog" role="dialog" aria-modal="true" aria-labelledby="activity-route-title" onClick={(event) => event.stopPropagation()}>
+        <button className="activity-route-close" type="button" onClick={onClose} aria-label="닫기">
+          <X size={18} />
+        </button>
+        <span>{item.category}</span>
+        <h2 id="activity-route-title">{item.title}</h2>
+        <p>어디로 이동할까요?</p>
+        <div className="activity-route-actions">
+          <BrandButton full size="lg" disabled={!hasChat} onClick={onOpenChat}>
+            채팅창 이동
+          </BrandButton>
+          <BrandButton full size="lg" variant="outline" disabled={!hasPost} onClick={onOpenPost}>
+            게시글 이동
+          </BrandButton>
+        </div>
+        {!hasChat && <small>아직 연결된 채팅방이 없어요.</small>}
+      </section>
+    </div>
   )
 }
 
@@ -1369,6 +1501,62 @@ function AccountScreen({
         <SettingsRow icon={<LogOut />} title={authBusy ? '로그아웃 중' : '로그아웃'} subtitle="현재 계정에서 로그아웃합니다." danger onClick={onLogout} />
       </div>
     </section>
+  )
+}
+
+function WithdrawConfirmOverlay({
+  value,
+  busy,
+  error,
+  onChange,
+  onClose,
+  onConfirm,
+}: {
+  value: string
+  busy: boolean
+  error: string
+  onChange: (value: string) => void
+  onClose: () => void
+  onConfirm: () => void
+}) {
+  return (
+    <div className="modal-overlay" role="presentation" onClick={busy ? undefined : onClose}>
+      <div className="confirm-dialog withdraw-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="withdraw-confirm-title" onClick={(event) => event.stopPropagation()}>
+        <span className="withdraw-confirm-badge">
+          <TriangleAlert size={16} />
+          탈퇴 전 확인
+        </span>
+        <h2 id="withdraw-confirm-title">정말 탈퇴하시겠어요?</h2>
+        <p>
+          탈퇴하면 계정은 바로 비활성화됩니다.
+          <br />
+          개인정보는 개인정보 처리방침과 관련 법령에 따라 즉시 전부 삭제되지 않을 수 있습니다.
+        </p>
+        <ul className="withdraw-confirm-list">
+          <li>탈퇴 후 같은 휴대폰 번호로 30일 동안 회원가입할 수 없습니다.</li>
+          <li>신고, 거래, 정산, 분쟁 대응에 필요한 일부 기록은 보관될 수 있습니다.</li>
+        </ul>
+        <label className="withdraw-confirm-field">
+          <span>확인을 위해 아래 문구를 그대로 입력해주세요.</span>
+          <input
+            value={value}
+            disabled={busy}
+            onChange={(event) => onChange(event.target.value)}
+            placeholder="탈퇴하기"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+          />
+        </label>
+        {error && <p className="inline-status is-error">{error}</p>}
+        <div className="withdraw-confirm-actions">
+          <button type="button" onClick={onClose} disabled={busy}>취소</button>
+          <button type="button" onClick={onConfirm} disabled={busy}>
+            {busy ? '탈퇴 처리 중' : '탈퇴하기'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -1925,6 +2113,8 @@ function postToTaskItem(post: ActivityPost): TaskItem {
   const applicationCount = getNumber(post, 'applicationCount')
   return {
     id: getString(post, 'id'),
+    postId: getString(post, 'id'),
+    conversationId: getString(post, 'conversationId') || null,
     title: getString(post, 'title') || '제목 없는 부탁',
     category: getString(post, 'category') || '기타',
     price: getNumber(post, 'price'),
@@ -1941,6 +2131,8 @@ function dealToTaskItem(deal: ActivityRecord): TaskItem {
   const status = getString(deal, 'status')
   return {
     id: getString(deal, 'id'),
+    postId: getString(deal, 'postId'),
+    conversationId: getString(deal, 'conversationId') || null,
     title: getString(deal, 'postTitle') || '거래한 부탁',
     category: getString(deal, 'postCategory') || '기타',
     price: getNumber(deal, 'price'),
@@ -1958,6 +2150,8 @@ function favoriteToTaskItem(favorite: ActivityRecord): TaskItem {
   const dueSoon = isDueSoon(favorite.postDeadlineAt)
   return {
     id: getString(favorite, 'id') || getString(favorite, 'postId'),
+    postId: getString(favorite, 'postId'),
+    conversationId: null,
     title: getString(favorite, 'postTitle') || '찜한 부탁',
     category: getString(favorite, 'postCategory') || '기타',
     price: getNumber(favorite, 'postPrice'),

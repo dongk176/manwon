@@ -186,7 +186,7 @@ struct NearbyView: View {
                         Image(systemName: "plus")
                             .font(.system(size: 25, weight: .semibold))
                         if sheetDetent != .collapsed {
-                            Text("글쓰기")
+                            Text("등록")
                                 .font(.system(size: 17, weight: .bold))
                         }
                     }
