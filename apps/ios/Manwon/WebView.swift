@@ -174,6 +174,7 @@ struct NativeWebView: UIViewRepresentable {
         var onFinishLoading: () -> Void
         var onError: () -> Void
         private var currentPath: String?
+        private var requestedPath: String?
         private var currentReloadToken: UUID?
         private var lastIsAtTop = true
         private let locationManager = CLLocationManager()
@@ -206,12 +207,14 @@ struct NativeWebView: UIViewRepresentable {
 
         func load(path: String, in webView: WKWebView, reloadToken: UUID) {
             self.webView = webView
-            guard currentPath != path || currentReloadToken != reloadToken else { return }
+            guard requestedPath != path || currentReloadToken != reloadToken else { return }
+            requestedPath = path
             currentPath = path
             currentReloadToken = reloadToken
             lastIsAtTop = true
-            onScrollTopChange(true)
-            onRouteChange(path)
+            DispatchQueue.main.async { [weak self] in
+                self?.onScrollTopChange(true)
+            }
             webView.load(URLRequest(url: AppConfig.webURL(path: path)))
         }
 
@@ -260,6 +263,7 @@ struct NativeWebView: UIViewRepresentable {
 
             if type == "webRoute" {
                 currentPath = path
+                requestedPath = path
                 onRouteChange(path)
                 return
             }
@@ -351,6 +355,7 @@ struct NativeWebView: UIViewRepresentable {
             if let url = webView.url {
                 let path = AppConfig.pathWithQuery(from: url)
                 currentPath = path
+                requestedPath = path
                 onRouteChange(path)
             }
             webView.scrollView.setZoomScale(1, animated: false)
@@ -406,6 +411,8 @@ struct NativeWebView: UIViewRepresentable {
                 return
             }
 
+            currentPath = routePath
+            requestedPath = routePath
             onRouteChange(routePath)
             decisionHandler(.allow)
         }

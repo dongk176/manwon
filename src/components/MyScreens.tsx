@@ -186,7 +186,6 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
         deals={activity.helpedDeals}
         loading={loadState === 'loading'}
         initialTab={section === 'helped' ? '내가 해준 일' : '내 부탁'}
-        onBack={() => router.push('/my')}
       />
     )
   }
@@ -278,8 +277,6 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
   const fallbackAvatarUrl = getDefaultProfileImageByGender(userGender)
   const ratingAvg = getNumber(myPage ?? {}, 'ratingAvg')
   const completedCount = getNumber(myPage ?? {}, 'completedCount')
-  const totalPostsCount = getNumber(myPage ?? {}, 'postsCount', activity.myPosts.length)
-  const totalHelpingCount = getNumber(myPage ?? {}, 'helpingCount', activity.helpedDeals.length)
   const favoriteCount = getNumber(myPage ?? {}, 'favoriteCount', activity.favorites.length)
   const receivedReviewCount = getNumber(myPage ?? {}, 'receivedReviewCount', activity.receivedReviews.length)
   const phoneVerified = myPage?.phoneVerified === true
@@ -322,7 +319,6 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
 
       <MenuGroup>
         <MenuItem icon={<UserRound />} title="내 프로필 관리" badge="활동 프로필" onClick={() => router.push('/my/profiles')} />
-        <MenuItem icon={<WalletCards />} title="내 활동" badge={`${totalPostsCount + totalHelpingCount}개`} onClick={() => router.push('/activity')} />
         <MenuItem icon={<Heart />} title="찜한 부탁" badge={`${favoriteCount}개`} onClick={() => router.push('/my/favorites')} muted />
       </MenuGroup>
 
@@ -351,13 +347,11 @@ function MyActivityScreen({
   deals,
   loading,
   initialTab,
-  onBack,
 }: {
   posts: ActivityPost[]
   deals: ActivityRecord[]
   loading: boolean
   initialTab: MyActivityTab
-  onBack: () => void
 }) {
   const [activeTab, setActiveTab] = useState<MyActivityTab>(initialTab)
   const [activeStatus, setActiveStatus] = useState('전체')
@@ -372,7 +366,7 @@ function MyActivityScreen({
 
   return (
     <section className="screen my-sub-screen my-activity-screen">
-      <AppHeader title="내 활동" centered onBack={onBack} />
+      <AppHeader title="내 활동" centered />
       <ChipTabs tabs={['내 부탁', '내가 해준 일']} active={activeTab} onChange={(tab) => setActiveTab(tab as MyActivityTab)} />
       <SegmentTabs tabs={['전체', '진행중', '완료', '취소']} active={activeStatus} onChange={setActiveStatus} />
       <TaskList items={filteredItems} loading={loading} emptyTitle={emptyTitle} emptyText={emptyText} />

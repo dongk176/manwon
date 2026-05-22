@@ -36,25 +36,29 @@ final class AppRouter: ObservableObject {
         if selectedTab == .nearby && nearbySheetCoversBottomNav { return true }
 
         guard let path = displayedWebPaths[selectedTab] else { return false }
-        return path == "/login"
-            || path.hasPrefix("/login?")
-            || path == "/signup"
-            || path.hasPrefix("/signup?")
-            || path == "/profile-onboarding"
-            || path.hasPrefix("/posts/")
-            || path == "/register/request"
-            || path == "/register/offer"
+        return matchesPath(path, "/login")
+            || matchesPath(path, "/signup")
+            || matchesPath(path, "/profile-onboarding")
+            || matchesPath(path, "/posts")
+            || matchesPath(path, "/my/profiles")
+            || matchesPath(path, "/register/request")
+            || matchesPath(path, "/register/offer")
     }
 
     func updateSession(_ session: SessionState) {
-        onboardingRequired = session.authenticated && session.profile?.profileOnboardingCompleted != true
-        if onboardingRequired {
+        let requiresOnboarding = session.authenticated && session.profile?.profileOnboardingCompleted != true
+        if onboardingRequired != requiresOnboarding {
+            onboardingRequired = requiresOnboarding
+        }
+        if requiresOnboarding {
             routeToProfileOnboarding()
         }
     }
 
     func completeProfileOnboarding() {
-        onboardingRequired = false
+        if onboardingRequired {
+            onboardingRequired = false
+        }
     }
 
     func openNativeRoute(path: String) {
@@ -65,22 +69,18 @@ final class AppRouter: ObservableObject {
         }
 
         if normalized == "/chat" {
-            selectedTab = .chat
-            chatConversationId = nil
-            chatDetailActive = false
-            chatRouteRevision += 1
+            setSelectedTab(.chat)
+            setChatRoute(conversationId: nil, detailActive: false, advanceRevision: true)
             return
         }
 
         if normalized.hasPrefix("/chat/") {
-            selectedTab = .chat
-            chatConversationId = String(normalized.dropFirst("/chat/".count))
-            chatDetailActive = true
-            chatRouteRevision += 1
+            setSelectedTab(.chat)
+            setChatRoute(conversationId: String(normalized.dropFirst("/chat/".count)), detailActive: true, advanceRevision: true)
             return
         }
 
-        if normalized == "/nearby" || normalized.hasPrefix("/nearby/") {
+        if matchesPath(normalized, "/nearby") {
             openWebPath("/activity")
             return
         }
@@ -95,30 +95,26 @@ final class AppRouter: ObservableObject {
             return
         }
 
-        if normalized == "/activity" || normalized.hasPrefix("/activity/") {
-            activityPath = normalized
-            webRouteDidChange(normalized, for: .nearby)
-            selectedTab = .nearby
+        if matchesPath(normalized, "/activity") {
+            setWebPath(normalized, for: .nearby)
+            setSelectedTab(.nearby)
             return
         }
 
-        if normalized == "/register" || normalized.hasPrefix("/register/") {
-            registerPath = normalized
-            webRouteDidChange(normalized, for: .register)
-            selectedTab = .register
+        if matchesPath(normalized, "/register") {
+            setWebPath(normalized, for: .register)
+            setSelectedTab(.register)
             return
         }
 
-        if normalized == "/my" || normalized.hasPrefix("/my/") {
-            myPath = normalized
-            webRouteDidChange(normalized, for: .my)
-            selectedTab = .my
+        if matchesPath(normalized, "/my") {
+            setWebPath(normalized, for: .my)
+            setSelectedTab(.my)
             return
         }
 
-        homePath = normalized
-        webRouteDidChange(normalized, for: .home)
-        selectedTab = .home
+        setWebPath(normalized, for: .home)
+        setSelectedTab(.home)
     }
 
     func open(url: URL) {
@@ -133,52 +129,43 @@ final class AppRouter: ObservableObject {
             return
         }
 
-        var nextDisplayedWebPaths = displayedWebPaths
-        if normalized == "/activity" || normalized.hasPrefix("/activity/") {
-            activityPath = normalized
-            nextDisplayedWebPaths[.nearby] = normalized
-            displayedWebPaths = nextDisplayedWebPaths
+        if matchesPath(normalized, "/activity") {
+            setWebPath(normalized, for: .nearby)
             if tab != .nearby {
-                selectedTab = .nearby
+                setSelectedTab(.nearby)
             }
             return
         }
 
-        if normalized == "/my" || normalized.hasPrefix("/my/") {
-            myPath = normalized
-            nextDisplayedWebPaths[.my] = normalized
-            displayedWebPaths = nextDisplayedWebPaths
+        if matchesPath(normalized, "/my") {
+            setWebPath(normalized, for: .my)
             if tab != .my {
-                selectedTab = .my
+                setSelectedTab(.my)
             }
             return
         }
 
-        if tab == .home {
-            homePath = normalized
-        } else if tab == .register {
-            registerPath = normalized
-        }
-        nextDisplayedWebPaths[tab] = normalized
-        displayedWebPaths = nextDisplayedWebPaths
+        setWebPath(normalized, for: tab)
     }
 
     func homeScrollDidChange(isAtTop: Bool) {
-        homeIsAtTop = isAtTop
+        if homeIsAtTop != isAtTop {
+            homeIsAtTop = isAtTop
+        }
     }
 
     func showMapUnavailableNotice() {
-        mapUnavailableNoticeVisible = true
+        if !mapUnavailableNoticeVisible {
+            mapUnavailableNoticeVisible = true
+        }
     }
 
     func openPush(userInfo: [AnyHashable: Any]) {
         let data = dictionaryValue(userInfo["data"])
 
         if let conversationId = stringValue(userInfo["conversationId"]) ?? stringValue(data?["conversationId"]) {
-            selectedTab = .chat
-            chatConversationId = conversationId
-            chatDetailActive = true
-            chatRouteRevision += 1
+            setSelectedTab(.chat)
+            setChatRoute(conversationId: conversationId, detailActive: true, advanceRevision: true)
             return
         }
 
@@ -222,10 +209,65 @@ final class AppRouter: ObservableObject {
     }
 
     private func routeToProfileOnboarding() {
-        chatDetailActive = false
-        chatConversationId = nil
-        homePath = "/profile-onboarding"
-        displayedWebPaths[.home] = "/profile-onboarding"
-        selectedTab = .home
+        setChatRoute(conversationId: nil, detailActive: false, advanceRevision: false)
+        setWebPath("/profile-onboarding", for: .home)
+        setSelectedTab(.home)
+    }
+
+    private func setSelectedTab(_ tab: AppTab) {
+        if selectedTab != tab {
+            selectedTab = tab
+        }
+    }
+
+    private func setChatRoute(conversationId: String?, detailActive: Bool, advanceRevision: Bool) {
+        var changed = false
+        if chatConversationId != conversationId {
+            chatConversationId = conversationId
+            changed = true
+        }
+        if chatDetailActive != detailActive {
+            chatDetailActive = detailActive
+            changed = true
+        }
+        if changed || advanceRevision {
+            chatRouteRevision += 1
+        }
+    }
+
+    private func setWebPath(_ path: String, for tab: AppTab) {
+        switch tab {
+        case .home:
+            if homePath != path {
+                homePath = path
+            }
+        case .register:
+            if registerPath != path {
+                registerPath = path
+            }
+        case .nearby:
+            if activityPath != path {
+                activityPath = path
+            }
+        case .my:
+            if myPath != path {
+                myPath = path
+            }
+        case .chat:
+            return
+        }
+
+        setDisplayedWebPath(path, for: tab)
+    }
+
+    private func setDisplayedWebPath(_ path: String, for tab: AppTab) {
+        guard displayedWebPaths[tab] != path else { return }
+        var nextDisplayedWebPaths = displayedWebPaths
+        nextDisplayedWebPaths[tab] = path
+        displayedWebPaths = nextDisplayedWebPaths
+    }
+
+    private func matchesPath(_ path: String, _ root: String) -> Bool {
+        path == root || path.hasPrefix("\(root)/") || path.hasPrefix("\(root)?")
     }
 }

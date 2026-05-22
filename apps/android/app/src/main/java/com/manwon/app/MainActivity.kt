@@ -512,6 +512,7 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
             || path.startsWith("/signup?")
             || path == "/profile-onboarding"
             || path.startsWith("/posts/")
+            || path.startsWith("/my/profiles")
             || path == "/register/request"
             || path == "/register/offer"
     }
