@@ -195,13 +195,13 @@ private struct ManwonBottomNavButton: View {
 
                 if unreadCount > 0 {
                     Text(unreadBadgeText(unreadCount))
-                        .font(.system(size: 10, weight: .black))
+                        .font(.system(size: 13, weight: .black))
                         .foregroundStyle(isSelected ? ManwonColor.text : ManwonColor.brand)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                        .frame(minWidth: 16, minHeight: 16)
-                        .padding(.horizontal, unreadCount > 9 ? 4 : 0)
-                        .offset(x: 14, y: -2)
+                        .minimumScaleFactor(0.75)
+                        .frame(minWidth: 18, minHeight: 18)
+                        .padding(.horizontal, unreadCount > 9 ? 5 : 0)
+                        .offset(x: 16, y: -4)
                         .accessibilityHidden(true)
                 }
             }

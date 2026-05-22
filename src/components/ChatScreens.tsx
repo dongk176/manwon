@@ -30,6 +30,7 @@ import {
   createBlock,
   createReport,
   createReview,
+  getDefaultProfileImageByGender,
   getCurrentUserId,
   scheduleReviewReminder,
   sendConversationMessage,
@@ -83,6 +84,11 @@ interface UiMessage extends ChatMessage {
   createdAt?: string
   failed?: boolean
   pending?: boolean
+}
+
+interface ComposerDisabledReason {
+  message: string
+  brand?: boolean
 }
 
 export function ChatScreens({ conversationId }: { conversationId?: string }) {
@@ -243,6 +249,7 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
   const messagesRef = useRef<UiMessage[]>([])
   const messageListRef = useRef<HTMLDivElement | null>(null)
   const lastScrolledMessageIdRef = useRef<string | null>(null)
+  const composerDisabledReason = getComposerDisabledReason(chat)
 
   const loadMessages = useCallback(async (after?: string | null) => {
     try {
@@ -403,7 +410,7 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
 
   async function retryMessage(message: UiMessage) {
     const text = message.text.trim()
-    if (!text) return
+    if (!text || composerDisabledReason) return
 
     const clientMessageId = createClientMessageId()
     setMessages((previous) => previous.filter((item) => item.id !== message.id))
@@ -535,7 +542,7 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
               <div className="bubble-wrap">
                 <p className="message-bubble">{message.text}</p>
                 {message.failed && <span className="message-state">전송 실패</span>}
-                {message.failed && mine && (
+                {message.failed && mine && !composerDisabledReason && (
                   <button className="message-retry" type="button" onClick={() => void retryMessage(message)}>
                     재전송
                   </button>
@@ -550,7 +557,7 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
 
       <MessageComposer
         conversationId={chat.id}
-        disabled={chat.status === '거래완료' || chat.status === '취소됨'}
+        disabledReason={composerDisabledReason}
         onFailed={markMessageFailed}
         onFocus={() => scrollMessagesToBottom('smooth', 250)}
         onOptimistic={addOptimisticMessage}
@@ -1078,14 +1085,14 @@ function TradeActionConfirmDialog({
 
 function MessageComposer({
   conversationId,
-  disabled = false,
+  disabledReason,
   onFailed,
   onFocus,
   onOptimistic,
   onSent,
 }: {
   conversationId: string
-  disabled?: boolean
+  disabledReason?: ComposerDisabledReason | null
   onFailed: (clientMessageId: string) => void
   onFocus?: () => void
   onOptimistic: (text: string, clientMessageId: string) => void
@@ -1094,10 +1101,11 @@ function MessageComposer({
   const [body, setBody] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const disabled = Boolean(disabledReason)
 
   async function send() {
     const text = body.trim()
-    if (!text || busy) return
+    if (!text || busy || disabled) return
     const clientMessageId = createClientMessageId()
     setBusy(true)
     setError('')
@@ -1117,13 +1125,13 @@ function MessageComposer({
   return (
     <div className="message-composer-wrap">
       {error && <p className="inline-status is-error">{error}</p>}
-      <div className={`message-composer ${disabled ? 'is-disabled' : ''}`}>
+      <div className={`message-composer ${disabled ? 'is-disabled' : ''} ${disabledReason?.brand ? 'is-brand-notice' : ''}`}>
         <button type="button" aria-label="첨부">
           {disabled ? <LockKeyhole size={18} /> : <Plus size={22} />}
         </button>
         <input
           disabled={disabled}
-          placeholder={disabled ? '종료된 거래라 메시지를 보낼 수 없어요.' : '메시지를 입력하세요'}
+          placeholder={disabledReason?.message ?? '메시지를 입력하세요'}
           value={body}
           onChange={(event) => setBody(event.target.value)}
           onFocus={onFocus}
@@ -1154,7 +1162,7 @@ function mapConversationToChat(conversation: ApiConversation, currentUserId: str
     id: otherId,
     name: otherName,
     intro: conversation.otherBio?.trim() || '',
-    avatarUrl: conversation.otherAvatarUrl ?? null,
+    avatarUrl: conversation.otherAvatarUrl ?? getDefaultProfileImageByGender(conversation.otherGender) ?? null,
     rating: Number(conversation.otherRatingAvg ?? 0),
     reviewCount: conversation.otherReviewCount ?? undefined,
     completedCount: conversation.otherCompletedCount ?? 0,
@@ -1338,6 +1346,21 @@ function isMessageType(value: string | null): value is ApiMessage['messageType']
 function createClientMessageId() {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
   return `00000000-0000-4000-8000-${Math.random().toString(16).slice(2, 14).padEnd(12, '0')}`
+}
+
+function getComposerDisabledReason(chat: UiChat): ComposerDisabledReason | null {
+  if (chat.postType === 'request' && chat.applicationStatus === 'applied' && !chat.dealId) {
+    return {
+      message: '지원 요청이 수락되면 채팅을 할 수 있습니다.',
+      brand: true,
+    }
+  }
+  if (chat.status === '거래완료' || chat.status === '취소됨') {
+    return {
+      message: '종료된 거래라 메시지를 보낼 수 없어요.',
+    }
+  }
+  return null
 }
 
 function mapTradeStatus(conversation: ApiConversation): TradeStatus {

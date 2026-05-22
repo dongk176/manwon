@@ -459,14 +459,14 @@ html.native-ios-shell [role="button"] {
 
 .bottom-nav-unread-badge {
   position: absolute;
-  top: -1px;
-  left: 22px;
+  top: -3px;
+  left: 23px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 16px;
+  min-width: 18px;
   color: var(--brand);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 900;
   line-height: 1;
   letter-spacing: 0;
@@ -1928,6 +1928,10 @@ html.native-ios-shell [role="button"] {
   color: #aaaab0;
 }
 
+.message-composer.is-disabled.is-brand-notice {
+  color: var(--brand);
+}
+
 .message-composer button {
   display: inline-flex;
   align-items: center;
@@ -1939,6 +1943,14 @@ html.native-ios-shell [role="button"] {
 .message-composer input {
   min-width: 0;
   font-size: 14px;
+}
+
+.message-composer.is-brand-notice input,
+.message-composer.is-brand-notice input::placeholder {
+  color: var(--brand);
+  font-weight: 800;
+  opacity: 1;
+  -webkit-text-fill-color: var(--brand);
 }
 
 .send-button {

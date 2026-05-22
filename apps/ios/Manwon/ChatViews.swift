@@ -121,9 +121,8 @@ struct ChatListView: View {
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
                 .buttonStyle(.plain)
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.visible)
-                .listRowSeparatorTint(ManwonColor.line)
+                .listRowInsets(EdgeInsets(top: 10, leading: 14, bottom: 10, trailing: 14))
+                .listRowSeparator(.hidden)
                 .listRowBackground(ManwonColor.surface)
             }
             .listStyle(.plain)
@@ -157,17 +156,15 @@ private struct ChatPageHeader: View {
 
 private struct ChatRow: View {
     let conversation: Conversation
+    private let avatarSize: CGFloat = 84
 
     var body: some View {
-        HStack(spacing: 12) {
-            Circle()
-                .fill(ManwonColor.brandSoft)
-                .frame(width: 48, height: 48)
-                .overlay {
-                    Text(String((conversation.otherNickname ?? "상대").prefix(1)))
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(ManwonColor.brand)
-                }
+        HStack(spacing: 14) {
+            ChatListAvatar(
+                imageUrl: conversation.otherAvatarUrl,
+                gender: conversation.otherGender,
+                size: avatarSize
+            )
 
             VStack(alignment: .leading, spacing: 7) {
                 HStack(spacing: 8) {
@@ -199,6 +196,63 @@ private struct ChatRow: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
+    }
+}
+
+private struct ChatListAvatar: View {
+    let imageUrl: String?
+    let gender: String?
+    let size: CGFloat
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(ManwonColor.brandSoft)
+
+            if let url {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    default:
+                        fallbackIcon
+                    }
+                }
+            } else {
+                fallbackIcon
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+    }
+
+    private var url: URL? {
+        let preferredUrl = imageUrl?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let preferredUrl, !preferredUrl.isEmpty {
+            return APIClient.shared.absoluteURLString(preferredUrl).flatMap(URL.init(string:))
+        }
+        return defaultProfileImagePath(gender: gender)
+            .flatMap { APIClient.shared.absoluteURLString($0) }
+            .flatMap(URL.init(string:))
+    }
+
+    private var fallbackIcon: some View {
+        Image(systemName: "person.fill")
+            .font(.system(size: 30, weight: .semibold))
+            .foregroundStyle(ManwonColor.brand)
+    }
+}
+
+private func defaultProfileImagePath(gender: String?) -> String? {
+    switch gender {
+    case "male":
+        return "/profile/man.png"
+    case "female":
+        return "/profile/woman.png"
+    default:
+        return nil
     }
 }
 
@@ -295,11 +349,21 @@ final class ChatDetailViewModel: ObservableObject {
     }
 
     func sendText() async {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !isSending else { return }
+        await sendMessageText(draft, clearDraft: true)
+    }
+
+    func sendQuickMessage(_ text: String) async {
+        await sendMessageText(text, clearDraft: false)
+    }
+
+    private func sendMessageText(_ rawText: String, clearDraft: Bool) async {
+        let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard canSendMessages, !text.isEmpty, !isSending else { return }
         broadcastTyping(false)
         isSending = true
-        draft = ""
+        if clearDraft {
+            draft = ""
+        }
         let clientMessageId = UUID().uuidString
         let pending = Message(
             id: "pending-\(clientMessageId)",
@@ -327,7 +391,10 @@ final class ChatDetailViewModel: ObservableObject {
     }
 
     func draftDidChange(_ value: String) {
-        guard conversation?.isClosed != true else { return }
+        guard canSendMessages else {
+            broadcastTyping(false)
+            return
+        }
         let isTyping = !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if isTyping {
             let shouldSend = !localTypingState || Date().timeIntervalSince(lastTypingBroadcastAt) > 2
@@ -376,7 +443,7 @@ final class ChatDetailViewModel: ObservableObject {
     }
 
     func sendImage(data: Data) async {
-        guard !isSending else { return }
+        guard canSendMessages, !isSending else { return }
         isSending = true
         do {
             let clientMessageId = UUID().uuidString
@@ -397,6 +464,34 @@ final class ChatDetailViewModel: ObservableObject {
             errorMessage = error.localizedDescription
         }
         isSending = false
+    }
+
+    var canSendMessages: Bool {
+        conversation != nil && composerBlockedReason == nil
+    }
+
+    fileprivate var composerBlockedReason: ChatComposerBlockedReason? {
+        guard let conversation else { return nil }
+        if conversation.hasPendingApplicationBeforeAcceptance { return .pendingApplication }
+        if conversation.isClosed { return .closed }
+        return nil
+    }
+
+    fileprivate var quickMessageSuggestions: [QuickMessageSuggestion] {
+        guard canSendMessages, shouldShowQuickMessageSuggestions, let conversation else { return [] }
+        let suggestions = conversation.quickMessageSuggestionTexts(currentUserId: currentUserId)
+
+        return suggestions.reduce(into: [QuickMessageSuggestion]()) { result, text in
+            guard !result.contains(where: { $0.text == text }) else { return }
+            result.append(QuickMessageSuggestion(text: text))
+        }
+    }
+
+    private var shouldShowQuickMessageSuggestions: Bool {
+        guard let currentUserId else { return false }
+        return !messages.contains { message in
+            message.senderId == currentUserId && message.messageType != .system
+        }
     }
 
     func updateDealStatus(_ status: DealStatus) async -> Bool {
@@ -547,6 +642,7 @@ struct ChatDetailView: View {
     @State private var showProfileSheet = false
     @State private var showReviewPrompt = false
     @State private var pendingTradeConfirmation: ChatTradeAction?
+    @State private var pendingQuickMessage: QuickMessageSuggestion?
     @FocusState private var composerFocused: Bool
 
     init(conversationId: String) {
@@ -589,7 +685,7 @@ struct ChatDetailView: View {
             .onChange(of: selectedPhoto) { item in
                 guard let item else { return }
                 Task {
-                    if let data = try? await item.loadTransferable(type: Data.self) {
+                    if viewModel.canSendMessages, let data = try? await item.loadTransferable(type: Data.self) {
                         await viewModel.sendImage(data: data)
                     }
                     selectedPhoto = nil
@@ -617,6 +713,17 @@ struct ChatDetailView: View {
                         },
                         onConfirm: {
                             confirmTradeAction(action)
+                        }
+                    )
+                }
+                if let quickMessage = pendingQuickMessage {
+                    QuickMessageConfirmationOverlay(
+                        message: quickMessage.text,
+                        onCancel: {
+                            pendingQuickMessage = nil
+                        },
+                        onConfirm: {
+                            confirmQuickMessage(quickMessage)
                         }
                     )
                 }
@@ -650,7 +757,7 @@ struct ChatDetailView: View {
     private var swipeBackGesture: some Gesture {
         DragGesture(minimumDistance: 18, coordinateSpace: .local)
             .onEnded { value in
-                guard pendingTradeConfirmation == nil, !showReviewPrompt else { return }
+                guard pendingTradeConfirmation == nil, pendingQuickMessage == nil, !showReviewPrompt else { return }
                 guard shouldDismissForSwipeBack(value) else { return }
 
                 dismissComposerKeyboard()
@@ -690,6 +797,14 @@ struct ChatDetailView: View {
             if succeeded {
                 permissionPrompts.requestPush(context: .dealAction)
             }
+        }
+    }
+
+    private func confirmQuickMessage(_ quickMessage: QuickMessageSuggestion) {
+        pendingQuickMessage = nil
+        dismissComposerKeyboard()
+        Task {
+            await viewModel.sendQuickMessage(quickMessage.text)
         }
     }
 
@@ -771,9 +886,16 @@ struct ChatDetailView: View {
                     }
                 }
 
+                if !viewModel.quickMessageSuggestions.isEmpty {
+                    QuickMessageCTABar(suggestions: viewModel.quickMessageSuggestions) { suggestion in
+                        dismissComposerKeyboard()
+                        pendingQuickMessage = suggestion
+                    }
+                }
+
                 ComposerBar(
                     draft: $viewModel.draft,
-                    disabled: viewModel.conversation?.isClosed == true,
+                    blockedReason: viewModel.composerBlockedReason,
                     isSending: viewModel.isSending,
                     selectedPhoto: $selectedPhoto,
                     focused: $composerFocused
@@ -781,7 +903,7 @@ struct ChatDetailView: View {
                     Task {
                         await viewModel.sendText()
                         await MainActor.run {
-                            if viewModel.conversation?.isClosed != true {
+                            if viewModel.canSendMessages {
                                 composerFocused = true
                             }
                         }
@@ -1714,35 +1836,179 @@ private struct TypingIndicatorBubble: View {
     }
 }
 
+fileprivate extension Conversation {
+    var hasPendingApplicationBeforeAcceptance: Bool {
+        postType == "request" && applicationId != nil && applicationStatus == "applied" && dealId == nil
+    }
+
+    func quickMessageSuggestionTexts(currentUserId: String?) -> [String] {
+        guard let currentUserId else { return [] }
+
+        if postType == "offer", requesterId == currentUserId || applicationApplicantId == currentUserId {
+            return ["진행방식이 어떻게 되나요?", "자세한 견적 알려주세요!"]
+        }
+        if postType == "offer", helperId == currentUserId || postCreatorId == currentUserId {
+            return ["안녕하세요!", "문의 주셔서 감사합니다!"]
+        }
+
+        guard postType == "request", dealId != nil || applicationStatus == "accepted" else { return [] }
+        if helperId == currentUserId || applicationApplicantId == currentUserId {
+            return ["안녕하세요!", "어떤게 필요하실까요?"]
+        }
+        if requesterId == currentUserId || postCreatorId == currentUserId {
+            return ["안녕하세요!", "잘 부탁드립니다!"]
+        }
+
+        return []
+    }
+}
+
+fileprivate struct QuickMessageSuggestion: Identifiable, Hashable {
+    let text: String
+
+    var id: String {
+        text
+    }
+}
+
+fileprivate enum ChatComposerBlockedReason {
+    case pendingApplication
+    case closed
+
+    var message: String {
+        switch self {
+        case .pendingApplication:
+            return "지원 요청이 수락되면 채팅을 할 수 있습니다."
+        case .closed:
+            return "종료된 거래라 메시지를 보낼 수 없어요."
+        }
+    }
+
+    var textColor: Color {
+        switch self {
+        case .pendingApplication:
+            return ManwonColor.brand
+        case .closed:
+            return ManwonColor.muted
+        }
+    }
+}
+
+private struct QuickMessageCTABar: View {
+    let suggestions: [QuickMessageSuggestion]
+    let onSelect: (QuickMessageSuggestion) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(suggestions) { suggestion in
+                    Button {
+                        onSelect(suggestion)
+                    } label: {
+                        Text(suggestion.text)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(ManwonColor.brand)
+                            .lineLimit(1)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 9)
+                            .background(ManwonColor.brandSoft)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(PressableScaleButtonStyle(scale: 0.97, pressedOpacity: 0.86))
+                }
+            }
+            .padding(.horizontal, 12)
+        }
+        .padding(.top, 8)
+        .padding(.bottom, 6)
+        .background(.ultraThinMaterial)
+    }
+}
+
+private struct QuickMessageConfirmationOverlay: View {
+    let message: String
+    let onCancel: () -> Void
+    let onConfirm: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.45)
+                .ignoresSafeArea()
+                .onTapGesture(perform: onCancel)
+
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("이 문장을 보낼까요?")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(ManwonColor.text)
+                    Text(message)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(ManwonColor.text)
+                        .lineSpacing(2)
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(red: 0.97, green: 0.97, blue: 0.975))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+
+                HStack(spacing: 10) {
+                    Button("돌아가기", action: onCancel)
+                        .buttonStyle(PrimaryButtonStyle(isSecondary: true))
+                    Button("보내기", action: onConfirm)
+                        .buttonStyle(PrimaryButtonStyle())
+                }
+            }
+            .padding(20)
+            .background(ManwonColor.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .padding(.horizontal, 18)
+            .shadow(color: .black.opacity(0.18), radius: 28, y: 14)
+        }
+    }
+}
+
 private struct ComposerBar: View {
     @Binding var draft: String
-    let disabled: Bool
+    let blockedReason: ChatComposerBlockedReason?
     let isSending: Bool
     @Binding var selectedPhoto: PhotosPickerItem?
     let focused: FocusState<Bool>.Binding
     let send: () -> Void
 
+    private var isBlocked: Bool {
+        blockedReason != nil
+    }
+
     var body: some View {
         HStack(spacing: 9) {
             PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                Image(systemName: "plus")
+                Image(systemName: isBlocked ? "lock.fill" : "plus")
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(ManwonColor.brand)
+                    .foregroundStyle(isBlocked ? ManwonColor.muted : ManwonColor.brand)
                     .frame(width: 38, height: 38)
-                    .background(ManwonColor.brandSoft)
+                    .background(isBlocked ? Color(red: 0.94, green: 0.94, blue: 0.95) : ManwonColor.brandSoft)
                     .clipShape(Circle())
             }
-            .disabled(disabled || isSending)
+            .disabled(isBlocked || isSending)
 
-            TextField(disabled ? "종료된 거래라 메시지를 보낼 수 없어요." : "메시지를 입력하세요", text: $draft, axis: .vertical)
-                .font(.system(size: 15))
-                .lineLimit(1...4)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(Color(red: 0.96, green: 0.96, blue: 0.965))
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .focused(focused)
-                .disabled(disabled)
+            Group {
+                if let blockedReason {
+                    Text(blockedReason.message)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(blockedReason.textColor)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    TextField("메시지를 입력하세요", text: $draft, axis: .vertical)
+                        .font(.system(size: 15))
+                        .lineLimit(1...4)
+                        .focused(focused)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(Color(red: 0.96, green: 0.96, blue: 0.965))
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
 
             Button(action: send) {
                 Image(systemName: "paperplane.fill")
@@ -1753,8 +2019,8 @@ private struct ComposerBar: View {
                     .clipShape(Circle())
             }
             .buttonStyle(PressableScaleButtonStyle(scale: 0.94, pressedOpacity: 0.85))
-            .disabled(disabled || isSending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .opacity(disabled || isSending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1)
+            .disabled(isBlocked || isSending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .opacity(isBlocked || isSending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1)
         }
         .padding(.horizontal, 12)
         .padding(.top, 10)

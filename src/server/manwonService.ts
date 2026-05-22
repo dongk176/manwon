@@ -1581,10 +1581,18 @@ export async function sendMessage(userId: string, conversationId: string, input:
       select
         c.*,
         p.title as post_title,
+        p.post_type as post_type,
+        a.status as application_status,
         sender.nickname as sender_nickname,
         case when c.requester_id = ${userId} then c.helper_id else c.requester_id end as other_user_id
       from manwon_happiness.conversations c
       left join manwon_happiness.task_posts p on p.id = c.post_id
+      left join manwon_happiness.applications a on a.post_id = c.post_id
+        and a.recruitment_round = c.recruitment_round
+        and (
+          (p.post_type = 'request' and a.applicant_id = c.helper_id)
+          or (p.post_type = 'offer' and a.applicant_id = c.requester_id)
+        )
       left join manwon_happiness.users sender on sender.id = ${userId}
       where c.id = ${conversationId}
         and (c.requester_id = ${userId} or c.helper_id = ${userId})
@@ -1592,6 +1600,10 @@ export async function sendMessage(userId: string, conversationId: string, input:
     `
     const conversation = conversationRows[0]
     if (!conversation) return null
+
+    if (conversation.postType === 'request' && !conversation.dealId && conversation.applicationStatus === 'applied') {
+      throw new HttpError('지원 요청이 수락되면 채팅을 할 수 있습니다.', 403)
+    }
 
     const blockedRows = await tx`
       select 1
