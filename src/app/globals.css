@@ -111,6 +111,11 @@ html.native-ios-shell .screen {
   padding-bottom: calc(58px + env(safe-area-inset-bottom));
 }
 
+html.native-ios-shell .profile-flow-page,
+html.native-android-shell .profile-flow-page {
+  padding-bottom: calc(148px + env(safe-area-inset-bottom)) !important;
+}
+
 html.native-ios-shell .auth-shell .screen {
   padding-bottom: calc(20px + env(safe-area-inset-bottom));
 }

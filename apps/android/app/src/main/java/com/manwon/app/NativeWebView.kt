@@ -275,7 +275,7 @@ class WebTabView(
           if (!document.getElementById('native-android-shell-style')) {
             var style = document.createElement('style');
             style.id = 'native-android-shell-style';
-            style.textContent = '.bottom-nav{display:none!important}.app-shell{max-width:100%!important;box-shadow:none!important}.screen{padding-bottom:110px!important}.auth-shell .screen{padding-bottom:24px!important}';
+            style.textContent = '.bottom-nav{display:none!important}.app-shell{max-width:100%!important;box-shadow:none!important}.screen{padding-bottom:110px!important}.profile-flow-page{padding-bottom:148px!important}.auth-shell .screen{padding-bottom:24px!important}';
             document.head.appendChild(style);
           }
           if (window.__manwonAndroidBridgeInstalled) return;

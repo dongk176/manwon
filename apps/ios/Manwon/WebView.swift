@@ -356,7 +356,7 @@ struct NativeWebView: UIViewRepresentable {
       if (!document.getElementById('native-ios-shell-style')) {
         var style = document.createElement('style');
         style.id = 'native-ios-shell-style';
-        style.textContent = '.bottom-nav{display:none!important}.app-shell{max-width:100%!important;box-shadow:none!important}.screen{padding-bottom:calc(58px + env(safe-area-inset-bottom))!important}.auth-shell .screen{padding-bottom:calc(20px + env(safe-area-inset-bottom))!important}';
+        style.textContent = '.bottom-nav{display:none!important}.app-shell{max-width:100%!important;box-shadow:none!important}.screen{padding-bottom:calc(58px + env(safe-area-inset-bottom))!important}.profile-flow-page{padding-bottom:calc(148px + env(safe-area-inset-bottom))!important}.auth-shell .screen{padding-bottom:calc(20px + env(safe-area-inset-bottom))!important}';
         document.head.appendChild(style);
       }
       if (window.__manwonNativeBridgeInstalled) return;
