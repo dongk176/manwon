@@ -2202,6 +2202,76 @@ html.native-ios-shell [role="button"] {
   font-weight: 700;
 }
 
+.profile-sheet-details {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.profile-sheet-detail {
+  display: grid;
+  gap: 8px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fafafa;
+}
+
+.profile-sheet-detail > strong {
+  color: #2f2f33;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.profile-sheet-detail p,
+.profile-sheet-detail > span {
+  margin: 0;
+  color: #66666c;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.45;
+  white-space: pre-line;
+}
+
+.profile-sheet-links {
+  display: grid;
+  gap: 8px;
+}
+
+.profile-sheet-links a {
+  display: block;
+  overflow: hidden;
+  width: fit-content;
+  max-width: 100%;
+  color: var(--brand);
+  font-size: 13px;
+  font-weight: 760;
+  text-decoration: underline;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-sheet-photo-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.profile-sheet-photo-grid a {
+  display: block;
+  overflow: hidden;
+  aspect-ratio: 1;
+  border-radius: 12px;
+  background: #f0f0f2;
+}
+
+.profile-sheet-photo-grid img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .profile-sheet-badges {
   display: flex;
   flex-wrap: wrap;
@@ -7136,7 +7206,7 @@ html.native-ios-shell [role="button"] {
   gap: 10px;
 }
 
-.activity-profile-picker-list > button:not(.is-create) {
+.activity-profile-picker-list > button {
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr) auto;
   gap: 12px;
@@ -7183,38 +7253,11 @@ html.native-ios-shell [role="button"] {
   font-weight: 800;
 }
 
-.activity-profile-picker-name b {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  min-height: 20px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: var(--brand-soft);
-  color: var(--brand);
-  font-size: 10px;
-  font-weight: 850;
-}
-
 .activity-profile-picker-list small,
 .activity-profile-picker-list em {
   color: #65656c;
   font-style: normal;
   font-size: 12px;
-}
-
-.activity-profile-picker-list .is-create,
-.activity-profile-empty button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 42px;
-  padding: 0 14px;
-  border: 1px dashed var(--brand);
-  border-radius: 13px;
-  color: var(--brand);
-  font-size: 14px;
-  font-weight: 800;
 }
 
 .activity-profile-empty {
@@ -7782,19 +7825,6 @@ html.native-ios-shell [role="button"] {
   color: #050506;
   font-size: 19px;
   line-height: 1.25;
-}
-
-.activity-profile-default-badge {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  min-height: 22px;
-  padding: 0 7px;
-  border-radius: 999px;
-  background: var(--brand-soft);
-  color: var(--brand);
-  font-size: 11px;
-  font-weight: 850;
 }
 
 .activity-profile-mode-pill {
@@ -9016,7 +9046,7 @@ html.native-ios-shell [role="button"] {
   gap: 10px;
 }
 
-.profile-select-list > button:not(.profile-select-create-row) {
+.profile-select-list > button {
   display: grid;
   grid-template-columns: 62px minmax(0, 1fr) 24px;
   gap: 12px;
@@ -9050,19 +9080,6 @@ html.native-ios-shell [role="button"] {
   font-weight: 500;
 }
 
-.profile-select-list strong b {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  min-height: 22px;
-  padding: 0 7px;
-  border-radius: 999px;
-  background: var(--brand-soft);
-  color: var(--brand);
-  font-size: 11px;
-  font-weight: 850;
-}
-
 .profile-select-list small {
   display: block;
   margin-top: 6px;
@@ -9094,38 +9111,6 @@ html.native-ios-shell [role="button"] {
 
 .profile-select-list button.is-selected i {
   border: 6px solid var(--brand);
-}
-
-.profile-select-create-row {
-  display: grid;
-  grid-template-columns: 62px minmax(0, 1fr) 20px;
-  gap: 12px;
-  align-items: center;
-  min-height: 84px;
-  padding: 14px;
-  border: 1px solid #e8e8eb;
-  border-radius: 18px;
-  background: #fff;
-  text-align: left;
-}
-
-.profile-select-create-row > span {
-  grid-row: 1 / span 2;
-  display: inline-flex;
-  width: 52px;
-  height: 52px;
-  align-items: center;
-  justify-content: center;
-  border: 1px dashed #cfcfd4;
-  border-radius: 50%;
-  color: var(--brand);
-  font-size: 28px;
-  font-weight: 400;
-}
-
-.profile-select-create-row > svg {
-  grid-row: 1 / span 2;
-  grid-column: 3;
 }
 
 .profile-select-footer {
@@ -9204,16 +9189,6 @@ html.native-ios-shell [role="button"] {
   font-size: 18px;
   font-weight: 820;
   line-height: 1.2;
-}
-
-.activity-profile-default-badge,
-.activity-profile-picker-name b,
-.profile-select-list strong b {
-  min-height: 21px;
-  padding: 0 7px;
-  background: #fff0ec;
-  font-size: 11px;
-  font-weight: 760;
 }
 
 .activity-profile-card p {
@@ -9323,7 +9298,7 @@ html.native-ios-shell [role="button"] {
   gap: 12px;
 }
 
-.activity-profile-picker-list > button:not(.activity-profile-picker-create):not(.is-create) {
+.activity-profile-picker-list > button {
   grid-template-columns: 58px minmax(0, 1fr) 24px;
   gap: 14px;
   min-height: 100px;
@@ -9371,19 +9346,6 @@ html.native-ios-shell [role="button"] {
 
 .activity-profile-picker-list > button > svg {
   color: var(--brand);
-}
-
-.activity-profile-picker-create {
-  display: inline-flex !important;
-  width: fit-content;
-  min-height: 34px !important;
-  padding: 0 2px !important;
-  border: 0 !important;
-  background: transparent !important;
-  color: var(--brand) !important;
-  font-size: 13px !important;
-  font-weight: 650 !important;
-  gap: 5px !important;
 }
 
 .profile-select-header h2 {
@@ -9438,7 +9400,7 @@ html.native-ios-shell [role="button"] {
   gap: 12px;
 }
 
-.profile-select-list > button:not(.profile-select-create-row) {
+.profile-select-list > button {
   grid-template-columns: 64px minmax(0, 1fr) 24px;
   gap: 14px;
   min-height: 104px;
@@ -9474,37 +9436,6 @@ html.native-ios-shell [role="button"] {
   color: #707077;
   font-size: 12px;
   font-weight: 400;
-}
-
-.profile-select-create-row {
-  display: inline-flex;
-  width: fit-content;
-  min-height: 34px;
-  padding: 0 2px;
-  border: 0;
-  background: transparent;
-  color: var(--brand);
-  gap: 5px;
-}
-
-.profile-select-create-row > span {
-  display: inline-flex;
-  width: auto;
-  height: auto;
-  border: 0;
-  border-radius: 0;
-  font-size: 18px;
-  line-height: 1;
-}
-
-.profile-select-create-row strong {
-  color: var(--brand);
-  font-size: 13px;
-  font-weight: 650;
-}
-
-.profile-select-create-row > svg {
-  display: none;
 }
 
 .profile-select-footer button {

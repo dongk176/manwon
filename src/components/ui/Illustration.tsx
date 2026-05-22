@@ -67,10 +67,16 @@ interface AvatarProps {
 
 export function Avatar({ user, size = 'md', online = false }: AvatarProps) {
   const initial = user.name.slice(0, 1)
+  const imageUrl = user.avatarUrl?.trim()
 
   return (
-    <span className={`avatar avatar-${size} avatar-${user.avatarTone}`}>
-      <span>{initial}</span>
+    <span className={`avatar avatar-${size} avatar-${user.avatarTone} ${imageUrl ? 'is-image-avatar' : ''}`}>
+      {imageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element -- Runtime profile avatar URLs may be external; CSS handles cropping.
+        <img src={imageUrl} alt="" aria-hidden="true" />
+      ) : (
+        <span>{initial}</span>
+      )}
       {online && <i aria-label="온라인" />}
     </span>
   )

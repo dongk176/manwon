@@ -40,6 +40,7 @@ export interface UserProfile {
   id: string
   name: string
   intro: string
+  avatarUrl?: string | null
   rating: number
   reviewCount?: number
   completedCount: number
@@ -48,6 +49,10 @@ export interface UserProfile {
   identityVerified?: boolean
   responseTime?: string | null
   gender?: 'male' | 'female' | 'unknown' | 'private' | null
+  careerSummary?: string | null
+  careerDescription?: string | null
+  portfolioLinks?: Array<{ title: string; url: string }>
+  workSampleImages?: Array<{ imageUrl: string; storageKey?: string; sortOrder?: number }>
   avatarTone: 'coral' | 'green' | 'blue' | 'violet' | 'gray'
 }
 

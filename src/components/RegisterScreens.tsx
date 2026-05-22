@@ -14,7 +14,6 @@ import {
   ImagePlus,
   Link as LinkIcon,
   MapPin,
-  Plus,
   UsersRound,
   X,
 } from 'lucide-react'
@@ -35,7 +34,6 @@ import {
   fetchActivityProfiles,
   fetchMyPage,
   getDefaultProfileImageByGender,
-  isDefaultActivityProfile,
   saveMyLocationPreference,
   uploadImageFile,
   type ActivityProfile,
@@ -175,7 +173,6 @@ export function RegistrationTypeScreen({ onSelect }: { onSelect: (kind: Register
 }
 
 export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () => void; onRegistered?: () => void }) {
-  const router = useRouter()
   const [step, setStep] = useState<RequestStep>(1)
   const [profileConfirmed, setProfileConfirmed] = useState(false)
   const [sheet, setSheet] = useState<SheetKind>(null)
@@ -422,7 +419,6 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
               error={errors.selectedProfileId || (profileLoadState === 'error' ? '프로필을 불러오지 못했습니다.' : undefined)}
               emptyText="사용할 프로필을 준비하고 있어요."
               onSelect={setSelectedProfileId}
-              onCreate={() => router.push('/my/profiles')}
             />
           </>
         )}
@@ -658,7 +654,6 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
 }
 
 export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => void; onRegistered?: () => void }) {
-  const router = useRouter()
   const [step, setStep] = useState<OfferStep>(1)
   const [profileConfirmed, setProfileConfirmed] = useState(false)
   const [sheet, setSheet] = useState<SheetKind>(null)
@@ -955,7 +950,6 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
               error={errors.selectedProfileId || (profileLoadState === 'error' ? '프로필을 불러오지 못했습니다.' : undefined)}
               emptyText="사용할 프로필을 준비하고 있어요."
               onSelect={setSelectedProfileId}
-              onCreate={() => router.push('/my/profiles')}
             />
           </>
         )}
@@ -1243,7 +1237,6 @@ function ActivityProfilePickerCard({
   error,
   emptyText,
   onSelect,
-  onCreate,
 }: {
   profiles: ActivityProfile[]
   selectedProfileId: string
@@ -1251,7 +1244,6 @@ function ActivityProfilePickerCard({
   error?: string
   emptyText: string
   onSelect: (profileId: string) => void
-  onCreate: () => void
 }) {
   const activeProfiles = profiles.filter((profile) => profile.isActive !== false)
 
@@ -1262,9 +1254,6 @@ function ActivityProfilePickerCard({
       ) : activeProfiles.length === 0 ? (
         <div className="activity-profile-empty">
           <p>{emptyText}</p>
-          <button type="button" onClick={onCreate}>
-            새 프로필 만들기
-          </button>
         </div>
       ) : (
         <div className="activity-profile-picker-list">
@@ -1279,7 +1268,6 @@ function ActivityProfilePickerCard({
               <span>
                 <span className="activity-profile-picker-name">
                   <strong>{profile.nickname}</strong>
-                  {isDefaultActivityProfile(profile) && <b>기본 프로필</b>}
                 </span>
                 <small>{profile.bio}</small>
                 <em>{formatActivityProfileMeta(profile)}</em>
@@ -1287,10 +1275,6 @@ function ActivityProfilePickerCard({
               {selectedProfileId === profile.id && <CheckCircle2 size={20} fill="currentColor" />}
             </button>
           ))}
-          <button className="activity-profile-picker-create" type="button" onClick={onCreate}>
-            <Plus size={15} />
-            새 프로필 만들기
-          </button>
         </div>
       )}
       {error && <p className="field-error">{error}</p>}

@@ -28,7 +28,6 @@ import {
   fetchTaskPost,
   getDefaultProfileImageByGender,
   getDisplayImageUrl,
-  isDefaultActivityProfile,
   mapApiPostToRequestPost,
   removeFavorite,
   reopenTaskPost,
@@ -764,7 +763,6 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
               profiles={activityProfiles.filter((profile) => profile.isActive !== false)}
               busy={actionState === 'saving'}
               onClose={() => setShowProfileSelect(false)}
-              onCreate={() => router.push(`/my/profiles?next=${encodeURIComponent(`/posts/${displayPost.id}`)}`)}
               onSelect={(profileId) => void handleStartChat(profileId)}
             />
           )}
@@ -809,7 +807,6 @@ function ActivityProfileSelectSheet({
   profiles,
   busy,
   onClose,
-  onCreate,
   onSelect,
 }: {
   postType?: 'request' | 'offer'
@@ -817,7 +814,6 @@ function ActivityProfileSelectSheet({
   profiles: ActivityProfile[]
   busy: boolean
   onClose: () => void
-  onCreate: () => void
   onSelect: (profileId: string) => void
 }) {
   const [selectedProfileId, setSelectedProfileId] = useState(profiles[0]?.id ?? '')
@@ -860,10 +856,7 @@ function ActivityProfileSelectSheet({
               <button key={profile.id} className={selected ? 'is-selected' : ''} type="button" disabled={busy} onClick={() => setSelectedProfileId(profile.id)}>
                 <DetailActivityProfileAvatar profile={profile} />
                 <span>
-                  <strong>
-                    {profile.nickname}
-                    {isDefaultActivityProfile(profile) && <b>기본 프로필</b>}
-                  </strong>
+                  <strong>{profile.nickname}</strong>
                   <small>{profile.bio}</small>
                   <em>{formatProfileStats(profile)}</em>
                 </span>
@@ -871,11 +864,6 @@ function ActivityProfileSelectSheet({
               </button>
             )
           })}
-          <button className="profile-select-create-row" type="button" disabled={busy} onClick={onCreate}>
-            <span>+</span>
-            <strong>새 프로필 만들기</strong>
-            <ChevronRight size={20} />
-          </button>
         </div>
       </div>
       <div className="profile-select-footer">

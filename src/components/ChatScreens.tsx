@@ -767,9 +767,11 @@ function ReportSheet({
 
 function UserProfileSheet({ user, onClose }: { user: UserProfile; onClose: () => void }) {
   const genderLabel = profileGenderLabel(user.gender)
-  const verifiedLabels = [
-    user.identityVerified ? '신원 인증' : '',
-  ].filter(Boolean)
+  const careerSummary = user.careerSummary?.trim() ?? ''
+  const careerDescription = user.careerDescription?.trim() ?? ''
+  const portfolioLinks = normalizeProfileLinks(user.portfolioLinks)
+  const workSampleImages = normalizeProfileImages(user.workSampleImages)
+  const hasProfileDetails = Boolean(careerSummary || careerDescription || portfolioLinks.length > 0 || workSampleImages.length > 0)
 
   return (
     <div className="sheet-overlay" role="presentation" onClick={onClose}>
@@ -799,17 +801,46 @@ function UserProfileSheet({ user, onClose }: { user: UserProfile; onClose: () =>
             거래 완료 {user.completedCount}회
           </span>
         </div>
+        {hasProfileDetails && (
+          <div className="profile-sheet-details">
+            {(careerSummary || careerDescription) && (
+              <section className="profile-sheet-detail">
+                <strong>경력</strong>
+                {careerSummary && <p>{careerSummary}</p>}
+                {careerDescription && <span>{careerDescription}</span>}
+              </section>
+            )}
+            {portfolioLinks.length > 0 && (
+              <section className="profile-sheet-detail">
+                <strong>링크</strong>
+                <div className="profile-sheet-links">
+                  {portfolioLinks.map((link, index) => (
+                    <a key={`${link.url}-${index}`} href={link.url} target="_blank" rel="noreferrer">
+                      {link.title || getLinkDisplayName(link.url)}
+                    </a>
+                  ))}
+                </div>
+              </section>
+            )}
+            {workSampleImages.length > 0 && (
+              <section className="profile-sheet-detail">
+                <strong>사진</strong>
+                <div className="profile-sheet-photo-grid">
+                  {workSampleImages.map((image, index) => (
+                    <a key={`${image.imageUrl}-${index}`} href={image.imageUrl} target="_blank" rel="noreferrer" aria-label={`사진 ${index + 1} 크게 보기`}>
+                      {/* eslint-disable-next-line @next/next/no-img-element -- Runtime profile sample URLs may be external; thumbnails need object-fit cropping. */}
+                      <img src={image.imageUrl} alt="" aria-hidden="true" />
+                    </a>
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
+        )}
         {user.responseTime && (
           <div className="profile-sheet-note">
             <strong>응답</strong>
             <span>{user.responseTime}</span>
-          </div>
-        )}
-        {verifiedLabels.length > 0 && (
-          <div className="profile-sheet-badges">
-            {verifiedLabels.map((label) => (
-              <span key={label}>{label}</span>
-            ))}
           </div>
         )}
       </div>
@@ -1098,7 +1129,8 @@ function mapConversationToChat(conversation: ApiConversation, currentUserId: str
   const user: UserProfile = {
     id: otherId,
     name: otherName,
-    intro: conversation.otherBio ?? conversation.otherCareerSummary ?? '뭐든해줌 사용자',
+    intro: conversation.otherBio?.trim() || '',
+    avatarUrl: conversation.otherAvatarUrl ?? null,
     rating: Number(conversation.otherRatingAvg ?? 0),
     reviewCount: conversation.otherReviewCount ?? undefined,
     completedCount: conversation.otherCompletedCount ?? 0,
@@ -1107,6 +1139,10 @@ function mapConversationToChat(conversation: ApiConversation, currentUserId: str
     identityVerified: Boolean(conversation.otherIdentityVerified),
     responseTime: conversation.otherResponseTime ?? null,
     gender: conversation.otherGender ?? null,
+    careerSummary: conversation.otherCareerSummary ?? null,
+    careerDescription: conversation.otherCareerDescription ?? null,
+    portfolioLinks: normalizeProfileLinks(conversation.otherPortfolioLinks),
+    workSampleImages: normalizeProfileImages(conversation.otherWorkSampleImages),
     avatarTone: otherIsRequester ? 'green' : 'blue',
   }
 
@@ -1298,6 +1334,48 @@ function formatTime(value?: string | null) {
     hour: 'numeric',
     minute: '2-digit',
   }).format(date)
+}
+
+function normalizeProfileLinks(value: unknown): Array<{ title: string; url: string }> {
+  if (!Array.isArray(value)) return []
+
+  return value.flatMap((item) => {
+    if (!isRecord(item)) return []
+    const url = typeof item.url === 'string' ? item.url.trim() : ''
+    if (!isHttpUrl(url)) return []
+    const title = typeof item.title === 'string' ? item.title.trim() : ''
+    return [{ title, url }]
+  })
+}
+
+function normalizeProfileImages(value: unknown): Array<{ imageUrl: string; storageKey?: string; sortOrder?: number }> {
+  if (!Array.isArray(value)) return []
+
+  return value.flatMap((item) => {
+    if (!isRecord(item)) return []
+    const imageUrl = typeof item.imageUrl === 'string' ? item.imageUrl.trim() : ''
+    if (!imageUrl || (!isHttpUrl(imageUrl) && !imageUrl.startsWith('/'))) return []
+    const storageKey = typeof item.storageKey === 'string' ? item.storageKey : undefined
+    const sortOrder = typeof item.sortOrder === 'number' ? item.sortOrder : undefined
+    return [{ imageUrl, storageKey, sortOrder }]
+  })
+}
+
+function isHttpUrl(value: string) {
+  try {
+    const url = new URL(value)
+    return url.protocol === 'http:' || url.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+function getLinkDisplayName(url: string) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '')
+  } catch {
+    return url
+  }
 }
 
 function profileGenderLabel(value?: UserProfile['gender']) {

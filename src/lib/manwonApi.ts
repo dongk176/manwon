@@ -130,6 +130,9 @@ export interface ApiConversation {
   otherPhoneVerified?: boolean | null
   otherIdentityVerified?: boolean | null
   otherCareerSummary?: string | null
+  otherCareerDescription?: string | null
+  otherPortfolioLinks?: Array<{ title: string; url: string }> | null
+  otherWorkSampleImages?: Array<{ imageUrl: string; storageKey?: string; sortOrder?: number }> | null
   otherResponseTime?: string | null
   hasChatAfterStarted?: boolean | null
   myReviewId?: string | null

@@ -599,10 +599,7 @@ function ActivityProfileCard({
       <ProfileImage profile={profile} />
       <div className="activity-profile-card-body">
         <div className="activity-profile-card-head">
-          <h2>
-            {profile.nickname}
-            {isDefault && <span className="activity-profile-default-badge">기본 프로필</span>}
-          </h2>
+          <h2>{profile.nickname}</h2>
           <button className="activity-profile-edit-link" type="button" onClick={onEdit}>
             수정
           </button>

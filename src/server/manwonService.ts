@@ -1221,6 +1221,31 @@ export async function listConversations(userId: string) {
       case when c.requester_id = ${userId} then helper.phone_verified else requester.phone_verified end as other_phone_verified,
       case when c.requester_id = ${userId} then helper.identity_verified else requester.identity_verified end as other_identity_verified,
       case when c.requester_id = ${userId} then coalesce(helper_activity.career_summary, helper.trust_career_summary) else coalesce(requester_activity.career_summary, requester.trust_career_summary) end as other_career_summary,
+      case when c.requester_id = ${userId} then helper_activity.career_description else requester_activity.career_description end as other_career_description,
+      case
+        when c.requester_id = ${userId} then
+          case
+            when jsonb_array_length(coalesce(helper_activity.portfolio_links, '[]'::jsonb)) > 0 then helper_activity.portfolio_links
+            else coalesce(helper.trust_portfolio_links, '[]'::jsonb)
+          end
+        else
+          case
+            when jsonb_array_length(coalesce(requester_activity.portfolio_links, '[]'::jsonb)) > 0 then requester_activity.portfolio_links
+            else coalesce(requester.trust_portfolio_links, '[]'::jsonb)
+          end
+      end as other_portfolio_links,
+      case
+        when c.requester_id = ${userId} then
+          case
+            when jsonb_array_length(coalesce(helper_activity.work_sample_images, '[]'::jsonb)) > 0 then helper_activity.work_sample_images
+            else coalesce(helper.trust_work_sample_images, '[]'::jsonb)
+          end
+        else
+          case
+            when jsonb_array_length(coalesce(requester_activity.work_sample_images, '[]'::jsonb)) > 0 then requester_activity.work_sample_images
+            else coalesce(requester.trust_work_sample_images, '[]'::jsonb)
+          end
+      end as other_work_sample_images,
       case when c.requester_id = ${userId} then coalesce(helper_activity.available_time_text, helper.trust_response_time, helper.trust_response_time_text) else coalesce(requester_activity.available_time_text, requester.trust_response_time, requester.trust_response_time_text) end as other_response_time,
       exists (
         select 1
