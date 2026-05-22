@@ -211,9 +211,14 @@ final class ChatDetailViewModel: ObservableObject {
     @Published var draft = ""
     @Published var isLoading = true
     @Published var isSending = false
+    @Published var otherTyping = false
     @Published var pendingTradeAction: String?
     @Published var errorMessage: String?
     private var realtimeSubscription: ConversationRealtimeSubscription?
+    private var localTypingState = false
+    private var lastTypingBroadcastAt = Date.distantPast
+    private var localTypingIdleTask: Task<Void, Never>?
+    private var remoteTypingIdleTask: Task<Void, Never>?
 
     init(conversationId: String) {
         self.conversationId = conversationId
@@ -248,11 +253,17 @@ final class ChatDetailViewModel: ObservableObject {
 
     func startRealtime() async {
         stopRealtime()
-        let subscription = ConversationRealtimeSubscription(conversationId: conversationId) { [weak self] in
-            Task {
-                await self?.load(silent: true)
+        let subscription = ConversationRealtimeSubscription(
+            conversationId: conversationId,
+            onChange: { [weak self] in
+                Task {
+                    await self?.load(silent: true)
+                }
+            },
+            onTyping: { [weak self] state in
+                self?.handleRemoteTyping(state)
             }
-        }
+        )
         realtimeSubscription = subscription
         do {
             try await subscription.connect()
@@ -262,6 +273,12 @@ final class ChatDetailViewModel: ObservableObject {
     }
 
     func stopRealtime() {
+        if localTypingState {
+            broadcastTyping(false)
+        }
+        localTypingIdleTask?.cancel()
+        remoteTypingIdleTask?.cancel()
+        otherTyping = false
         realtimeSubscription?.disconnect()
         realtimeSubscription = nil
     }
@@ -280,6 +297,7 @@ final class ChatDetailViewModel: ObservableObject {
     func sendText() async {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isSending else { return }
+        broadcastTyping(false)
         isSending = true
         draft = ""
         let clientMessageId = UUID().uuidString
@@ -306,6 +324,55 @@ final class ChatDetailViewModel: ObservableObject {
             errorMessage = error.localizedDescription
         }
         isSending = false
+    }
+
+    func draftDidChange(_ value: String) {
+        guard conversation?.isClosed != true else { return }
+        let isTyping = !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if isTyping {
+            let shouldSend = !localTypingState || Date().timeIntervalSince(lastTypingBroadcastAt) > 2
+            if shouldSend {
+                broadcastTyping(true)
+            }
+            localTypingIdleTask?.cancel()
+            localTypingIdleTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                await MainActor.run {
+                    self?.broadcastTyping(false)
+                }
+            }
+            return
+        }
+
+        localTypingIdleTask?.cancel()
+        if localTypingState {
+            broadcastTyping(false)
+        }
+    }
+
+    private func broadcastTyping(_ isTyping: Bool) {
+        localTypingState = isTyping
+        lastTypingBroadcastAt = Date()
+        guard let userId = currentUserId else { return }
+        Task { [weak self] in
+            try? await self?.realtimeSubscription?.sendTyping(userId: userId, isTyping: isTyping)
+        }
+    }
+
+    private func handleRemoteTyping(_ state: ConversationTypingState) {
+        let userId = state.userId
+        guard userId != nil, userId != currentUserId else { return }
+        let isTyping = state.isTyping
+        otherTyping = isTyping
+        remoteTypingIdleTask?.cancel()
+        if isTyping {
+            remoteTypingIdleTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                await MainActor.run {
+                    self?.otherTyping = false
+                }
+            }
+        }
     }
 
     func sendImage(data: Data) async {
@@ -532,20 +599,23 @@ struct ChatDetailView: View {
                                 MessageBubble(message: message, isMine: message.senderId == viewModel.currentUserId)
                                     .id(message.id)
                             }
+                            if viewModel.otherTyping {
+                                TypingIndicatorBubble()
+                                    .id("typing-indicator")
+                            }
                         }
                         .padding(.bottom, 12)
                     }
                     .background(ManwonColor.background)
-                    .scrollDismissesKeyboard(.interactively)
+                    .scrollDismissesKeyboard(.never)
                     .contentShape(Rectangle())
-                    .onTapGesture {
-                        composerFocused = false
-                        dismissKeyboard()
-                    }
                     .onAppear {
                         scrollToBottom(proxy, animated: false)
                     }
                     .onChange(of: viewModel.messages.last?.id) { _ in
+                        scrollToBottom(proxy, animated: true)
+                    }
+                    .onChange(of: viewModel.otherTyping) { _ in
                         scrollToBottom(proxy, animated: true)
                     }
                     .onChange(of: composerFocused) { focused in
@@ -556,25 +626,37 @@ struct ChatDetailView: View {
 
                 ComposerBar(
                     draft: $viewModel.draft,
-                    disabled: viewModel.conversation?.isClosed == true || viewModel.isSending,
+                    disabled: viewModel.conversation?.isClosed == true,
+                    isSending: viewModel.isSending,
                     selectedPhoto: $selectedPhoto,
                     focused: $composerFocused
                 ) {
-                    Task { await viewModel.sendText() }
+                    Task {
+                        await viewModel.sendText()
+                        await MainActor.run {
+                            if viewModel.conversation?.isClosed != true {
+                                composerFocused = true
+                            }
+                        }
+                    }
+                }
+                .onChange(of: viewModel.draft) { value in
+                    viewModel.draftDidChange(value)
                 }
             }
         }
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool, delay: TimeInterval = 0) {
-        guard let last = viewModel.messages.last else { return }
+        let targetId = viewModel.otherTyping ? "typing-indicator" : viewModel.messages.last?.id
+        guard let targetId else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             if animated {
                 withAnimation(.easeOut(duration: 0.2)) {
-                    proxy.scrollTo(last.id, anchor: .bottom)
+                    proxy.scrollTo(targetId, anchor: .bottom)
                 }
             } else {
-                proxy.scrollTo(last.id, anchor: .bottom)
+                proxy.scrollTo(targetId, anchor: .bottom)
             }
         }
     }
@@ -704,10 +786,6 @@ private func deferReviewPrompt(dealId: String) {
 
 private func clearDeferredReview(dealId: String) {
     UserDefaults.standard.removeObject(forKey: reviewPromptDefaultsKey(dealId: dealId))
-}
-
-private func dismissKeyboard() {
-    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
 }
 
 private struct ChatDetailHeader: View {
@@ -1124,9 +1202,46 @@ private struct MessageBubble: View {
     }
 }
 
+private struct TypingIndicatorBubble: View {
+    @State private var animating = false
+
+    var body: some View {
+        HStack {
+            HStack(spacing: 5) {
+                ForEach(0..<3, id: \.self) { index in
+                    Circle()
+                        .fill(ManwonColor.muted)
+                        .frame(width: 6, height: 6)
+                        .offset(y: animating ? -4 : 4)
+                        .animation(
+                            .easeInOut(duration: 0.48)
+                                .repeatForever(autoreverses: true)
+                                .delay(Double(index) * 0.12),
+                            value: animating
+                        )
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(ManwonColor.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            Spacer(minLength: 50)
+        }
+        .padding(.horizontal, 16)
+        .onAppear {
+            animating = true
+        }
+        .onDisappear {
+            animating = false
+        }
+        .accessibilityLabel("상대방이 입력 중")
+    }
+}
+
 private struct ComposerBar: View {
     @Binding var draft: String
     let disabled: Bool
+    let isSending: Bool
     @Binding var selectedPhoto: PhotosPickerItem?
     let focused: FocusState<Bool>.Binding
     let send: () -> Void
@@ -1141,7 +1256,7 @@ private struct ComposerBar: View {
                     .background(ManwonColor.brandSoft)
                     .clipShape(Circle())
             }
-            .disabled(disabled)
+            .disabled(disabled || isSending)
 
             TextField(disabled ? "종료된 거래라 메시지를 보낼 수 없어요." : "메시지를 입력하세요", text: $draft, axis: .vertical)
                 .font(.system(size: 15))
@@ -1162,8 +1277,8 @@ private struct ComposerBar: View {
                     .clipShape(Circle())
             }
             .buttonStyle(PressableScaleButtonStyle(scale: 0.94, pressedOpacity: 0.85))
-            .disabled(disabled || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .opacity(disabled || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1)
+            .disabled(disabled || isSending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .opacity(disabled || isSending || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1)
         }
         .padding(.horizontal, 12)
         .padding(.top, 10)

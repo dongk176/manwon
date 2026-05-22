@@ -47,6 +47,11 @@ struct RealtimeToken: Decodable {
     let websocketUrl: String?
 }
 
+struct ConversationTypingState: Sendable {
+    let userId: String?
+    let isTyping: Bool
+}
+
 struct DueReviewReminder: Decodable {
     let dealId: String
     let conversationId: String?
@@ -56,6 +61,7 @@ struct DueReviewReminder: Decodable {
 final class ConversationRealtimeSubscription {
     private let conversationId: String
     private let onChange: @MainActor () -> Void
+    private let onTyping: @MainActor (ConversationTypingState) -> Void
     private let session: URLSession
     private var socket: URLSessionWebSocketTask?
     private var heartbeatTask: Task<Void, Never>?
@@ -63,10 +69,16 @@ final class ConversationRealtimeSubscription {
     private var tokenRefreshTask: Task<Void, Never>?
     private var ref = 1
 
-    init(conversationId: String, session: URLSession = .shared, onChange: @escaping @MainActor () -> Void) {
+    init(
+        conversationId: String,
+        session: URLSession = .shared,
+        onChange: @escaping @MainActor () -> Void,
+        onTyping: @escaping @MainActor (ConversationTypingState) -> Void = { _ in }
+    ) {
         self.conversationId = conversationId
         self.session = session
         self.onChange = onChange
+        self.onTyping = onTyping
     }
 
     deinit {
@@ -100,6 +112,22 @@ final class ConversationRealtimeSubscription {
         receiveTask = nil
         tokenRefreshTask = nil
         socket = nil
+    }
+
+    func sendTyping(userId: String, isTyping: Bool) async throws {
+        try await send(
+            topic: topic,
+            event: "broadcast",
+            payload: [
+                "type": "broadcast",
+                "event": "typing",
+                "payload": [
+                    "userId": userId,
+                    "isTyping": isTyping,
+                    "sentAt": ISO8601DateFormatter().string(from: Date()),
+                ],
+            ]
+        )
     }
 
     private var topic: String {
@@ -190,6 +218,19 @@ final class ConversationRealtimeSubscription {
             let event = frame[3] as? String,
             event == "broadcast"
         else {
+            return
+        }
+
+        let payload = frame[4] as? [String: Any]
+        if payload?["event"] as? String == "typing" {
+            let typingPayload = payload?["payload"] as? [String: Any] ?? [:]
+            let state = ConversationTypingState(
+                userId: typingPayload["userId"] as? String,
+                isTyping: (typingPayload["isTyping"] as? Bool) ?? false
+            )
+            await MainActor.run {
+                onTyping(state)
+            }
             return
         }
 

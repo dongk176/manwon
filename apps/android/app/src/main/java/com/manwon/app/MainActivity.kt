@@ -446,9 +446,9 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
         }
 
         if (normalized == "/activity" || normalized.startsWith("/activity/")) {
+            activityPath = normalized
             displayedWebPaths[AppTab.NEARBY] = normalized
             if (tab != AppTab.NEARBY) {
-                activityPath = normalized
                 activityWeb.loadPath(activityPath)
                 selectTab(AppTab.NEARBY)
             }
@@ -457,9 +457,9 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
         }
 
         if (normalized == "/my" || normalized.startsWith("/my/")) {
+            myPath = normalized
             displayedWebPaths[AppTab.MY] = normalized
             if (tab != AppTab.MY) {
-                myPath = normalized
                 myWeb.loadPath(myPath)
                 selectTab(AppTab.MY)
             }
@@ -468,6 +468,13 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
         }
 
         displayedWebPaths[tab] = normalized
+        when (tab) {
+            AppTab.HOME -> homePath = normalized
+            AppTab.REGISTER -> registerPath = normalized
+            AppTab.NEARBY -> activityPath = normalized
+            AppTab.MY -> myPath = normalized
+            AppTab.CHAT -> Unit
+        }
         updateBottomNavVisibility()
     }
 

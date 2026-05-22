@@ -135,25 +135,30 @@ final class AppRouter: ObservableObject {
 
         var nextDisplayedWebPaths = displayedWebPaths
         if normalized == "/activity" || normalized.hasPrefix("/activity/") {
+            activityPath = normalized
             nextDisplayedWebPaths[.nearby] = normalized
             displayedWebPaths = nextDisplayedWebPaths
             if tab != .nearby {
-                activityPath = normalized
                 selectedTab = .nearby
             }
             return
         }
 
         if normalized == "/my" || normalized.hasPrefix("/my/") {
+            myPath = normalized
             nextDisplayedWebPaths[.my] = normalized
             displayedWebPaths = nextDisplayedWebPaths
             if tab != .my {
-                myPath = normalized
                 selectedTab = .my
             }
             return
         }
 
+        if tab == .home {
+            homePath = normalized
+        } else if tab == .register {
+            registerPath = normalized
+        }
         nextDisplayedWebPaths[tab] = normalized
         displayedWebPaths = nextDisplayedWebPaths
     }
