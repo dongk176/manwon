@@ -464,12 +464,89 @@ final class ChatDetailViewModel: ObservableObject {
     }
 }
 
+private enum ChatTradeAction: Identifiable, Equatable {
+    case deal(DealStatus)
+    case application(String)
+
+    var id: String {
+        switch self {
+        case .deal(let status): return "deal:\(status.rawValue)"
+        case .application(let status): return "application:\(status)"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .application("accepted"):
+            return "지원자를 수락할까요?"
+        case .application("rejected"):
+            return "지원을 거절할까요?"
+        case .deal(.completed):
+            return "완료 승인할까요?"
+        case .deal(.disputed):
+            return "문제를 신고할까요?"
+        case .deal(.completeRequested):
+            return "완료 요청을 보낼까요?"
+        case .deal(.cancelled):
+            return "거래를 취소할까요?"
+        case .deal(.inProgress):
+            return "거래를 시작할까요?"
+        default:
+            return "상태를 변경할까요?"
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .application("accepted"):
+            return "수락하면 거래가 만들어지고 채팅에서 진행을 시작할 수 있습니다."
+        case .application("rejected"):
+            return "거절 후에는 이 채팅에서 거래를 진행할 수 없습니다."
+        case .deal(.completed):
+            return "승인하면 거래가 완료되고 후기 작성 단계로 넘어갑니다."
+        case .deal(.disputed):
+            return "거래에 문제가 있으면 신고 상태로 전환됩니다."
+        case .deal(.completeRequested):
+            return "작업이 끝났다면 작성자에게 완료 승인을 요청합니다."
+        case .deal(.cancelled):
+            return "취소 후에는 이 거래를 다시 진행할 수 없습니다."
+        case .deal(.inProgress):
+            return "시작 후 지원자가 완료 요청을 보낼 수 있습니다."
+        default:
+            return "이 작업은 거래 상태에 바로 반영됩니다."
+        }
+    }
+
+    var confirmTitle: String {
+        switch self {
+        case .application("accepted"):
+            return "수락하기"
+        case .application("rejected"):
+            return "거절하기"
+        case .deal(.completed):
+            return "완료 승인"
+        case .deal(.disputed):
+            return "신고하기"
+        case .deal(.completeRequested):
+            return "요청 보내기"
+        case .deal(.cancelled):
+            return "취소하기"
+        case .deal(.inProgress):
+            return "시작하기"
+        default:
+            return "확인"
+        }
+    }
+}
+
 struct ChatDetailView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var permissionPrompts: PermissionPromptManager
     @StateObject private var viewModel: ChatDetailViewModel
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var showProfileSheet = false
     @State private var showReviewPrompt = false
+    @State private var pendingTradeConfirmation: ChatTradeAction?
     @FocusState private var composerFocused: Bool
 
     init(conversationId: String) {
@@ -483,6 +560,9 @@ struct ChatDetailView: View {
             }) {
                 dismiss()
             }
+            .simultaneousGesture(TapGesture().onEnded {
+                dismissComposerKeyboard()
+            })
             content
         }
             .background(ManwonColor.background)
@@ -528,6 +608,17 @@ struct ChatDetailView: View {
                 syncReviewPrompt()
             }
             .overlay {
+                if let action = pendingTradeConfirmation {
+                    TradeActionConfirmationOverlay(
+                        action: action,
+                        onCancel: {
+                            pendingTradeConfirmation = nil
+                        },
+                        onConfirm: {
+                            confirmTradeAction(action)
+                        }
+                    )
+                }
                 if showReviewPrompt, let conversation = viewModel.conversation {
                     ReviewPromptOverlay(
                         conversation: conversation,
@@ -549,10 +640,32 @@ struct ChatDetailView: View {
             .sheet(isPresented: $showProfileSheet) {
                 if let conversation = viewModel.conversation {
                     ChatProfileSheet(conversation: conversation)
-                        .presentationDetents([.height(320), .medium])
+                        .presentationDetents([.large])
                         .presentationDragIndicator(.visible)
                 }
             }
+    }
+
+    private func dismissComposerKeyboard() {
+        if composerFocused {
+            composerFocused = false
+        }
+    }
+
+    private func confirmTradeAction(_ action: ChatTradeAction) {
+        pendingTradeConfirmation = nil
+        Task {
+            let succeeded: Bool
+            switch action {
+            case .deal(let status):
+                succeeded = await viewModel.updateDealStatus(status)
+            case .application(let status):
+                succeeded = await viewModel.updateApplicationStatus(status)
+            }
+            if succeeded {
+                permissionPrompts.requestPush(context: .dealAction)
+            }
+        }
     }
 
     private func syncReviewPrompt() {
@@ -585,11 +698,17 @@ struct ChatDetailView: View {
                 if let conversation = viewModel.conversation {
                     TradeActionPanel(conversation: conversation, viewModel: viewModel) {
                         showProfileSheet = true
+                    } onRequestConfirmation: { action in
+                        dismissComposerKeyboard()
+                        pendingTradeConfirmation = action
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 12)
                     .padding(.bottom, 10)
                     .background(ManwonColor.background)
+                    .simultaneousGesture(TapGesture().onEnded {
+                        dismissComposerKeyboard()
+                    })
                 }
 
                 ScrollViewReader { proxy in
@@ -609,6 +728,9 @@ struct ChatDetailView: View {
                     .background(ManwonColor.background)
                     .scrollDismissesKeyboard(.never)
                     .contentShape(Rectangle())
+                    .onTapGesture {
+                        dismissComposerKeyboard()
+                    }
                     .onAppear {
                         scrollToBottom(proxy, animated: false)
                     }
@@ -658,6 +780,44 @@ struct ChatDetailView: View {
             } else {
                 proxy.scrollTo(targetId, anchor: .bottom)
             }
+        }
+    }
+}
+
+private struct TradeActionConfirmationOverlay: View {
+    let action: ChatTradeAction
+    let onCancel: () -> Void
+    let onConfirm: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.45)
+                .ignoresSafeArea()
+                .onTapGesture(perform: onCancel)
+
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text(action.title)
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(ManwonColor.text)
+                    Text(action.message)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(ManwonColor.muted)
+                        .lineSpacing(2)
+                }
+
+                HStack(spacing: 10) {
+                    Button("돌아가기", action: onCancel)
+                        .buttonStyle(PrimaryButtonStyle(isSecondary: true))
+                    Button(action.confirmTitle, action: onConfirm)
+                        .buttonStyle(PrimaryButtonStyle())
+                }
+            }
+            .padding(20)
+            .background(ManwonColor.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .padding(.horizontal, 18)
+            .shadow(color: .black.opacity(0.18), radius: 28, y: 14)
         }
     }
 }
@@ -832,76 +992,122 @@ private struct ChatDetailHeader: View {
 
 private struct ChatProfileSheet: View {
     let conversation: Conversation
+    private let photoColumns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 3)
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(spacing: 13) {
-                Circle()
-                    .fill(ManwonColor.brandSoft)
-                    .frame(width: 58, height: 58)
-                    .overlay {
-                        Text(String((conversation.otherNickname ?? "상대").prefix(1)))
-                            .font(.system(size: 22, weight: .bold))
-                            .foregroundStyle(ManwonColor.brand)
-                    }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(spacing: 13) {
+                    ChatProfileAvatar(
+                        imageUrl: conversation.otherAvatarUrl,
+                        fallbackText: String((conversation.otherNickname ?? "상대").prefix(1))
+                    )
 
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack(spacing: 8) {
-                        Text(conversation.otherNickname ?? "상대방")
-                            .font(.system(size: 21, weight: .bold))
-                            .foregroundStyle(ManwonColor.text)
-                            .lineLimit(1)
-                        if let genderText {
-                            Text(genderText)
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(ManwonColor.muted)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Color(red: 0.95, green: 0.95, blue: 0.96))
-                                .clipShape(Capsule())
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 8) {
+                            Text(conversation.otherNickname ?? "상대방")
+                                .font(.system(size: 22, weight: .bold))
+                                .foregroundStyle(ManwonColor.text)
+                                .lineLimit(1)
+                            if let genderText {
+                                Text(genderText)
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundStyle(ManwonColor.muted)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(Color(red: 0.95, green: 0.95, blue: 0.96))
+                                    .clipShape(Capsule())
+                            }
+                        }
+                        Text(intro)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(ManwonColor.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .lineSpacing(2)
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    ProfileMetric(title: "평점", value: ratingText)
+                    ProfileMetric(title: "거래 완료", value: "\(conversation.otherCompletedCount ?? 0)회")
+                    ProfileMetric(title: "후기", value: "\(conversation.otherReviewCount ?? 0)개")
+                }
+
+                if hasProfileDetails {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if let careerSummary {
+                            ProfileDetailSection(title: "경력 한 줄") {
+                                Text(careerSummary)
+                            }
+                        }
+
+                        if let careerDescription {
+                            ProfileDetailSection(title: "상세 소개") {
+                                Text(careerDescription)
+                            }
+                        }
+
+                        if !portfolioLinks.isEmpty {
+                            ProfileDetailSection(title: "링크") {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    ForEach(Array(portfolioLinks.enumerated()), id: \.offset) { _, link in
+                                        Link(destination: link.url) {
+                                            VStack(alignment: .leading, spacing: 3) {
+                                                Text(link.title.isEmpty ? linkDisplayName(link.url) : link.title)
+                                                    .font(.system(size: 13, weight: .bold))
+                                                    .foregroundStyle(ManwonColor.text)
+                                                Text(link.url.absoluteString)
+                                                    .font(.system(size: 12, weight: .semibold))
+                                                    .foregroundStyle(ManwonColor.brand)
+                                                    .lineLimit(1)
+                                            }
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .padding(12)
+                                            .background(Color(red: 0.97, green: 0.97, blue: 0.975))
+                                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if !workSampleImageURLs.isEmpty {
+                            ProfileDetailSection(title: "사진") {
+                                LazyVGrid(columns: photoColumns, spacing: 8) {
+                                    ForEach(Array(workSampleImageURLs.enumerated()), id: \.offset) { _, url in
+                                        Link(destination: url) {
+                                            ProfileSampleImageCell(url: url)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if let responseTime {
+                            ProfileInfoRow(title: "응답", value: responseTime)
+                        }
+
+                        if hasVerification {
+                            HStack(spacing: 8) {
+                                if conversation.otherPhoneVerified == true {
+                                    ProfileBadge(text: "휴대폰 인증")
+                                }
+                                if conversation.otherIdentityVerified == true {
+                                    ProfileBadge(text: "본인 인증")
+                                }
+                                if conversation.otherPhoneVerified != true && conversation.otherIdentityVerified != true {
+                                    ProfileBadge(text: "인증 완료")
+                                }
+                            }
                         }
                     }
-                    Text(conversation.otherCareerSummary ?? "뭐든해줌 사용자")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(ManwonColor.muted)
-                        .lineLimit(2)
                 }
             }
-
-            HStack(spacing: 10) {
-                ProfileMetric(title: "평점", value: ratingText)
-                ProfileMetric(title: "거래 완료", value: "\(conversation.otherCompletedCount ?? 0)회")
-                ProfileMetric(title: "후기", value: "\(conversation.otherReviewCount ?? 0)개")
-            }
-
-            if let responseTime = conversation.otherResponseTime, !responseTime.isEmpty {
-                HStack {
-                    Text("응답")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(ManwonColor.text)
-                    Spacer()
-                    Text(responseTime)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(ManwonColor.muted)
-                }
-                .padding(13)
-                .background(Color(red: 0.97, green: 0.97, blue: 0.975))
-                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-            }
-
-            HStack(spacing: 8) {
-                if conversation.otherPhoneVerified == true {
-                    ProfileBadge(text: "휴대폰 인증")
-                }
-                if conversation.otherIdentityVerified == true {
-                    ProfileBadge(text: "신원 인증")
-                }
-            }
-            Spacer(minLength: 0)
+            .padding(.horizontal, 20)
+            .padding(.top, 22)
+            .padding(.bottom, 28)
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 22)
-        .padding(.bottom, 20)
+        .background(ManwonColor.surface)
     }
 
     private var ratingText: String {
@@ -909,10 +1115,179 @@ private struct ChatProfileSheet: View {
         return String(format: "%.1f", rating)
     }
 
+    private var intro: String {
+        trimmed(conversation.otherBio) ?? "아직 소개가 없습니다."
+    }
+
+    private var careerSummary: String? {
+        trimmed(conversation.otherCareerSummary)
+    }
+
+    private var careerDescription: String? {
+        trimmed(conversation.otherCareerDescription)
+    }
+
+    private var responseTime: String? {
+        trimmed(conversation.otherResponseTime)
+    }
+
+    private var portfolioLinks: [(title: String, url: URL)] {
+        (conversation.otherPortfolioLinks ?? []).compactMap { link in
+            guard
+                let rawURL = trimmed(link.url),
+                let url = URL(string: rawURL),
+                url.scheme != nil
+            else {
+                return nil
+            }
+            return (trimmed(link.title) ?? "", url)
+        }
+    }
+
+    private var workSampleImageURLs: [URL] {
+        (conversation.otherWorkSampleImages ?? []).compactMap { image in
+            guard
+                let absolute = APIClient.shared.absoluteURLString(image.imageUrl),
+                let url = URL(string: absolute)
+            else {
+                return nil
+            }
+            return url
+        }
+    }
+
+    private var hasVerification: Bool {
+        conversation.otherPhoneVerified == true || conversation.otherIdentityVerified == true
+    }
+
+    private var hasProfileDetails: Bool {
+        careerSummary != nil
+            || careerDescription != nil
+            || !portfolioLinks.isEmpty
+            || !workSampleImageURLs.isEmpty
+            || responseTime != nil
+            || hasVerification
+    }
+
     private var genderText: String? {
         if conversation.otherGender == "male" { return "남성" }
         if conversation.otherGender == "female" { return "여성" }
         return nil
+    }
+
+    private func trimmed(_ value: String?) -> String? {
+        let text = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return text.isEmpty ? nil : text
+    }
+
+    private func linkDisplayName(_ url: URL) -> String {
+        url.host?.replacingOccurrences(of: "www.", with: "") ?? url.absoluteString
+    }
+}
+
+private struct ChatProfileAvatar: View {
+    let imageUrl: String?
+    let fallbackText: String
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(ManwonColor.brandSoft)
+
+            if
+                let absolute = APIClient.shared.absoluteURLString(imageUrl),
+                let url = URL(string: absolute)
+            {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    default:
+                        fallback
+                    }
+                }
+            } else {
+                fallback
+            }
+        }
+        .frame(width: 64, height: 64)
+        .clipShape(Circle())
+    }
+
+    private var fallback: some View {
+        Text(fallbackText.isEmpty ? "만" : fallbackText)
+            .font(.system(size: 23, weight: .bold))
+            .foregroundStyle(ManwonColor.brand)
+    }
+}
+
+private struct ProfileDetailSection<Content: View>: View {
+    let title: String
+    let content: Content
+
+    init(title: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(ManwonColor.text)
+            content
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(ManwonColor.muted)
+                .lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(Color(red: 0.98, green: 0.98, blue: 0.985))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}
+
+private struct ProfileInfoRow: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(ManwonColor.text)
+            Spacer()
+            Text(value)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(ManwonColor.muted)
+        }
+        .padding(13)
+        .background(Color(red: 0.97, green: 0.97, blue: 0.975))
+        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+    }
+}
+
+private struct ProfileSampleImageCell: View {
+    let url: URL
+
+    var body: some View {
+        AsyncImage(url: url) { phase in
+            switch phase {
+            case .success(let image):
+                image
+                    .resizable()
+                    .scaledToFill()
+            default:
+                Rectangle()
+                    .fill(ManwonColor.brandSoft)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .aspectRatio(1, contentMode: .fill)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
@@ -955,10 +1330,10 @@ private struct ProfileBadge: View {
 }
 
 private struct TradeActionPanel: View {
-    @EnvironmentObject private var permissionPrompts: PermissionPromptManager
     let conversation: Conversation
     @ObservedObject var viewModel: ChatDetailViewModel
     let onProfile: () -> Void
+    let onRequestConfirmation: (ChatTradeAction) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1058,19 +1433,11 @@ private struct TradeActionPanel: View {
     }
 
     private func runDealAction(_ status: DealStatus) {
-        Task {
-            if await viewModel.updateDealStatus(status) {
-                permissionPrompts.requestPush(context: .dealAction)
-            }
-        }
+        onRequestConfirmation(.deal(status))
     }
 
     private func runApplicationAction(_ status: String) {
-        Task {
-            if await viewModel.updateApplicationStatus(status) {
-                permissionPrompts.requestPush(context: .dealAction)
-            }
-        }
+        onRequestConfirmation(.application(status))
     }
 
     @ViewBuilder

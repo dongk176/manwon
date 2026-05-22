@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type PointerEvent as ReactPointerEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, Bell, LockKeyhole, MoreVertical, Plus, Send, Smile, Star } from 'lucide-react'
 import {
@@ -456,8 +456,18 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
     }
   }
 
+  function dismissKeyboardIfOutsideComposer(event: ReactPointerEvent<HTMLElement>) {
+    const activeElement = document.activeElement
+    if (!(activeElement instanceof HTMLElement) || !activeElement.closest('.message-composer')) return
+
+    const target = event.target
+    if (!(target instanceof Element) || target.closest('.message-composer')) return
+
+    activeElement.blur()
+  }
+
   return (
-    <section className="screen chat-detail-screen">
+    <section className="screen chat-detail-screen" onPointerDownCapture={dismissKeyboardIfOutsideComposer}>
       <header className="chat-detail-header">
         <button className="icon-button" type="button" onClick={onBack} aria-label="뒤로가기">
           <ArrowLeft size={24} />
@@ -774,6 +784,49 @@ const tradeActionPendingLabels: Record<TradeActionId, string> = {
   start: '시작 중',
 }
 
+const tradeActionConfirmationCopy: Record<TradeActionId, { title: string; message: string; confirmLabel: string }> = {
+  accept: {
+    title: '지원자를 수락할까요?',
+    message: '수락하면 거래가 만들어지고 채팅에서 진행을 시작할 수 있습니다.',
+    confirmLabel: '수락하기',
+  },
+  reject: {
+    title: '지원을 거절할까요?',
+    message: '거절 후에는 이 채팅에서 거래를 진행할 수 없습니다.',
+    confirmLabel: '거절하기',
+  },
+  complete: {
+    title: '완료 승인할까요?',
+    message: '승인하면 거래가 완료되고 후기 작성 단계로 넘어갑니다.',
+    confirmLabel: '완료 승인',
+  },
+  dispute: {
+    title: '문제를 신고할까요?',
+    message: '거래에 문제가 있으면 신고 상태로 전환됩니다.',
+    confirmLabel: '신고하기',
+  },
+  requestComplete: {
+    title: '완료 요청을 보낼까요?',
+    message: '작업이 끝났다면 작성자에게 완료 승인을 요청합니다.',
+    confirmLabel: '요청 보내기',
+  },
+  cancel: {
+    title: '거래를 취소할까요?',
+    message: '취소 후에는 이 거래를 다시 진행할 수 없습니다.',
+    confirmLabel: '취소하기',
+  },
+  start: {
+    title: '거래를 시작할까요?',
+    message: '시작 후 지원자가 완료 요청을 보낼 수 있습니다.',
+    confirmLabel: '시작하기',
+  },
+}
+
+interface TradeActionConfirmation {
+  id: TradeActionId
+  action: () => Promise<unknown>
+}
+
 function TradeActionPanel({
   chat,
   currentUserId,
@@ -788,6 +841,7 @@ function TradeActionPanel({
   onReview: () => void
 }) {
   const [pendingAction, setPendingAction] = useState<TradeActionId | null>(null)
+  const [confirmAction, setConfirmAction] = useState<TradeActionConfirmation | null>(null)
   const [error, setError] = useState('')
   const busy = pendingAction !== null
   const postCreatorId = chat.postCreatorId ?? chat.requesterId
@@ -816,8 +870,35 @@ function TradeActionPanel({
     }
   }
 
-  if (chat.status === '거래완료') {
+  function requestConfirmation(actionId: TradeActionId, action: () => Promise<unknown>) {
+    if (busy) return
+    setConfirmAction({ id: actionId, action })
+  }
+
+  async function confirmTradeAction() {
+    const nextAction = confirmAction
+    if (!nextAction) return
+    setConfirmAction(null)
+    await run(nextAction.id, nextAction.action)
+  }
+
+  function withConfirmation(content: ReactNode) {
     return (
+      <>
+        {content}
+        {confirmAction && (
+          <TradeActionConfirmDialog
+            actionId={confirmAction.id}
+            onCancel={() => setConfirmAction(null)}
+            onConfirm={() => void confirmTradeAction()}
+          />
+        )}
+      </>
+    )
+  }
+
+  if (chat.status === '거래완료') {
+    return withConfirmation(
       <div className="complete-panel">
         <div className="complete-icon">✓</div>
         <strong>거래가 완료되었어요. 수고하셨어요!</strong>
@@ -829,45 +910,45 @@ function TradeActionPanel({
           </BrandButton>
           <BrandButton>다시 부탁하기</BrandButton>
         </div>
-      </div>
+      </div>,
     )
   }
 
   if (chat.status === '취소됨') {
-    return (
+    return withConfirmation(
       <div className="complete-panel">
         <div className="complete-icon">!</div>
         <strong>거래가 취소되었어요</strong>
         <span>필요하다면 게시글 상세에서 다시 모집을 시작할 수 있습니다.</span>
-      </div>
+      </div>,
     )
   }
 
   if (hasPendingApplication && !isPostWriter) {
-    return (
+    return withConfirmation(
       <div className="request-complete-panel">
         <div>
           <strong>지원 수락을 기다리고 있어요.</strong>
           <span>작성자가 수락하면 거래가 시작됩니다.</span>
         </div>
-      </div>
+      </div>,
     )
   }
 
   if (chat.status === '완료요청') {
     const dealId = chat.dealId
     if (!isPostWriter) {
-      return (
+      return withConfirmation(
         <div className="request-complete-panel">
           <div>
             <strong>완료 요청을 보냈어요.</strong>
             <span>게시글 작성자의 완료 승인을 기다리고 있어요.</span>
           </div>
-        </div>
+        </div>,
       )
     }
 
-    return (
+    return withConfirmation(
       <div className="request-complete-panel">
         <div>
           <strong>지원자가 완료 요청을 보냈습니다.</strong>
@@ -879,75 +960,75 @@ function TradeActionPanel({
         </div>
         {chat.hasChatAfterStarted && (
           <div className="two-buttons">
-            <BrandButton className={actionClass('complete')} disabled={busy || !dealId} onClick={() => dealId && run('complete', () => updateDealStatus(dealId, 'completed'))}>
+            <BrandButton className={actionClass('complete')} disabled={busy || !dealId} onClick={() => dealId && requestConfirmation('complete', () => updateDealStatus(dealId, 'completed'))}>
               {actionText('complete', '완료 승인')}
             </BrandButton>
-            <BrandButton className={actionClass('dispute')} variant="outline" disabled={busy || !dealId} onClick={() => dealId && run('dispute', () => updateDealStatus(dealId, 'disputed'))}>
+            <BrandButton className={actionClass('dispute')} variant="outline" disabled={busy || !dealId} onClick={() => dealId && requestConfirmation('dispute', () => updateDealStatus(dealId, 'disputed'))}>
               {actionText('dispute', '문제 신고')}
             </BrandButton>
           </div>
         )}
         {error && <p className="inline-status is-error">{error}</p>}
-      </div>
+      </div>,
     )
   }
 
   if (chat.status === '진행중') {
     const dealId = chat.dealId
     if (!isApplicant) {
-      return (
+      return withConfirmation(
         <div className="request-complete-panel">
           <div>
             <strong>거래가 진행 중이에요.</strong>
             <span>지원자가 완료 요청을 보내면 승인할 수 있습니다.</span>
           </div>
-        </div>
+        </div>,
       )
     }
 
-    return (
+    return withConfirmation(
       <div className="two-buttons chat-action-bar">
-        <BrandButton className={actionClass('requestComplete')} disabled={busy || !dealId} onClick={() => dealId && run('requestComplete', () => updateDealStatus(dealId, 'complete_requested'))}>
+        <BrandButton className={actionClass('requestComplete')} disabled={busy || !dealId} onClick={() => dealId && requestConfirmation('requestComplete', () => updateDealStatus(dealId, 'complete_requested'))}>
           {actionText('requestComplete', '완료 요청 보내기')}
         </BrandButton>
-        <BrandButton className={actionClass('cancel')} variant="outline" disabled={busy || !dealId} onClick={() => dealId && run('cancel', () => updateDealStatus(dealId, 'cancelled'))}>
+        <BrandButton className={actionClass('cancel')} variant="outline" disabled={busy || !dealId} onClick={() => dealId && requestConfirmation('cancel', () => updateDealStatus(dealId, 'cancelled'))}>
           {actionText('cancel', '취소')}
         </BrandButton>
         {error && <p className="inline-status is-error">{error}</p>}
-      </div>
+      </div>,
     )
   }
 
   if (chat.status === '수락대기') {
     const dealId = chat.dealId
     if (!isPostWriter) {
-      return (
+      return withConfirmation(
         <div className="request-complete-panel">
           <div>
             <strong>작성자의 진행 시작을 기다리고 있어요.</strong>
             <span>진행 시작 후 완료 요청을 보낼 수 있습니다.</span>
           </div>
-        </div>
+        </div>,
       )
     }
 
-    return (
+    return withConfirmation(
       <div className="two-buttons chat-action-bar">
-        <BrandButton className={actionClass('start')} disabled={busy || !dealId} onClick={() => dealId && run('start', () => updateDealStatus(dealId, 'in_progress'))}>
+        <BrandButton className={actionClass('start')} disabled={busy || !dealId} onClick={() => dealId && requestConfirmation('start', () => updateDealStatus(dealId, 'in_progress'))}>
           {actionText('start', '진행 시작')}
         </BrandButton>
-        <BrandButton className={actionClass('cancel')} variant="outline" disabled={busy || !dealId} onClick={() => dealId && run('cancel', () => updateDealStatus(dealId, 'cancelled'))}>
+        <BrandButton className={actionClass('cancel')} variant="outline" disabled={busy || !dealId} onClick={() => dealId && requestConfirmation('cancel', () => updateDealStatus(dealId, 'cancelled'))}>
           {actionText('cancel', '취소')}
         </BrandButton>
         {error && <p className="inline-status is-error">{error}</p>}
-      </div>
+      </div>,
     )
   }
 
   if (!hasPendingApplication || !isPostWriter) return null
 
   const applicationId = chat.applicationId
-  return (
+  return withConfirmation(
     <div className="two-buttons chat-action-bar">
       <div className="applicant-profile-prompt">
         <span>수락 전에 지원자 프로필을 확인해보세요.</span>
@@ -955,13 +1036,42 @@ function TradeActionPanel({
           프로필 보기
         </button>
       </div>
-      <BrandButton className={actionClass('accept')} disabled={busy || !applicationId} onClick={() => applicationId && run('accept', () => updateApplicationStatus(applicationId, 'accepted'))}>
+      <BrandButton className={actionClass('accept')} disabled={busy || !applicationId} onClick={() => applicationId && requestConfirmation('accept', () => updateApplicationStatus(applicationId, 'accepted'))}>
         {actionText('accept', '수락하기')}
       </BrandButton>
-      <BrandButton className={actionClass('reject')} variant="outline" disabled={busy || !applicationId} onClick={() => applicationId && run('reject', () => updateApplicationStatus(applicationId, 'rejected'))}>
+      <BrandButton className={actionClass('reject')} variant="outline" disabled={busy || !applicationId} onClick={() => applicationId && requestConfirmation('reject', () => updateApplicationStatus(applicationId, 'rejected'))}>
         {actionText('reject', '거절하기')}
       </BrandButton>
       {error && <p className="inline-status is-error">{error}</p>}
+    </div>,
+  )
+}
+
+function TradeActionConfirmDialog({
+  actionId,
+  onCancel,
+  onConfirm,
+}: {
+  actionId: TradeActionId
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  const copy = tradeActionConfirmationCopy[actionId]
+
+  return (
+    <div className="modal-overlay" role="presentation" onClick={onCancel}>
+      <div className="confirm-dialog trade-action-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="trade-action-confirm-title" onClick={(event) => event.stopPropagation()}>
+        <h2 id="trade-action-confirm-title">{copy.title}</h2>
+        <p>{copy.message}</p>
+        <div>
+          <button type="button" onClick={onCancel}>
+            돌아가기
+          </button>
+          <button type="button" onClick={onConfirm}>
+            {copy.confirmLabel}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

@@ -107,6 +107,17 @@ struct TaskPost: Codable, Identifiable {
     }
 }
 
+struct ProfileLink: Codable, Hashable {
+    let title: String?
+    let url: String?
+}
+
+struct ProfileSampleImage: Codable, Hashable {
+    let imageUrl: String?
+    let storageKey: String?
+    let sortOrder: Int?
+}
+
 struct Conversation: Codable, Identifiable, Hashable {
     let id: String
     let dealId: String?
@@ -150,6 +161,9 @@ struct Conversation: Codable, Identifiable, Hashable {
     let otherPhoneVerified: Bool?
     let otherIdentityVerified: Bool?
     let otherCareerSummary: String?
+    let otherCareerDescription: String?
+    let otherPortfolioLinks: [ProfileLink]?
+    let otherWorkSampleImages: [ProfileSampleImage]?
     let otherResponseTime: String?
     let hasChatAfterStarted: Bool?
     let myReviewId: String?

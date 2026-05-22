@@ -79,6 +79,17 @@ data class TaskPost(
         get() = NumberFormat.getNumberInstance(Locale.KOREA).format(price) + "원"
 }
 
+data class ProfileLink(
+    val title: String?,
+    val url: String?
+)
+
+data class ProfileSampleImage(
+    val imageUrl: String?,
+    val storageKey: String?,
+    val sortOrder: Int?
+)
+
 data class Conversation(
     val id: String,
     val dealId: String?,
@@ -122,6 +133,9 @@ data class Conversation(
     val otherPhoneVerified: Boolean?,
     val otherIdentityVerified: Boolean?,
     val otherCareerSummary: String?,
+    val otherCareerDescription: String?,
+    val otherPortfolioLinks: List<ProfileLink>,
+    val otherWorkSampleImages: List<ProfileSampleImage>,
     val otherResponseTime: String?,
     val hasChatAfterStarted: Boolean?,
     val myReviewId: String?,

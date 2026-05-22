@@ -257,6 +257,9 @@ class APIClient(private val context: Context) {
             otherPhoneVerified = json.optNullableBoolean("otherPhoneVerified"),
             otherIdentityVerified = json.optNullableBoolean("otherIdentityVerified"),
             otherCareerSummary = json.optNullableString("otherCareerSummary"),
+            otherCareerDescription = json.optNullableString("otherCareerDescription"),
+            otherPortfolioLinks = json.optProfileLinks("otherPortfolioLinks"),
+            otherWorkSampleImages = json.optProfileSampleImages("otherWorkSampleImages"),
             otherResponseTime = json.optNullableString("otherResponseTime"),
             hasChatAfterStarted = json.optNullableBoolean("hasChatAfterStarted"),
             myReviewId = json.optNullableString("myReviewId"),
@@ -311,5 +314,30 @@ private fun JSONObject.optStringArray(name: String): List<String> {
     val array = optJSONArray(name) ?: return emptyList()
     return (0 until array.length()).mapNotNull { index ->
         array.optString(index).takeIf { it.isNotBlank() }
+    }
+}
+
+private fun JSONObject.optProfileLinks(name: String): List<ProfileLink> {
+    val array = optJSONArray(name) ?: return emptyList()
+    return (0 until array.length()).mapNotNull { index ->
+        val item = array.optJSONObject(index) ?: return@mapNotNull null
+        val url = item.optNullableString("url") ?: return@mapNotNull null
+        ProfileLink(
+            title = item.optNullableString("title"),
+            url = url
+        )
+    }
+}
+
+private fun JSONObject.optProfileSampleImages(name: String): List<ProfileSampleImage> {
+    val array = optJSONArray(name) ?: return emptyList()
+    return (0 until array.length()).mapNotNull { index ->
+        val item = array.optJSONObject(index) ?: return@mapNotNull null
+        val imageUrl = item.optNullableString("imageUrl") ?: return@mapNotNull null
+        ProfileSampleImage(
+            imageUrl = imageUrl,
+            storageKey = item.optNullableString("storageKey"),
+            sortOrder = item.optNullableInt("sortOrder")
+        )
     }
 }
