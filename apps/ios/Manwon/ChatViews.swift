@@ -51,7 +51,7 @@ struct ChatListView: View {
                 ChatPageHeader(title: "채팅")
                 content
             }
-            .background(ManwonColor.background)
+            .background(ManwonColor.surface)
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: String.self) { conversationId in
                 ChatDetailView(conversationId: conversationId)
@@ -114,19 +114,25 @@ struct ChatListView: View {
             }
         } else {
             List(viewModel.conversations) { conversation in
-                NavigationLink(value: conversation.id) {
+                Button {
+                    path = [conversation.id]
+                } label: {
                     ChatRow(conversation: conversation)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
+                .buttonStyle(.plain)
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.visible)
+                .listRowSeparatorTint(ManwonColor.line)
+                .listRowBackground(ManwonColor.surface)
             }
             .listStyle(.plain)
+            .scrollContentBackground(.hidden)
             .animation(ManwonMotion.fade, value: viewModel.conversations.count)
             .refreshable {
                 await viewModel.load()
             }
-            .background(ManwonColor.background)
+            .background(ManwonColor.surface)
         }
     }
 }
@@ -191,14 +197,8 @@ private struct ChatRow: View {
                     .clipShape(Capsule())
             }
         }
-        .padding(14)
-        .background(ManwonColor.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(ManwonColor.line, lineWidth: 1)
-        )
-        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
 }
 
@@ -568,6 +568,7 @@ struct ChatDetailView: View {
             .background(ManwonColor.background)
             .navigationBarBackButtonHidden(true)
             .toolbar(.hidden, for: .navigationBar)
+            .simultaneousGesture(swipeBackGesture)
             .task {
                 await viewModel.load()
                 syncReviewPrompt()
@@ -644,6 +645,30 @@ struct ChatDetailView: View {
                         .presentationDragIndicator(.visible)
                 }
             }
+    }
+
+    private var swipeBackGesture: some Gesture {
+        DragGesture(minimumDistance: 18, coordinateSpace: .local)
+            .onEnded { value in
+                guard pendingTradeConfirmation == nil, !showReviewPrompt else { return }
+                guard shouldDismissForSwipeBack(value) else { return }
+
+                dismissComposerKeyboard()
+                dismiss()
+            }
+    }
+
+    private func shouldDismissForSwipeBack(_ value: DragGesture.Value) -> Bool {
+        let edgeWidth: CGFloat = 34
+        let minimumTranslation: CGFloat = 54
+        let minimumPredictedTranslation: CGFloat = 120
+        let horizontalMovement = value.translation.width
+        let verticalMovement = abs(value.translation.height)
+
+        return value.startLocation.x <= edgeWidth
+            && horizontalMovement > minimumTranslation
+            && value.predictedEndTranslation.width > minimumPredictedTranslation
+            && horizontalMovement > verticalMovement * 1.35
     }
 
     private func dismissComposerKeyboard() {
@@ -993,6 +1018,7 @@ private struct ChatDetailHeader: View {
 private struct ChatProfileSheet: View {
     let conversation: Conversation
     private let photoColumns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 3)
+    @State private var selectedPhoto: ProfilePhotoPreview?
 
     var body: some View {
         ScrollView {
@@ -1075,9 +1101,13 @@ private struct ChatProfileSheet: View {
                             ProfileDetailSection(title: "사진") {
                                 LazyVGrid(columns: photoColumns, spacing: 8) {
                                     ForEach(Array(workSampleImageURLs.enumerated()), id: \.offset) { _, url in
-                                        Link(destination: url) {
+                                        Button {
+                                            selectedPhoto = ProfilePhotoPreview(url: url)
+                                        } label: {
                                             ProfileSampleImageCell(url: url)
                                         }
+                                        .buttonStyle(.plain)
+                                        .accessibilityLabel("사진 크게 보기")
                                     }
                                 }
                             }
@@ -1108,6 +1138,11 @@ private struct ChatProfileSheet: View {
             .padding(.bottom, 28)
         }
         .background(ManwonColor.surface)
+        .fullScreenCover(item: $selectedPhoto) { photo in
+            ProfilePhotoViewer(url: photo.url) {
+                selectedPhoto = nil
+            }
+        }
     }
 
     private var ratingText: String {
@@ -1182,6 +1217,80 @@ private struct ChatProfileSheet: View {
 
     private func linkDisplayName(_ url: URL) -> String {
         url.host?.replacingOccurrences(of: "www.", with: "") ?? url.absoluteString
+    }
+}
+
+private struct ProfilePhotoPreview: Identifiable {
+    let url: URL
+
+    var id: String {
+        url.absoluteString
+    }
+}
+
+private struct ProfilePhotoViewer: View {
+    let url: URL
+    let onClose: () -> Void
+    @State private var scale: CGFloat = 1
+    @GestureState private var gestureScale: CGFloat = 1
+
+    private var effectiveScale: CGFloat {
+        min(max(scale * gestureScale, 1), 4)
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black
+                .ignoresSafeArea()
+
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFit()
+                case .failure:
+                    VStack(spacing: 12) {
+                        Image(systemName: "photo")
+                            .font(.system(size: 36, weight: .semibold))
+                        Text("사진을 불러오지 못했습니다.")
+                            .font(.system(size: 15, weight: .semibold))
+                    }
+                    .foregroundStyle(Color.white.opacity(0.78))
+                default:
+                    ProgressView()
+                        .tint(.white)
+                }
+            }
+            .scaleEffect(effectiveScale)
+            .animation(.spring(response: 0.24, dampingFraction: 0.86), value: scale)
+            .gesture(
+                MagnificationGesture()
+                    .updating($gestureScale) { value, state, _ in
+                        state = value
+                    }
+                    .onEnded { value in
+                        scale = min(max(scale * value, 1), 4)
+                    }
+            )
+            .onTapGesture(count: 2) {
+                scale = scale > 1 ? 1 : 2.4
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(Color.white)
+                    .frame(width: 42, height: 42)
+                    .background(Color.black.opacity(0.55))
+                    .clipShape(Circle())
+            }
+            .padding(.top, 18)
+            .padding(.trailing, 18)
+            .accessibilityLabel("사진 닫기")
+        }
+        .statusBarHidden()
     }
 }
 
