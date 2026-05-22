@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { ArrowLeft, Check, ChevronRight, X } from 'lucide-react'
@@ -8,8 +8,9 @@ import { BrandButton } from '@/components/ui/Common'
 import {
   checkLoginCredential,
   checkSignupLoginId,
-  confirmSignupOtp,
+  completeSignup,
   requestSignupOtp,
+  verifySignupOtp,
   type SignupOnboardingPayload,
 } from '@/lib/manwonApi'
 
@@ -20,7 +21,7 @@ const agreementItems = [
   {
     key: 'terms',
     title: '서비스 이용약관 동의',
-    description: '만원부탁소 이용을 위한 기본 약관이에요.',
+    description: '뭐든해줌 이용을 위한 기본 약관이에요.',
     required: true,
     href: '/terms/service',
   },
@@ -144,8 +145,8 @@ export function LoginScreen() {
           <X size={24} />
         </button>
 
-        <div className="auth-brand" aria-label="만원부탁소">
-          만원부탁소
+        <div className="auth-brand" aria-label="뭐든해줌">
+          뭐든해줌
         </div>
 
         <div className="auth-form-panel">
@@ -253,8 +254,10 @@ export function SignupScreen() {
   const [phone, setPhone] = useState('')
   const [code, setCode] = useState('')
   const [requestedPhone, setRequestedPhone] = useState('')
+  const [codeVerified, setCodeVerified] = useState(false)
+  const [resendCooldown, setResendCooldown] = useState(0)
   const [agreements, setAgreements] = useState<Agreements>(initialAgreements)
-  const [status, setStatus] = useState<'idle' | 'checking' | 'sending' | 'sent' | 'verifying' | 'done' | 'error'>('idle')
+  const [status, setStatus] = useState<'idle' | 'checking' | 'sending' | 'sent' | 'verifying' | 'verified' | 'completing' | 'done' | 'error'>('idle')
   const [message, setMessage] = useState('')
 
   const loginIdHint = loginIdInputHint || loginIdCheckHint || (loginId.length > 0 && loginId.length < LOGIN_ID_MIN_LENGTH ? `${LOGIN_ID_MIN_LENGTH}자 이상` : '')
@@ -263,6 +266,7 @@ export function SignupScreen() {
   const requiredAgreed = agreements.terms && agreements.privacy
   const allAgreed = agreementItems.every((item) => agreements[item.key])
   const canRequestCode = name.trim().length >= 2 && Boolean(gender) && birthDate.length === 8 && phone.length >= 10 && requiredAgreed
+  const canSendCode = canRequestCode && status !== 'sending' && status !== 'verifying' && status !== 'completing' && (!requestedPhone || resendCooldown === 0)
 
   const signupPayload = useMemo<SignupOnboardingPayload>(
     () => ({
@@ -277,10 +281,13 @@ export function SignupScreen() {
     [agreements, birthDate, gender, loginId, name, password, phone],
   )
 
-  function completeLogin() {
-    router.replace(searchParams.get('next') || '/')
-    router.refresh()
-  }
+  useEffect(() => {
+    if (resendCooldown <= 0) return
+    const timer = window.setInterval(() => {
+      setResendCooldown((current) => Math.max(0, current - 1))
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [resendCooldown])
 
   function closeSignup() {
     const next = searchParams.get('next')
@@ -339,12 +346,15 @@ export function SignupScreen() {
   }
 
   async function requestCode() {
-    if (!canRequestCode) return
+    if (!canSendCode) return
     setStatus('sending')
     setMessage('')
     try {
       const result = await requestSignupOtp(signupPayload)
       setRequestedPhone(result.phone)
+      setCode('')
+      setCodeVerified(false)
+      setResendCooldown(30)
       setStatus('sent')
       setMessage(`인증번호를 보냈습니다. ${Math.ceil(result.ttlSeconds / 60)}분 안에 입력해주세요.`)
     } catch (error) {
@@ -354,16 +364,48 @@ export function SignupScreen() {
   }
 
   async function confirmCode() {
+    if (code.length !== 6 || status === 'verifying') return
     setStatus('verifying')
     setMessage('')
     try {
-      await confirmSignupOtp({ ...signupPayload, code })
+      await verifySignupOtp({ ...signupPayload, code })
+      setCodeVerified(true)
+      setStatus('verified')
+      setMessage('인증번호가 확인되었습니다. 회원가입을 완료해주세요.')
+    } catch (error) {
+      setStatus('error')
+      setCodeVerified(false)
+      setMessage(error instanceof Error ? error.message : '인증번호를 확인하지 못했습니다.')
+    }
+  }
+
+  async function completeSignupFlow() {
+    if (!codeVerified || status === 'completing') return
+    setStatus('completing')
+    setMessage('')
+    try {
+      await completeSignup(signupPayload)
       setStatus('done')
-      completeLogin()
+      router.replace('/profile-onboarding')
+      router.refresh()
     } catch (error) {
       setStatus('error')
       setMessage(error instanceof Error ? error.message : '회원가입을 완료하지 못했습니다.')
     }
+  }
+
+  function updateSignupPhone(value: string) {
+    setPhone(normalizeDigitsInput(value, 11))
+    setRequestedPhone('')
+    setCode('')
+    setCodeVerified(false)
+    setResendCooldown(0)
+  }
+
+  function updateSignupCode(value: string) {
+    setCode(normalizeDigitsInput(value, 6))
+    setCodeVerified(false)
+    if (status === 'verified') setStatus('sent')
   }
 
   return (
@@ -435,7 +477,7 @@ export function SignupScreen() {
           <div className="auth-form-panel signup-profile-form">
             <label className="auth-field">
               <span className="sr-only">이름</span>
-              <input value={name} autoComplete="name" placeholder="이름" disabled={status === 'sending' || status === 'verifying'} onChange={(event) => setName(event.target.value.slice(0, 30))} />
+              <input value={name} autoComplete="name" placeholder="이름" disabled={status === 'sending' || status === 'verifying' || status === 'completing'} onChange={(event) => setName(event.target.value.slice(0, 30))} />
             </label>
 
             <div className="auth-gender-field" role="radiogroup" aria-label="성별">
@@ -446,7 +488,7 @@ export function SignupScreen() {
                   key={option.value}
                   role="radio"
                   aria-checked={gender === option.value}
-                  disabled={status === 'sending' || status === 'verifying'}
+                  disabled={status === 'sending' || status === 'verifying' || status === 'completing'}
                   onClick={() => setGender(option.value)}
                 >
                   {option.label}
@@ -460,7 +502,7 @@ export function SignupScreen() {
                 value={formatBirthDate(birthDate)}
                 inputMode="numeric"
                 placeholder="생년월일 YYYY/MM/DD"
-                disabled={status === 'sending' || status === 'verifying'}
+                disabled={status === 'sending' || status === 'verifying' || status === 'completing'}
                 onChange={(event) => setBirthDate(normalizeDigitsInput(event.target.value, 8))}
               />
             </label>
@@ -472,25 +514,30 @@ export function SignupScreen() {
                 inputMode="numeric"
                 autoComplete="tel"
                 placeholder="휴대폰 번호"
-                disabled={status === 'sending' || status === 'verifying'}
-                onChange={(event) => setPhone(normalizeDigitsInput(event.target.value, 11))}
+                disabled={status === 'sending' || status === 'verifying' || status === 'completing'}
+                onChange={(event) => updateSignupPhone(event.target.value)}
               />
             </label>
 
-            <div className="auth-button-stack">
-              <button className="auth-main-button" type="button" disabled={!canRequestCode || status === 'sending'} onClick={() => void requestCode()}>
-                {status === 'sending' ? '전송 중' : requestedPhone ? '인증번호 재전송' : '인증번호 전송'}
-              </button>
-            </div>
+            {!codeVerified && (
+              <div className="auth-button-stack">
+                <button className="auth-main-button" type="button" disabled={!canSendCode} onClick={() => void requestCode()}>
+                  {status === 'sending' ? '전송 중' : requestedPhone && resendCooldown > 0 ? `재전송 ${resendCooldown}초` : requestedPhone ? '인증번호 재전송' : '인증번호 전송'}
+                </button>
+              </div>
+            )}
 
-            {(status === 'sent' || status === 'verifying' || requestedPhone) && status !== 'done' && (
+            {(status === 'sent' || status === 'verifying' || status === 'verified' || status === 'completing' || requestedPhone) && status !== 'done' && (
               <>
                 <label className="auth-field">
                   <span className="sr-only">인증번호</span>
-                  <input value={code} inputMode="numeric" placeholder="인증번호 6자리" disabled={status === 'verifying'} onChange={(event) => setCode(normalizeDigitsInput(event.target.value, 6))} />
+                  <input value={code} inputMode="numeric" placeholder="인증번호 6자리" disabled={status === 'verifying' || status === 'completing'} onChange={(event) => updateSignupCode(event.target.value)} />
                 </label>
-                <button className="auth-main-button" type="button" disabled={status === 'verifying' || code.length !== 6} onClick={() => void confirmCode()}>
-                  {status === 'verifying' ? '확인 중' : '회원가입 완료'}
+                <button className="auth-sub-button" type="button" disabled={status === 'verifying' || status === 'completing' || code.length !== 6 || codeVerified} onClick={() => void confirmCode()}>
+                  {status === 'verifying' ? '확인 중' : codeVerified ? '인증번호 확인 완료' : '인증번호 확인'}
+                </button>
+                <button className="auth-main-button" type="button" disabled={!codeVerified || status === 'completing'} onClick={() => void completeSignupFlow()}>
+                  {status === 'completing' ? '완료 중' : '회원가입 완료'}
                 </button>
               </>
             )}

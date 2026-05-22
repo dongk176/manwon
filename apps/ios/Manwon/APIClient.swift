@@ -31,6 +31,190 @@ struct PushTokenRegistration: Encodable {
     let appVersion: String?
 }
 
+private struct ReviewPayload: Encodable {
+    let dealId: String
+    let rating: Int
+    let content: String?
+}
+
+private struct ReviewReminderPayload: Encodable {
+    let dealId: String
+}
+
+struct RealtimeToken: Decodable {
+    let token: String
+    let expiresIn: Int
+    let websocketUrl: String?
+}
+
+struct DueReviewReminder: Decodable {
+    let dealId: String
+    let conversationId: String?
+    let dueAt: String?
+}
+
+final class ConversationRealtimeSubscription {
+    private let conversationId: String
+    private let onChange: @MainActor () -> Void
+    private let session: URLSession
+    private var socket: URLSessionWebSocketTask?
+    private var heartbeatTask: Task<Void, Never>?
+    private var receiveTask: Task<Void, Never>?
+    private var tokenRefreshTask: Task<Void, Never>?
+    private var ref = 1
+
+    init(conversationId: String, session: URLSession = .shared, onChange: @escaping @MainActor () -> Void) {
+        self.conversationId = conversationId
+        self.session = session
+        self.onChange = onChange
+    }
+
+    deinit {
+        disconnect()
+    }
+
+    func connect() async throws {
+        disconnect()
+
+        let token = try await APIClient.shared.fetchRealtimeToken()
+        guard let websocketUrl = token.websocketUrl, let url = URL(string: websocketUrl) else {
+            throw APIClientError.invalidResponse
+        }
+
+        let socket = session.webSocketTask(with: url)
+        self.socket = socket
+        socket.resume()
+
+        try await join(accessToken: token.token)
+        startReceiveLoop()
+        startHeartbeat()
+        startTokenRefresh(expiresIn: token.expiresIn)
+    }
+
+    func disconnect() {
+        heartbeatTask?.cancel()
+        receiveTask?.cancel()
+        tokenRefreshTask?.cancel()
+        socket?.cancel(with: .goingAway, reason: nil)
+        heartbeatTask = nil
+        receiveTask = nil
+        tokenRefreshTask = nil
+        socket = nil
+    }
+
+    private var topic: String {
+        "realtime:conversation:\(conversationId)"
+    }
+
+    private func join(accessToken: String) async throws {
+        try await send(
+            topic: topic,
+            event: "phx_join",
+            payload: [
+                "config": [
+                    "broadcast": [
+                        "ack": false,
+                        "self": false,
+                    ],
+                    "presence": [
+                        "enabled": false,
+                    ],
+                    "postgres_changes": [],
+                    "private": true,
+                ],
+                "access_token": accessToken,
+            ]
+        )
+    }
+
+    private func startReceiveLoop() {
+        receiveTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                do {
+                    let message = try await self.socket?.receive()
+                    switch message {
+                    case .string(let text):
+                        await self.handleFrame(text)
+                    case .data(let data):
+                        if let text = String(data: data, encoding: .utf8) {
+                            await self.handleFrame(text)
+                        }
+                    case nil:
+                        return
+                    @unknown default:
+                        break
+                    }
+                } catch {
+                    return
+                }
+            }
+        }
+    }
+
+    private func startHeartbeat() {
+        heartbeatTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 20_000_000_000)
+                try? await self.send(topic: "phoenix", event: "heartbeat", payload: [:], joinRef: NSNull())
+            }
+        }
+    }
+
+    private func startTokenRefresh(expiresIn: Int) {
+        tokenRefreshTask = Task { [weak self] in
+            guard let self else { return }
+            let refreshDelay = UInt64(max(expiresIn - 60, 60)) * 1_000_000_000
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: refreshDelay)
+                do {
+                    let token = try await APIClient.shared.fetchRealtimeToken()
+                    try await self.send(
+                        topic: self.topic,
+                        event: "access_token",
+                        payload: ["access_token": token.token]
+                    )
+                } catch {
+                    // Keep the existing socket alive; the fallback poll still protects freshness.
+                }
+            }
+        }
+    }
+
+    private func handleFrame(_ text: String) async {
+        guard
+            let data = text.data(using: .utf8),
+            let frame = try? JSONSerialization.jsonObject(with: data) as? [Any],
+            frame.count >= 5,
+            let event = frame[3] as? String,
+            event == "broadcast"
+        else {
+            return
+        }
+
+        await MainActor.run {
+            onChange()
+        }
+    }
+
+    private func send(topic: String, event: String, payload: [String: Any], joinRef: Any = NSNull()) async throws {
+        guard let socket else { throw APIClientError.invalidResponse }
+        let frame: [Any] = [joinRef, nextRef(), topic, event, payload]
+        let data = try JSONSerialization.data(withJSONObject: frame)
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw APIClientError.invalidResponse
+        }
+        try await socket.send(.string(text))
+    }
+
+    private func nextRef() -> String {
+        let value = String(ref)
+        ref += 1
+        return value
+    }
+}
+
 final class APIClient {
     static let shared = APIClient()
 
@@ -52,6 +236,20 @@ final class APIClient {
 
     func fetchMessages(conversationId: String) async throws -> [Message] {
         try await request("/api/conversations/\(conversationId)/messages")
+    }
+
+    func fetchMessages(conversationId: String, after: String?) async throws -> [Message] {
+        guard let after, !after.isEmpty else {
+            return try await fetchMessages(conversationId: conversationId)
+        }
+        var components = URLComponents()
+        components.path = "/api/conversations/\(conversationId)/messages"
+        components.queryItems = [URLQueryItem(name: "after", value: after)]
+        return try await request(components.string ?? "/api/conversations/\(conversationId)/messages")
+    }
+
+    func fetchRealtimeToken() async throws -> RealtimeToken {
+        try await request("/api/realtime/token")
     }
 
     func markConversationRead(conversationId: String) async throws {
@@ -103,6 +301,31 @@ final class APIClient {
 
     func updateApplicationStatus(applicationId: String, status: String) async throws {
         try await requestNoData("/api/applications/\(applicationId)/status", method: "PATCH", body: ["status": status])
+    }
+
+    func createReview(dealId: String, rating: Int, content: String?) async throws {
+        try await requestNoData("/api/reviews", method: "POST", body: ReviewPayload(dealId: dealId, rating: rating, content: content))
+    }
+
+    func scheduleReviewReminder(dealId: String) async throws {
+        try await requestNoData("/api/review-reminders", method: "POST", body: ReviewReminderPayload(dealId: dealId))
+    }
+
+    func fetchDueReviewReminder() async throws -> DueReviewReminder? {
+        let request = try await authorizedRequest(path: "/api/review-reminders", method: "GET")
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIClientError.invalidResponse
+        }
+        if httpResponse.statusCode == 401 {
+            throw APIClientError.unauthenticated
+        }
+
+        let envelope = try decoder.decode(APIEnvelope<DueReviewReminder>.self, from: data)
+        guard (200..<300).contains(httpResponse.statusCode), envelope.ok else {
+            throw APIClientError.server(envelope.error ?? "요청에 실패했습니다.")
+        }
+        return envelope.data
     }
 
     func fetchNearbyPosts(latitude: Double, longitude: Double, radiusM: Int = 1000) async throws -> [TaskPost] {

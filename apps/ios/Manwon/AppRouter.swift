@@ -13,8 +13,10 @@ final class AppRouter: ObservableObject {
     @Published var selectedTab: AppTab = .home
     @Published var homePath = "/"
     @Published var registerPath = "/register"
+    @Published var activityPath = "/activity"
     @Published var myPath = "/my"
     @Published var chatConversationId: String?
+    @Published var chatRouteRevision = 0
     @Published var chatDetailActive = false
     @Published var nearbySheetCoversBottomNav = false
     @Published var homeIsAtTop = true
@@ -22,6 +24,7 @@ final class AppRouter: ObservableObject {
     @Published private var displayedWebPaths: [AppTab: String] = [
         .home: "/",
         .register: "/register",
+        .nearby: "/activity",
         .my: "/my"
     ]
 
@@ -45,17 +48,21 @@ final class AppRouter: ObservableObject {
         if normalized == "/chat" {
             selectedTab = .chat
             chatConversationId = nil
+            chatDetailActive = false
+            chatRouteRevision += 1
             return
         }
 
         if normalized.hasPrefix("/chat/") {
             selectedTab = .chat
             chatConversationId = String(normalized.dropFirst("/chat/".count))
+            chatDetailActive = true
+            chatRouteRevision += 1
             return
         }
 
         if normalized == "/nearby" || normalized.hasPrefix("/nearby/") {
-            showMapUnavailableNotice()
+            openWebPath("/activity")
             return
         }
 
@@ -64,6 +71,13 @@ final class AppRouter: ObservableObject {
 
     func openWebPath(_ path: String) {
         let normalized = path.isEmpty ? "/" : path
+        if normalized == "/activity" || normalized.hasPrefix("/activity/") {
+            activityPath = normalized
+            webRouteDidChange(normalized, for: .nearby)
+            selectedTab = .nearby
+            return
+        }
+
         if normalized == "/register" || normalized.hasPrefix("/register/") {
             registerPath = normalized
             webRouteDidChange(normalized, for: .register)
@@ -91,6 +105,26 @@ final class AppRouter: ObservableObject {
     func webRouteDidChange(_ path: String, for tab: AppTab) {
         let normalized = path.isEmpty ? "/" : path
         var nextDisplayedWebPaths = displayedWebPaths
+        if normalized == "/activity" || normalized.hasPrefix("/activity/") {
+            nextDisplayedWebPaths[.nearby] = normalized
+            displayedWebPaths = nextDisplayedWebPaths
+            if tab != .nearby {
+                activityPath = normalized
+                selectedTab = .nearby
+            }
+            return
+        }
+
+        if normalized == "/my" || normalized.hasPrefix("/my/") {
+            nextDisplayedWebPaths[.my] = normalized
+            displayedWebPaths = nextDisplayedWebPaths
+            if tab != .my {
+                myPath = normalized
+                selectedTab = .my
+            }
+            return
+        }
+
         nextDisplayedWebPaths[tab] = normalized
         displayedWebPaths = nextDisplayedWebPaths
     }
@@ -104,15 +138,38 @@ final class AppRouter: ObservableObject {
     }
 
     func openPush(userInfo: [AnyHashable: Any]) {
-        if let conversationId = stringValue(userInfo["conversationId"]) {
+        let data = dictionaryValue(userInfo["data"])
+
+        if let conversationId = stringValue(userInfo["conversationId"]) ?? stringValue(data?["conversationId"]) {
             selectedTab = .chat
             chatConversationId = conversationId
+            chatDetailActive = true
+            chatRouteRevision += 1
             return
         }
 
-        if let postId = stringValue(userInfo["postId"]) {
+        if let postId = stringValue(userInfo["postId"]) ?? stringValue(data?["postId"]) {
             openWebPath("/posts/\(postId)")
         }
+    }
+
+    func isViewingConversation(_ conversationId: String) -> Bool {
+        selectedTab == .chat && chatDetailActive && chatConversationId == conversationId
+    }
+
+    private func dictionaryValue(_ value: Any?) -> [AnyHashable: Any]? {
+        if let value = value as? [AnyHashable: Any] {
+            return value
+        }
+        if let value = value as? [String: Any] {
+            return Dictionary(uniqueKeysWithValues: value.map { (AnyHashable($0.key), $0.value) })
+        }
+        if let value = value as? String,
+           let data = value.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            return Dictionary(uniqueKeysWithValues: object.map { (AnyHashable($0.key), $0.value) })
+        }
+        return nil
     }
 
     private func stringValue(_ value: Any?) -> String? {

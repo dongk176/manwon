@@ -14,11 +14,16 @@ final class PushManager: NSObject, UNUserNotificationCenterDelegate {
 
     @MainActor weak var router: AppRouter?
     private var pendingFCMToken: String?
+    private var pendingPushUserInfo: [AnyHashable: Any]?
     private var isFirebaseConfigured = false
 
     func attach(router: AppRouter) {
         Task { @MainActor in
             self.router = router
+            if let userInfo = self.pendingPushUserInfo {
+                self.pendingPushUserInfo = nil
+                router.openPush(userInfo: userInfo)
+            }
         }
     }
 
@@ -94,7 +99,21 @@ final class PushManager: NSObject, UNUserNotificationCenterDelegate {
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        completionHandler([.banner, .sound, .badge])
+        let userInfo = notification.request.content.userInfo
+        Task { @MainActor in
+            if let conversationId = Self.stringValue(userInfo["conversationId"]) ?? Self.stringValue(Self.dictionaryValue(userInfo["data"])?["conversationId"]),
+               router?.isViewingConversation(conversationId) == true {
+                NotificationCenter.default.post(
+                    name: .manwonConversationPushReceived,
+                    object: nil,
+                    userInfo: ["conversationId": conversationId]
+                )
+                completionHandler([])
+                return
+            }
+
+            completionHandler([.banner, .sound, .badge])
+        }
     }
 
     func userNotificationCenter(
@@ -104,10 +123,44 @@ final class PushManager: NSObject, UNUserNotificationCenterDelegate {
     ) {
         let userInfo = response.notification.request.content.userInfo
         Task { @MainActor in
-            router?.openPush(userInfo: userInfo)
+            if let router {
+                router.openPush(userInfo: userInfo)
+            } else {
+                pendingPushUserInfo = userInfo
+            }
         }
         completionHandler()
     }
+
+    private static func dictionaryValue(_ value: Any?) -> [AnyHashable: Any]? {
+        if let value = value as? [AnyHashable: Any] {
+            return value
+        }
+        if let value = value as? [String: Any] {
+            return Dictionary(uniqueKeysWithValues: value.map { (AnyHashable($0.key), $0.value) })
+        }
+        if let value = value as? String,
+           let data = value.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            return Dictionary(uniqueKeysWithValues: object.map { (AnyHashable($0.key), $0.value) })
+        }
+        return nil
+    }
+
+    private static func stringValue(_ value: Any?) -> String? {
+        if let value = value as? String, !value.isEmpty {
+            return value
+        }
+        if let value = value as? CustomStringConvertible {
+            let text = value.description
+            return text.isEmpty ? nil : text
+        }
+        return nil
+    }
+}
+
+extension Notification.Name {
+    static let manwonConversationPushReceived = Notification.Name("manwonConversationPushReceived")
 }
 
 enum PushPromptContext: String {

@@ -3,7 +3,7 @@ import './globals.css'
 import { NativeIOSBridge } from '@/components/NativeIOSBridge'
 
 export const metadata: Metadata = {
-  title: '만원부탁소',
+  title: '뭐든해줌',
   description: '작은 부탁 거래앱',
 }
 

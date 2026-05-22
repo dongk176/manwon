@@ -33,7 +33,7 @@ function daysFromNow(days, hour = 9) {
 async function findTargetProfile() {
   const [byLoginId] = await sql`
     select id, login_id, nickname
-    from manwon_happiness.profiles
+    from manwon_happiness.users
     where login_id = ${targetLoginId}
       and withdrawn_at is null
     limit 1
@@ -42,7 +42,7 @@ async function findTargetProfile() {
 
   const [recentProfile] = await sql`
     select id, login_id, nickname
-    from manwon_happiness.profiles
+    from manwon_happiness.users
     where withdrawn_at is null
     order by last_login_at desc nulls last, created_at desc
     limit 1
@@ -52,7 +52,7 @@ async function findTargetProfile() {
 
 async function createSeedProfile(db, key, nickname) {
   const [profile] = await db`
-    insert into manwon_happiness.profiles (
+    insert into manwon_happiness.users (
       nickname,
       display_name,
       login_id,
@@ -72,7 +72,7 @@ async function createSeedProfile(db, key, nickname) {
       1,
       1
     )
-    on conflict (login_id) where login_id is not null do update
+    on conflict (login_id) where login_id is not null and withdrawn_at is null do update
       set nickname = excluded.nickname,
           display_name = excluded.display_name,
           phone_verified = true,
@@ -142,7 +142,7 @@ async function clearPreviousSeed(db, targetUserId) {
     where reporter_id = ${targetUserId}
       and (
         target_user_id in (
-          select id from manwon_happiness.profiles where login_id like ${`${seedLoginPrefix}%`}
+          select id from manwon_happiness.users where login_id like ${`${seedLoginPrefix}%`}
         )
         or post_id in (
           select id from manwon_happiness.task_posts where description like ${`%${seedTag}%`}
@@ -154,7 +154,7 @@ async function clearPreviousSeed(db, targetUserId) {
     where description like ${`%${seedTag}%`}
   `
   await db`
-    delete from manwon_happiness.profiles
+    delete from manwon_happiness.users
     where login_id like ${`${seedLoginPrefix}%`}
   `
 }

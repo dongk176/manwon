@@ -41,7 +41,7 @@ struct RootTabView: View {
             }
 
             tabLayer(.nearby) {
-                NearbyView()
+                WebTabView(tab: .nearby, title: "내 활동", path: $router.activityPath)
             }
 
             tabLayer(.my) {
@@ -95,10 +95,26 @@ struct RootTabView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             keyboardVisible = false
         }
+        .onAppear {
+            openDueReviewReminderIfNeeded()
+        }
         .onChange(of: scenePhase) { phase in
             guard phase == .active else { return }
             PushManager.shared.registerForRemoteNotificationsIfAuthorized()
             permissionPrompts.checkUnreadMessagesOnForeground()
+            openDueReviewReminderIfNeeded()
+        }
+    }
+
+    private func openDueReviewReminderIfNeeded() {
+        guard !(router.selectedTab == .chat && router.chatDetailActive) else { return }
+        Task {
+            guard let reminder = try? await APIClient.shared.fetchDueReviewReminder(), let conversationId = reminder.conversationId else {
+                return
+            }
+            await MainActor.run {
+                router.openNativeRoute(path: "/chat/\(conversationId)")
+            }
         }
     }
 

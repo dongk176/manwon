@@ -1,13 +1,15 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Ban,
   BarChart3,
   Bell,
+  Briefcase,
   CalendarDays,
+  Camera,
   ChevronRight,
   CircleCheck,
   Clock,
@@ -18,47 +20,71 @@ import {
   Heart,
   HeartHandshake,
   HelpCircle,
+  ImagePlus,
   Info,
+  Link as LinkIcon,
   ListChecks,
   LogIn,
   LogOut,
   MapPin,
+  MessageCircle,
   Monitor,
   Package,
+  Plus,
   Shield,
   Settings,
   ShieldCheck,
-  Smartphone,
   Star,
   TriangleAlert,
   UserMinus,
   UserRound,
   WalletCards,
+  X,
 } from 'lucide-react'
 import { AppHeader, BrandButton, RatingStars } from '@/components/ui/Common'
+import { NeighborhoodSelectSheet } from '@/components/location/LocationSheets'
 import {
-  confirmPhoneVerification,
   createSupportInquiry,
+  createActivityProfile,
+  deactivateActivityProfile,
   deleteBlock,
+  fetchActivityProfiles,
   fetchMyActivity,
   fetchMyPage,
   fetchSettlementSummary,
+  getDefaultProfileImageByGender,
+  getDisplayImageUrl,
+  isDefaultActivityProfile,
   logout,
-  requestPhoneVerification,
+  updateActivityProfile,
+  uploadImageFile,
   withdrawAccount,
+  type ActivityProfile,
+  type ActivityProfilePayload,
   type ApiTaskPost,
   type SettlementSummary,
 } from '@/lib/manwonApi'
+import {
+  getLocationPermissionState,
+  requestBrowserLocation,
+  reverseGeocode,
+  storeLocationRegion,
+  toNeighborhoodRegion,
+  type LocationPermissionState,
+  type LocationRegion,
+} from '@/lib/location'
 
 export type MySection =
   | 'main'
+  | 'profiles'
+  | 'profileOnboarding'
   | 'manage'
+  | 'activity'
   | 'requests'
   | 'helped'
   | 'favorites'
   | 'settlement'
   | 'reviews'
-  | 'verify'
   | 'blocks'
   | 'reports'
   | 'account'
@@ -150,12 +176,18 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
     }
   }
 
-  if (section === 'requests') {
-    return <MyRequestsScreen posts={activity.myPosts} loading={loadState === 'loading'} onBack={() => router.push('/my')} />
-  }
+  const userGender = toProfileGender(myPage?.gender)
 
-  if (section === 'helped') {
-    return <MyHelpedScreen deals={activity.helpedDeals} loading={loadState === 'loading'} onBack={() => router.push('/my')} />
+  if (section === 'activity' || section === 'requests' || section === 'helped') {
+    return (
+      <MyActivityScreen
+        posts={activity.myPosts}
+        deals={activity.helpedDeals}
+        loading={loadState === 'loading'}
+        initialTab={section === 'helped' ? '내가 해준 일' : '내 부탁'}
+        onBack={() => router.push('/my')}
+      />
+    )
   }
 
   if (section === 'favorites') {
@@ -192,25 +224,31 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
     return <SupportScreen onBack={() => router.push('/my/account')} />
   }
 
-  if (section === 'manage') {
+  if (section === 'profiles') {
+    return <ActivityProfilesScreen onBack={() => router.push('/my')} userGender={userGender} />
+  }
+
+  if (section === 'profileOnboarding') {
     return (
-      <ManageScreen
-        onBack={() => router.push('/my')}
-        onOpenVerification={() => router.push('/my/verify')}
-        onOpenBlocks={() => router.push('/my/blocks')}
-        onOpenReports={() => router.push('/my/reports')}
-        settlementSummary={settlementSummary}
-        activity={activity}
+      <ActivityProfilesScreen
+        onboarding
+        userGender={userGender}
+        onComplete={() => {
+          router.replace('/')
+          router.refresh()
+        }}
       />
     )
   }
 
-  if (section === 'verify') {
+  if (section === 'manage') {
     return (
-      <PhoneVerificationScreen
-        profile={myPage}
+      <ManageScreen
         onBack={() => router.push('/my')}
-        onVerified={(profile) => setMyPage(profile)}
+        onOpenBlocks={() => router.push('/my/blocks')}
+        onOpenReports={() => router.push('/my/reports')}
+        settlementSummary={settlementSummary}
+        activity={activity}
       />
     )
   }
@@ -234,34 +272,42 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
     )
   }
 
-  const nickname = getString(myPage ?? {}, 'nickname') || '만원부탁소'
+  const nickname = getString(myPage ?? {}, 'nickname') || '뭐든해줌'
+  const avatarUrl = getString(myPage ?? {}, 'avatarUrl')
+  const fallbackAvatarUrl = getDefaultProfileImageByGender(userGender)
   const ratingAvg = getNumber(myPage ?? {}, 'ratingAvg')
   const completedCount = getNumber(myPage ?? {}, 'completedCount')
-  const activePostsCount = getNumber(myPage ?? {}, 'activePostsCount', activity.myPosts.filter((post) => toPostFilterStatus(getString(post, 'status')) === '진행중').length)
-  const activeHelpingCount = getNumber(myPage ?? {}, 'activeHelpingCount', activity.helpedDeals.filter((deal) => toDealFilterStatus(getString(deal, 'status')) === '진행중').length)
+  const totalPostsCount = getNumber(myPage ?? {}, 'postsCount', activity.myPosts.length)
+  const totalHelpingCount = getNumber(myPage ?? {}, 'helpingCount', activity.helpedDeals.length)
   const favoriteCount = getNumber(myPage ?? {}, 'favoriteCount', activity.favorites.length)
   const receivedReviewCount = getNumber(myPage ?? {}, 'receivedReviewCount', activity.receivedReviews.length)
   const phoneVerified = myPage?.phoneVerified === true
 
+  if (loadState === 'loading') {
+    return (
+      <section className="screen my-screen my-page-loading">
+        <AppHeader title="마이" showSettings onSettings={() => router.push('/my/account')} />
+        <div className="my-page-loading-indicator" role="status" aria-label="마이페이지 로딩 중">
+          <span className="loading-spinner" />
+        </div>
+      </section>
+    )
+  }
+
   return (
-    <section className="screen my-screen">
+    <section className="screen my-screen my-page-ready">
       <AppHeader title="마이" showSettings onSettings={() => router.push('/my/account')} />
-      {loadState === 'loading' && <p className="inline-status">마이페이지 정보를 불러오는 중입니다.</p>}
       {loadState === 'error' && <p className="inline-status is-error">마이페이지 정보를 불러오지 못했습니다.</p>}
       <div className="profile-card">
-        <InitialAvatar name={nickname} size="lg" />
+        <InitialAvatar name={nickname} size="lg" imageUrl={avatarUrl || fallbackAvatarUrl || undefined} />
         <div className="profile-main">
           <h2>
             {nickname}
             <ChevronRight size={20} />
           </h2>
-          <p>만원부탁소에서 안전하게 부탁을 주고받아보세요.</p>
+          <p>뭐든해줌에서 안전하게 부탁을 주고받아보세요.</p>
         </div>
         <div className="profile-stats">
-          <span>
-            <ShieldCheck size={18} />
-            {phoneVerified ? '인증 완료' : '휴대폰 인증 필요'}
-          </span>
           <span>
             <Star size={18} />
             평점 {ratingAvg.toFixed(1)}
@@ -274,8 +320,8 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
       </div>
 
       <MenuGroup>
-        <MenuItem icon={<WalletCards />} title="내 부탁" badge={activePostsCount > 0 ? `${activePostsCount}개 진행중` : '없음'} onClick={() => router.push('/my/requests')} />
-        <MenuItem icon={<HeartHandshake />} title="내가 해준 일" badge={activeHelpingCount > 0 ? `${activeHelpingCount}개 진행중` : '없음'} onClick={() => router.push('/my/helped')} />
+        <MenuItem icon={<UserRound />} title="내 프로필 관리" badge="활동 프로필" onClick={() => router.push('/my/profiles')} />
+        <MenuItem icon={<WalletCards />} title="내 활동" badge={`${totalPostsCount + totalHelpingCount}개`} onClick={() => router.push('/activity')} />
         <MenuItem icon={<Heart />} title="찜한 부탁" badge={`${favoriteCount}개`} onClick={() => router.push('/my/favorites')} muted />
       </MenuGroup>
 
@@ -285,7 +331,6 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
 
       <MenuGroup>
         {!phoneVerified && <MenuItem icon={<LogIn />} title="로그인 / 회원가입" badge="권장" onClick={() => router.push('/login?next=/my')} />}
-        <MenuItem icon={<ShieldCheck />} title="인증 관리" badge={phoneVerified ? '완료' : '필요'} onClick={() => router.push('/my/verify')} />
         <MenuItem icon={<Ban />} title="차단/신고 관리" onClick={() => router.push('/my/blocks')} muted />
         {phoneVerified && <MenuItem icon={<LogOut />} title={authBusy ? '로그아웃 중' : '로그아웃'} onClick={() => void handleLogout()} muted />}
       </MenuGroup>
@@ -298,30 +343,38 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
   )
 }
 
-function MyRequestsScreen({ posts, loading, onBack }: { posts: ActivityPost[]; loading: boolean; onBack: () => void }) {
-  const [active, setActive] = useState('전체')
-  const items = useMemo(() => posts.map(postToTaskItem), [posts])
-  const filteredItems = filterTaskItems(items, active)
+type MyActivityTab = '내 부탁' | '내가 해준 일'
+
+function MyActivityScreen({
+  posts,
+  deals,
+  loading,
+  initialTab,
+  onBack,
+}: {
+  posts: ActivityPost[]
+  deals: ActivityRecord[]
+  loading: boolean
+  initialTab: MyActivityTab
+  onBack: () => void
+}) {
+  const [activeTab, setActiveTab] = useState<MyActivityTab>(initialTab)
+  const [activeStatus, setActiveStatus] = useState('전체')
+  const postItems = useMemo(() => posts.map(postToTaskItem), [posts])
+  const dealItems = useMemo(() => deals.map(dealToTaskItem), [deals])
+  const activeItems = activeTab === '내 부탁' ? postItems : dealItems
+  const filteredItems = filterTaskItems(activeItems, activeStatus)
+  const emptyTitle = activeTab === '내 부탁' ? '아직 등록한 부탁이 없어요' : '아직 해준 일이 없어요'
+  const emptyText = activeTab === '내 부탁'
+    ? '부탁을 등록하면 이곳에서 상태를 확인할 수 있습니다.'
+    : '거래를 수락하면 이곳에서 진행 상황을 볼 수 있습니다.'
 
   return (
-    <section className="screen my-sub-screen my-task-screen">
-      <AppHeader title="내 부탁" centered onBack={onBack} />
-      <SegmentTabs tabs={['전체', '진행중', '완료', '취소']} active={active} onChange={setActive} />
-      <TaskList items={filteredItems} loading={loading} emptyTitle="아직 등록한 부탁이 없어요" emptyText="부탁을 등록하면 이곳에서 상태를 확인할 수 있습니다." />
-    </section>
-  )
-}
-
-function MyHelpedScreen({ deals, loading, onBack }: { deals: ActivityRecord[]; loading: boolean; onBack: () => void }) {
-  const [active, setActive] = useState('전체')
-  const items = useMemo(() => deals.map(dealToTaskItem), [deals])
-  const filteredItems = filterTaskItems(items, active)
-
-  return (
-    <section className="screen my-sub-screen my-helped-screen">
-      <AppHeader title="내가 해준 일" centered onBack={onBack} />
-      <SegmentTabs tabs={['전체', '진행중', '완료', '취소']} active={active} onChange={setActive} />
-      <TaskList items={filteredItems} loading={loading} emptyTitle="아직 해준 일이 없어요" emptyText="거래를 수락하면 이곳에서 진행 상황을 볼 수 있습니다." />
+    <section className="screen my-sub-screen my-activity-screen">
+      <AppHeader title="내 활동" centered onBack={onBack} />
+      <ChipTabs tabs={['내 부탁', '내가 해준 일']} active={activeTab} onChange={(tab) => setActiveTab(tab as MyActivityTab)} />
+      <SegmentTabs tabs={['전체', '진행중', '완료', '취소']} active={activeStatus} onChange={setActiveStatus} />
+      <TaskList items={filteredItems} loading={loading} emptyTitle={emptyTitle} emptyText={emptyText} />
     </section>
   )
 }
@@ -339,6 +392,730 @@ function MyFavoritesScreen({ favorites, loading, onBack }: { favorites: Activity
       <TaskList items={filteredItems} loading={loading} emptyTitle="아직 찜한 부탁이 없어요" emptyText="관심 있는 부탁을 찜하면 이곳에서 모아볼 수 있습니다." />
       <p className="my-footnote">찜한 부탁은 최대 50개까지 저장할 수 있어요.</p>
     </section>
+  )
+}
+
+type ActivityProfileFormState = {
+  id?: string
+  avatarUrl: string | null
+  defaultAvatarKey: string
+  gender?: 'male' | 'female' | 'unknown' | 'private' | null
+  nickname: string
+  bio: string
+  activityMode: '' | 'online' | 'nearby' | 'both'
+  addressText: string
+  region1Depth: string
+  region2Depth: string
+  region3Depth: string
+  regionCode: string | null
+  latitude: number | null
+  longitude: number | null
+  careerSummary: string
+  careerDescription: string
+  linkTitle: string
+  linkUrl: string
+  availableTimeText: string
+  basePriceText: string
+  workSampleImages: Array<{ imageUrl: string; storageKey: string; sortOrder: number }>
+  phoneVerified?: boolean | null
+  ratingAvg?: number | string | null
+  reviewCount?: number | null
+  completedCount?: number | null
+}
+
+type ProfileExtraModalKind = 'career' | 'link' | 'sample'
+
+const defaultProfileAvatars = ['default-1', 'default-2', 'default-3', 'default-4']
+
+function ActivityProfilesScreen({
+  onBack,
+  onboarding = false,
+  userGender,
+  onComplete,
+}: {
+  onBack?: () => void
+  onboarding?: boolean
+  userGender?: ActivityProfile['gender']
+  onComplete?: () => void
+}) {
+  const [profiles, setProfiles] = useState<ActivityProfile[]>([])
+  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>(onboarding ? 'ready' : 'loading')
+  const [formState, setFormState] = useState<ActivityProfileFormState | null>(
+    onboarding ? createEmptyActivityProfileForm(userGender) : null,
+  )
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'error'>('idle')
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [message, setMessage] = useState('')
+  const activeFormState = useMemo(() => {
+    if (!formState || formState.id || formState.gender || !userGender) return formState
+    return { ...formState, gender: userGender }
+  }, [formState, userGender])
+
+  useEffect(() => {
+    if (onboarding) return
+    let cancelled = false
+    fetchActivityProfiles()
+      .then((nextProfiles) => {
+        if (cancelled) return
+        setProfiles(nextProfiles)
+        const defaultProfile = nextProfiles.find((profile) => isDefaultActivityProfile(profile)) ?? nextProfiles[0]
+        if (defaultProfile) setFormState(activityProfileToForm(defaultProfile))
+        setLoadState('ready')
+      })
+      .catch(() => {
+        if (!cancelled) setLoadState('error')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [onboarding])
+
+  function openEdit(profile: ActivityProfile) {
+    setErrors({})
+    setMessage('')
+    setSaveState('idle')
+    setFormState(activityProfileToForm(profile))
+  }
+
+  async function saveProfile(nextForm: ActivityProfileFormState) {
+    const nextErrors = validateActivityProfileForm(nextForm)
+    setErrors(nextErrors)
+    if (Object.keys(nextErrors).length > 0) return
+
+    setSaveState('saving')
+    setMessage('')
+    try {
+      const payload = activityProfileFormToPayload(nextForm)
+      const saved = nextForm.id
+        ? await updateActivityProfile(nextForm.id, payload)
+        : await createActivityProfile(payload)
+      const savedWithGender: ActivityProfile = saved.gender
+        ? saved
+        : { ...saved, gender: nextForm.gender ?? userGender ?? null }
+      if (onboarding) {
+        setSaveState('idle')
+        onComplete?.()
+        return
+      }
+      setProfiles((current) => {
+        const exists = current.some((profile) => profile.id === savedWithGender.id)
+        return exists
+          ? current.map((profile) => (profile.id === savedWithGender.id ? savedWithGender : profile))
+          : [...current, savedWithGender]
+      })
+      setFormState(activityProfileToForm(savedWithGender))
+      setSaveState('idle')
+      setMessage(nextForm.id ? '프로필이 수정되었습니다.' : '프로필이 등록되었습니다.')
+    } catch (error) {
+      setSaveState('error')
+      setMessage(error instanceof Error ? error.message : '프로필을 저장하지 못했습니다.')
+    }
+  }
+
+  async function deactivateProfile(profile: ActivityProfile) {
+    if (profiles.length <= 1) {
+      setMessage('활동 프로필은 최소 1개가 필요합니다.')
+      return
+    }
+    if (typeof window !== 'undefined' && !window.confirm(`${profile.nickname} 프로필을 비활성화할까요? 연결된 게시글과 거래 기록은 유지됩니다.`)) return
+    setMessage('')
+    try {
+      await deactivateActivityProfile(profile.id)
+      setProfiles((current) => current.filter((item) => item.id !== profile.id))
+      setMessage('프로필이 비활성화되었습니다.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '프로필을 비활성화하지 못했습니다.')
+    }
+  }
+
+  if (activeFormState) {
+    return (
+      <ActivityProfileFormScreen
+        form={activeFormState}
+        errors={errors}
+        saveState={saveState}
+        message={message}
+        onChange={setFormState}
+        onErrorsChange={setErrors}
+        hideBack={onboarding}
+        titleOverride={onboarding ? undefined : '내 프로필 관리'}
+        onBack={() => {
+          if (onboarding) {
+            setFormState((current) => current)
+            return
+          }
+          onBack?.()
+        }}
+        onSave={() => void saveProfile(activeFormState)}
+      />
+    )
+  }
+
+  return (
+    <section className="screen my-sub-screen activity-profiles-page">
+      <ProfileFlowHeader title="내 프로필 관리" onBack={onBack ?? (() => undefined)} />
+      {message && <p className={`inline-status ${saveState === 'error' ? 'is-error' : ''}`}>{message}</p>}
+      {loadState === 'loading' && <p className="inline-status">프로필을 불러오는 중입니다.</p>}
+      {loadState === 'error' && <p className="inline-status is-error">프로필을 불러오지 못했습니다.</p>}
+      {loadState === 'ready' && profiles.length === 0 && (
+        <div className="empty-state">
+          <strong>아직 활동 프로필이 없어요</strong>
+          <span>게시글을 올리거나 지원하려면 활동 프로필이 필요합니다.</span>
+        </div>
+      )}
+      <div className="activity-profile-list">
+        {profiles.map((profile) => (
+          <ActivityProfileCard
+            key={profile.id}
+            profile={profile}
+            onEdit={() => openEdit(profile)}
+            onDeactivate={() => void deactivateProfile(profile)}
+          />
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function ActivityProfileCard({
+  profile,
+  onEdit,
+  onDeactivate,
+}: {
+  profile: ActivityProfile
+  onEdit: () => void
+  onDeactivate: () => void
+}) {
+  const region = getActivityProfileRegion(profile)
+  const isDefault = isDefaultActivityProfile(profile)
+  const rating = Number(profile.ratingAvg ?? 0)
+  const completedCount = Number(profile.completedCount ?? 0)
+
+  return (
+    <article className="activity-profile-card">
+      <ProfileImage profile={profile} />
+      <div className="activity-profile-card-body">
+        <div className="activity-profile-card-head">
+          <h2>
+            {profile.nickname}
+            {isDefault && <span className="activity-profile-default-badge">기본 프로필</span>}
+          </h2>
+          <button className="activity-profile-edit-link" type="button" onClick={onEdit}>
+            수정
+          </button>
+        </div>
+        <p>{profile.bio}</p>
+        <div className="activity-profile-card-meta">
+          <span>평점 {rating > 0 ? rating.toFixed(1) : '0.0'}</span>
+          <span>거래 완료 {completedCount}건</span>
+        </div>
+        {region && <small>{region}</small>}
+        {!isDefault && (
+          <button className="activity-profile-deactivate-link" type="button" onClick={onDeactivate}>
+            비활성화
+          </button>
+        )}
+      </div>
+    </article>
+  )
+}
+
+function ActivityProfileFormScreen({
+  form,
+  errors,
+  saveState,
+  message,
+  onChange,
+  onErrorsChange,
+  hideBack = false,
+  titleOverride,
+  onBack,
+  onSave,
+}: {
+  form: ActivityProfileFormState
+  errors: Record<string, string>
+  saveState: 'idle' | 'saving' | 'error'
+  message?: string
+  onChange: (form: ActivityProfileFormState) => void
+  onErrorsChange: (errors: Record<string, string>) => void
+  hideBack?: boolean
+  titleOverride?: string
+  onBack: () => void
+  onSave: () => void
+}) {
+  const [activeExtraModal, setActiveExtraModal] = useState<ProfileExtraModalKind | null>(null)
+  const [permissionState, setPermissionState] = useState<LocationPermissionState>('unknown')
+  const [locationBusy, setLocationBusy] = useState(false)
+  const [locationError, setLocationError] = useState('')
+  const [showNeighborhoodSheet, setShowNeighborhoodSheet] = useState(false)
+  const [modeSheetOpen, setModeSheetOpen] = useState(false)
+  const [uploadState, setUploadState] = useState<'idle' | 'uploading' | 'error'>('idle')
+  const avatarInputRef = useRef<HTMLInputElement>(null)
+  const isOffline = form.activityMode === 'nearby' || form.activityMode === 'both'
+  const title = titleOverride ?? (form.id ? '프로필 수정' : '프로필 만들기')
+
+  useEffect(() => {
+    getLocationPermissionState().then(setPermissionState).catch(() => setPermissionState('unknown'))
+  }, [])
+
+  function update(patch: Partial<ActivityProfileFormState>) {
+    const nextForm = { ...form, ...patch }
+    onChange(nextForm)
+    const errorKeys = new Set<string>()
+    if ('nickname' in patch) errorKeys.add('nickname')
+    if ('bio' in patch) errorKeys.add('bio')
+    if ('activityMode' in patch) {
+      errorKeys.add('activityMode')
+      errorKeys.add('region')
+    }
+    if ('addressText' in patch || 'region2Depth' in patch || 'region3Depth' in patch) errorKeys.add('region')
+    if ('linkUrl' in patch) errorKeys.add('linkUrl')
+    if ([...errorKeys].some((key) => errors[key])) {
+      const latestErrors = validateActivityProfileForm(nextForm)
+      const nextErrors = { ...errors }
+      errorKeys.forEach((key) => {
+        if (latestErrors[key]) {
+          nextErrors[key] = latestErrors[key]
+          return
+        }
+        delete nextErrors[key]
+      })
+      if (Object.keys(nextErrors).some((key) => nextErrors[key] !== errors[key]) || Object.keys(nextErrors).length !== Object.keys(errors).length) {
+        onErrorsChange(nextErrors)
+      }
+    }
+  }
+
+  async function uploadAvatar(file: File | undefined) {
+    if (!file) return
+    setUploadState('uploading')
+    try {
+      const uploaded = await uploadImageFile(file, 'profile-avatar')
+      update({ avatarUrl: getUploadDisplayUrl(uploaded) })
+      setUploadState('idle')
+    } catch {
+      setUploadState('error')
+    } finally {
+      if (avatarInputRef.current) avatarInputRef.current.value = ''
+    }
+  }
+
+  async function uploadSample(file: File | undefined) {
+    if (!file || form.workSampleImages.length >= 5) return
+    setUploadState('uploading')
+    try {
+      const uploaded = await uploadImageFile(file, 'task-post')
+      const imageUrl = getUploadDisplayUrl(uploaded)
+      update({
+        workSampleImages: [
+          ...form.workSampleImages,
+          { ...uploaded, imageUrl, sortOrder: form.workSampleImages.length },
+        ],
+      })
+      setUploadState('idle')
+    } catch {
+      setUploadState('error')
+    }
+  }
+
+  async function requestCurrentLocationFromUser() {
+    setLocationBusy(true)
+    setLocationError('')
+    try {
+      const current = await requestBrowserLocation()
+      const region = await reverseGeocode(current.latitude, current.longitude, 'gps', 'region')
+      applyRegion(region, 'granted')
+      return region
+    } catch (error) {
+      const nextPermission = await getLocationPermissionState()
+      setPermissionState(nextPermission)
+      setLocationError(error instanceof Error ? error.message : '현재 위치를 가져오지 못했습니다.')
+      return undefined
+    } finally {
+      setLocationBusy(false)
+    }
+  }
+
+  function applyRegion(region: LocationRegion, nextPermissionState = permissionState) {
+    update({
+      addressText: region.addressText,
+      region1Depth: region.region1Depth,
+      region2Depth: region.region2Depth,
+      region3Depth: region.region3Depth,
+      regionCode: region.regionCode,
+      latitude: region.latitude,
+      longitude: region.longitude,
+    })
+    storeLocationRegion(toNeighborhoodRegion(region))
+    setPermissionState(nextPermissionState)
+    setLocationError('')
+    setShowNeighborhoodSheet(false)
+  }
+
+  function saveProfile() {
+    const nextErrors = validateActivityProfileForm(form)
+    onErrorsChange(nextErrors)
+    const errorKeys = Object.keys(nextErrors)
+    if (errorKeys.length > 0) {
+      if (nextErrors.linkUrl && errorKeys.length === 1) setActiveExtraModal('link')
+      return
+    }
+    onSave()
+  }
+
+  return (
+    <section className="screen my-sub-screen activity-profile-form-page profile-flow-page is-create-step">
+      <ProfileFlowHeader title={title} onBack={onBack} hideBack={hideBack} />
+      {message && <p className={`inline-status ${saveState === 'error' ? 'is-error' : ''}`}>{message}</p>}
+      <div className="profile-flow-stack">
+        <section className="profile-flow-photo-card">
+          <button className="profile-flow-photo-button" type="button" onClick={() => avatarInputRef.current?.click()} aria-label="프로필 사진 등록">
+            <ProfileImage profile={formToPreviewProfile(form)} />
+            <span>
+              {form.avatarUrl ? <Camera size={18} /> : <Plus size={23} />}
+            </span>
+          </button>
+          <input ref={avatarInputRef} hidden type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => void uploadAvatar(event.target.files?.[0])} />
+          <div>
+            <h2>프로필 사진 <em>(선택)</em></h2>
+            <p>나를 보여줄 수 있는 사진을 등록해 주세요.</p>
+          </div>
+        </section>
+
+        <ProfileTextField label="닉네임" value={form.nickname} onChange={(nickname) => update({ nickname })} placeholder="닉네임을 입력해 주세요." maxLength={12} error={errors.nickname} />
+        <ProfileTextField label="한 줄 소개" value={form.bio} onChange={(bio) => update({ bio })} placeholder="나를 한 줄로 소개해 주세요." maxLength={40} error={errors.bio} />
+        <ProfilePickerRow
+          title={profileActivityModeLabel(form.activityMode)}
+          error={errors.activityMode}
+          titleOnly
+          onClick={() => setModeSheetOpen(true)}
+        />
+        {isOffline && (
+          <ProfilePickerRow
+            title="활동 지역"
+            value={form.addressText || '활동 지역을 선택해 주세요.'}
+            error={errors.region}
+            onClick={() => setShowNeighborhoodSheet(true)}
+          />
+        )}
+        <ProfileOptionalBoost onOpen={setActiveExtraModal} />
+        <ProfileExtraSummaryRows form={form} onOpen={setActiveExtraModal} />
+        <div className="profile-flow-fixed-action">
+          <button className="profile-flow-primary" type="button" disabled={saveState === 'saving'} onClick={saveProfile}>
+            {saveState === 'saving' ? '저장 중' : '저장하기'}
+          </button>
+        </div>
+      </div>
+
+      {uploadState === 'uploading' && <p className="inline-status">이미지를 업로드하는 중입니다.</p>}
+      {uploadState === 'error' && <p className="inline-status is-error">이미지 업로드에 실패했습니다.</p>}
+      {showNeighborhoodSheet && (
+        <NeighborhoodSelectSheet
+          searchMode="region"
+          presentation="modal"
+          showCurrentLocation
+          promptContext="offer"
+          permissionState={permissionState}
+          busy={locationBusy}
+          error={locationError}
+          onUseCurrent={requestCurrentLocationFromUser}
+          onSelect={(region) => applyRegion(region, permissionState === 'granted' ? 'granted' : 'prompt')}
+          onClose={() => setShowNeighborhoodSheet(false)}
+        />
+      )}
+      {modeSheetOpen && (
+        <ProfileModeSheet
+          selected={form.activityMode}
+          onClose={() => setModeSheetOpen(false)}
+          onApply={(activityMode) => {
+            update({ activityMode })
+            setModeSheetOpen(false)
+            if (activityMode !== 'online' && !form.addressText) setShowNeighborhoodSheet(true)
+          }}
+        />
+      )}
+      {activeExtraModal && (
+        <ProfileExtraModal
+          kind={activeExtraModal}
+          form={form}
+          errors={errors}
+          uploadState={uploadState}
+          onChange={update}
+          onClose={() => setActiveExtraModal(null)}
+          onUploadSample={(file) => void uploadSample(file)}
+          onRemoveSample={(index) => update({ workSampleImages: form.workSampleImages.filter((_, itemIndex) => itemIndex !== index).map((item, sortOrder) => ({ ...item, sortOrder })) })}
+        />
+      )}
+    </section>
+  )
+}
+
+function ProfileFlowHeader({
+  title,
+  hideBack = false,
+  onBack,
+}: {
+  title: string
+  hideBack?: boolean
+  onBack: () => void
+}) {
+  return (
+    <header className="profile-flow-header">
+      {hideBack ? <i /> : (
+        <button type="button" onClick={onBack} aria-label="뒤로가기">
+          <ChevronRight size={22} />
+        </button>
+      )}
+      <h1>{title}</h1>
+      <i />
+    </header>
+  )
+}
+
+function ProfilePickerRow({
+  title,
+  value = '',
+  error,
+  titleOnly = false,
+  onClick,
+}: {
+  title: string
+  value?: string
+  error?: string
+  titleOnly?: boolean
+  onClick: () => void
+}) {
+  return (
+    <section className={`profile-flow-field-card ${error ? 'has-error' : ''}`}>
+      <button type="button" onClick={onClick}>
+        <span>
+          <strong>{title}</strong>
+          {(error || (!titleOnly && value)) && <small className={error ? 'profile-picker-error' : undefined}>{error || value}</small>}
+        </span>
+        <ChevronRight size={24} />
+      </button>
+    </section>
+  )
+}
+
+function ProfileOptionalBoost({ onOpen }: { onOpen: (kind: ProfileExtraModalKind) => void }) {
+  return (
+    <section className="profile-optional-boost">
+      <h2><Info size={21} />프로필을 더 채우면 더 많은 부탁을 받을 수 있어요.</h2>
+      <p>(선택사항)</p>
+      <div>
+        <button type="button" onClick={() => onOpen('career')}><Briefcase size={20} />경력 추가</button>
+        <button type="button" onClick={() => onOpen('link')}><LinkIcon size={20} />링크 추가</button>
+        <button type="button" onClick={() => onOpen('sample')}><ImagePlus size={20} />사진 추가</button>
+      </div>
+    </section>
+  )
+}
+
+function ProfileExtraSummaryRows({
+  form,
+  onOpen,
+}: {
+  form: ActivityProfileFormState
+  onOpen: (kind: ProfileExtraModalKind) => void
+}) {
+  const careerValue = [form.careerSummary, form.careerDescription].map((value) => value.trim()).filter(Boolean).join(' · ')
+  const linkValue = [form.linkTitle, form.linkUrl].map((value) => value.trim()).filter(Boolean).join(' · ')
+  const sampleValue = form.workSampleImages.length > 0 ? `${form.workSampleImages.length}장 추가됨` : ''
+
+  if (!careerValue && !linkValue && !sampleValue) return null
+
+  return (
+    <>
+      {careerValue && (
+        <ProfilePickerRow
+          title="경력"
+          value={careerValue}
+          onClick={() => onOpen('career')}
+        />
+      )}
+      {linkValue && (
+        <ProfilePickerRow
+          title="링크"
+          value={linkValue}
+          onClick={() => onOpen('link')}
+        />
+      )}
+      {sampleValue && (
+        <ProfilePickerRow
+          title="사진"
+          value={sampleValue}
+          onClick={() => onOpen('sample')}
+        />
+      )}
+    </>
+  )
+}
+
+function ProfileExtraModal({
+  kind,
+  form,
+  errors,
+  uploadState,
+  onChange,
+  onClose,
+  onUploadSample,
+  onRemoveSample,
+}: {
+  kind: ProfileExtraModalKind
+  form: ActivityProfileFormState
+  errors: Record<string, string>
+  uploadState: 'idle' | 'uploading' | 'error'
+  onChange: (patch: Partial<ActivityProfileFormState>) => void
+  onClose: () => void
+  onUploadSample: (file: File | undefined) => void
+  onRemoveSample: (index: number) => void
+}) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const title = kind === 'career' ? '경력 추가' : kind === 'link' ? '링크 추가' : '사진 추가'
+  const description = kind === 'career'
+    ? '대표 경력과 강점을 짧게 적어주세요.'
+    : kind === 'link'
+      ? '포트폴리오나 SNS 링크를 입력해주세요.'
+      : '대표 작업물을 사진으로 첨부해주세요.'
+
+  return (
+    <div className="modal-overlay profile-extra-modal-overlay" role="presentation" onClick={onClose}>
+      <section className="profile-extra-modal" role="dialog" aria-modal="true" aria-labelledby={`profile-extra-${kind}-title`} onClick={(event) => event.stopPropagation()}>
+        <button className="profile-extra-modal-close" type="button" onClick={onClose} aria-label="닫기">
+          <X size={18} />
+        </button>
+        <h2 id={`profile-extra-${kind}-title`}>{title}</h2>
+        <p>{description}</p>
+
+        <div className="profile-extra-modal-body">
+          {kind === 'career' && (
+            <>
+              <ProfileTextField label="경력 한 줄" value={form.careerSummary} onChange={(careerSummary) => onChange({ careerSummary })} placeholder="예: 5년차 그래픽 디자이너" maxLength={80} />
+              <label className="profile-textarea-field is-flat profile-extra-textarea">
+                <span>상세 소개</span>
+                <textarea value={form.careerDescription} onChange={(event) => onChange({ careerDescription: event.target.value })} placeholder="주요 경력, 전문 분야, 강점 등을 소개해주세요." maxLength={1000} />
+                <small>{form.careerDescription.length}/1000</small>
+              </label>
+            </>
+          )}
+
+          {kind === 'link' && (
+            <>
+              <ProfileTextField label="링크 제목" value={form.linkTitle} onChange={(linkTitle) => onChange({ linkTitle })} placeholder="예: 포트폴리오" maxLength={8} />
+              <ProfileTextField label="링크 주소" value={form.linkUrl} onChange={(linkUrl) => onChange({ linkUrl })} placeholder="https://portfolio.com/..." error={errors.linkUrl} />
+            </>
+          )}
+
+          {kind === 'sample' && (
+            <>
+              <div className="work-sample-list is-profile-flow is-profile-modal">
+                {form.workSampleImages.length < 5 && (
+                  <button type="button" onClick={() => inputRef.current?.click()}>
+                    <Plus size={22} />
+                    <em>사진 추가</em>
+                  </button>
+                )}
+                {form.workSampleImages.map((image, index) => (
+                  <span key={`${image.storageKey}-${index}`} style={profileImageBackground(image.imageUrl)}>
+                    <button type="button" aria-label="삭제" onClick={() => onRemoveSample(index)}>
+                      ×
+                    </button>
+                  </span>
+                ))}
+                <input
+                  ref={inputRef}
+                  hidden
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={(event) => {
+                    onUploadSample(event.target.files?.[0])
+                    event.currentTarget.value = ''
+                  }}
+                />
+              </div>
+              <p className="activity-form-help">JPG, PNG, WebP 파일을 최대 5개까지 첨부할 수 있어요.</p>
+              {uploadState === 'uploading' && <p className="inline-status">이미지를 업로드하는 중입니다.</p>}
+              {uploadState === 'error' && <p className="inline-status is-error">이미지 업로드에 실패했습니다.</p>}
+            </>
+          )}
+        </div>
+
+        <button className="profile-flow-primary" type="button" onClick={onClose}>
+          완료
+        </button>
+      </section>
+    </div>
+  )
+}
+
+function ProfileModeSheet({
+  selected,
+  onClose,
+  onApply,
+}: {
+  selected: '' | 'online' | 'nearby' | 'both'
+  onClose: () => void
+  onApply: (mode: 'online' | 'nearby' | 'both') => void
+}) {
+  const [draft, setDraft] = useState(selected)
+  const modes: Array<{ value: 'online' | 'nearby' | 'both'; title: string; description: string; icon: ReactNode }> = [
+    { value: 'online', title: '온라인', description: '채팅 · 통화 · 온라인 작업 가능', icon: <MessageCircle size={30} /> },
+    { value: 'nearby', title: '내 주변', description: '직접 이동해서 도와줄 수 있어요', icon: <MapPin size={34} /> },
+    { value: 'both', title: '둘 다', description: '온라인과 오프라인 모두 가능', icon: <Globe size={30} /> },
+  ]
+
+  return (
+    <div className="sheet-overlay is-dimmed" role="presentation" onClick={onClose}>
+      <section className="profile-choice-sheet profile-mode-sheet" role="dialog" aria-modal="true" aria-labelledby="profile-mode-title" onClick={(event) => event.stopPropagation()}>
+        <div className="drag-handle" />
+        <h2 id="profile-mode-title">활동 방식</h2>
+        <p>원하는 활동 방식을 선택해주세요</p>
+        <div className="profile-mode-list">
+          {modes.map((mode) => (
+            <button key={mode.value} className={draft === mode.value ? 'is-selected' : ''} type="button" onClick={() => setDraft(mode.value)}>
+              <span>{mode.icon}</span>
+              <div>
+                <strong>{mode.title}</strong>
+                <small>{mode.description}</small>
+              </div>
+              <i />
+            </button>
+          ))}
+        </div>
+        <button className="profile-flow-primary" type="button" disabled={!draft} onClick={() => draft && onApply(draft)}>
+          선택 완료
+        </button>
+      </section>
+    </div>
+  )
+}
+
+function ProfileTextField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  maxLength,
+  error,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  placeholder: string
+  maxLength?: number
+  error?: string
+}) {
+  const charCount = maxLength ? `${value.length}/${maxLength}` : ''
+  return (
+    <label className={`profile-text-field ${error ? 'has-error' : ''}`}>
+      {label && <span>{label}</span>}
+      <div className={`profile-input-wrap ${charCount ? 'has-count' : ''}`}>
+        <input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} maxLength={maxLength} aria-invalid={Boolean(error)} />
+        {error ? <small className="profile-inline-error">{error}</small> : charCount && <small className="profile-char-count">{charCount}</small>}
+      </div>
+    </label>
   )
 }
 
@@ -590,7 +1367,7 @@ function AccountScreen({
         <SettingsRow icon={<UserRound />} title="개인정보 관리" subtitle="내 정보 확인 및 수정을 할 수 있습니다." />
       </div>
       <div className="settings-card">
-        <SettingsRow icon={<FileText />} title="서비스 이용약관" subtitle="만원부탁소 서비스 이용약관을 확인하세요." href="/terms/service" />
+        <SettingsRow icon={<FileText />} title="서비스 이용약관" subtitle="뭐든해줌 서비스 이용약관을 확인하세요." href="/terms/service" />
         <SettingsRow icon={<Shield />} title="개인정보 처리방침" subtitle="개인정보 처리방침을 확인하세요." href="/terms/privacy" />
         <SettingsRow icon={<Headphones />} title="문의하기" subtitle="자주 묻는 질문과 1:1 문의를 이용하세요." href="/my/support" />
       </div>
@@ -720,7 +1497,7 @@ function SupportScreen({ onBack }: { onBack: () => void }) {
       {activeSheet === 'report' && (
         <SupportBottomSheet title="문제 신고 안내" onClose={() => setActiveSheet(null)}>
           <div className="support-guide-list">
-            <p>만원부탁소는 동네 기반의 작은 부탁 거래를 전제로 합니다. 금전 선입금 유도, 개인정보 요구, 욕설, 노쇼, 위험한 업무 요청은 신고 대상입니다.</p>
+            <p>뭐든해줌은 동네 기반의 작은 부탁 거래를 전제로 합니다. 금전 선입금 유도, 개인정보 요구, 욕설, 노쇼, 위험한 업무 요청은 신고 대상입니다.</p>
             <strong>신고 전 확인</strong>
             <ul>
               <li>게시글 제목, 상대 닉네임, 채팅 내용, 약속 시간처럼 상황을 확인할 수 있는 정보를 남겨주세요.</li>
@@ -778,14 +1555,12 @@ function SupportBottomSheet({ title, children, onClose }: { title: string; child
 
 function ManageScreen({
   onBack,
-  onOpenVerification,
   onOpenBlocks,
   onOpenReports,
   settlementSummary,
   activity,
 }: {
   onBack: () => void
-  onOpenVerification: () => void
   onOpenBlocks: () => void
   onOpenReports: () => void
   settlementSummary: SettlementSummary | null
@@ -796,7 +1571,7 @@ function ManageScreen({
 
   return (
     <section className="screen manage-screen">
-      <AppHeader title="정산/후기/인증 관리" subtitle="정산, 후기, 인증 정보를 관리해보세요" onBack={onBack} showBell showSearch />
+      <AppHeader title="정산/후기 관리" subtitle="정산과 후기를 관리해보세요" onBack={onBack} showBell showSearch />
       <div className="settlement-card">
         <div className="settlement-top">
           <span>
@@ -827,7 +1602,6 @@ function ManageScreen({
       <div className="manage-group">
         <ManageRow icon={<Star />} title="받은 후기" subtitle="거래 후 받은 후기를 확인하세요" />
         <ManageRow icon={<BarChart3 />} title="내가 남긴 후기" subtitle="내가 작성한 후기를 확인하세요" />
-        <ManageRow icon={<ShieldCheck />} title="인증 관리" subtitle="휴대폰 인증 상태를 관리하세요" onClick={onOpenVerification} />
       </div>
 
       <div className="review-card">
@@ -871,110 +1645,6 @@ function ManageScreen({
             <span>부탁을 등록하면 상태가 표시됩니다.</span>
           </div>
         )}
-      </div>
-    </section>
-  )
-}
-
-function PhoneVerificationScreen({
-  profile,
-  onBack,
-  onVerified,
-}: {
-  profile: ActivityRecord | null
-  onBack: () => void
-  onVerified: (profile: ActivityRecord) => void
-}) {
-  const [phone, setPhone] = useState(() => getString(profile ?? {}, 'phone'))
-  const [code, setCode] = useState('')
-  const [requestedPhone, setRequestedPhone] = useState('')
-  const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'verifying' | 'verified' | 'error'>(
-    profile?.phoneVerified === true ? 'verified' : 'idle',
-  )
-  const [message, setMessage] = useState('')
-  const phoneVerified = profile?.phoneVerified === true || status === 'verified'
-
-  async function requestCode() {
-    setStatus('sending')
-    setMessage('')
-    try {
-      const result = await requestPhoneVerification(phone)
-      setRequestedPhone(result.phone)
-      setStatus('sent')
-      setMessage(`인증번호를 보냈습니다. ${Math.ceil(result.ttlSeconds / 60)}분 안에 입력해주세요.`)
-    } catch (error) {
-      setStatus('error')
-      setMessage(error instanceof Error ? error.message : '인증번호를 보내지 못했습니다.')
-    }
-  }
-
-  async function verifyCode() {
-    setStatus('verifying')
-    setMessage('')
-    try {
-      const profile = await confirmPhoneVerification(requestedPhone || phone, code)
-      onVerified(profile)
-      setStatus('verified')
-      setMessage('휴대폰 인증이 완료되었습니다.')
-    } catch (error) {
-      setStatus('error')
-      setMessage(error instanceof Error ? error.message : '인증번호를 확인하지 못했습니다.')
-    }
-  }
-
-  return (
-    <section className="screen my-sub-screen verification-page">
-      <AppHeader title="인증관리" centered onBack={onBack} />
-      <div className="verify-hero">
-        <h1>안전한 거래를 위해<br />휴대폰 인증을 완료해주세요.</h1>
-        <p>인증 정보는 안전하게 관리되며, 거래 안전 확인에만 사용됩니다.</p>
-      </div>
-      <div className="verification-card">
-        <div className="verification-status">
-          <span>
-            <Smartphone size={28} />
-          </span>
-          <div>
-            <strong>휴대폰 인증</strong>
-            <p>본인 명의 휴대폰 번호 확인</p>
-          </div>
-          <em className={phoneVerified ? 'is-done' : ''}>{phoneVerified ? '인증 완료' : '인증 필요'}</em>
-        </div>
-
-        <label className="verification-field">
-          <span>휴대폰 번호</span>
-          <input
-            value={phone}
-            inputMode="numeric"
-            placeholder="01012345678"
-            disabled={status === 'sending' || status === 'verifying'}
-            onChange={(event) => setPhone(event.target.value.replace(/\D/g, '').slice(0, 11))}
-          />
-        </label>
-
-        <button className="verification-button" type="button" disabled={status === 'sending' || !phone} onClick={() => void requestCode()}>
-          {status === 'sending' ? '발송 중' : '인증번호 받기'}
-        </button>
-
-        {(status === 'sent' || status === 'verifying' || requestedPhone) && !phoneVerified && (
-          <>
-            <label className="verification-field">
-              <span>인증번호</span>
-              <input
-                value={code}
-                inputMode="numeric"
-                placeholder="6자리"
-                disabled={status === 'verifying'}
-                onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-              />
-            </label>
-            <button className="verification-button primary" type="button" disabled={status === 'verifying' || code.length !== 6} onClick={() => void verifyCode()}>
-              {status === 'verifying' ? '확인 중' : '인증 완료'}
-            </button>
-          </>
-        )}
-
-        {message && <p className={`inline-status ${status === 'error' ? 'is-error' : ''}`}>{message}</p>}
       </div>
     </section>
   )
@@ -1091,6 +1761,18 @@ function BlocksReportsScreen({
 function SegmentTabs({ tabs, active, onChange }: { tabs: string[]; active: string; onChange: (tab: string) => void }) {
   return (
     <div className="my-segment-tabs">
+      {tabs.map((tab) => (
+        <button className={tab === active ? 'is-active' : ''} type="button" key={tab} onClick={() => onChange(tab)}>
+          {tab}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function ChipTabs({ tabs, active, onChange }: { tabs: string[]; active: string; onChange: (tab: string) => void }) {
+  return (
+    <div className="my-chip-tabs">
       {tabs.map((tab) => (
         <button className={tab === active ? 'is-active' : ''} type="button" key={tab} onClick={() => onChange(tab)}>
           {tab}
@@ -1218,7 +1900,16 @@ function ManageRow({
   )
 }
 
-function InitialAvatar({ name, size }: { name: string; size: 'sm' | 'md' | 'lg' }) {
+function InitialAvatar({ name, size, imageUrl }: { name: string; size: 'sm' | 'md' | 'lg'; imageUrl?: string }) {
+  if (imageUrl) {
+    return (
+      <span className={`initial-avatar initial-avatar-${size} is-photo`}>
+        {/* eslint-disable-next-line @next/next/no-img-element -- Runtime profile URLs may be external; CSS controls the avatar crop. */}
+        <img src={imageUrl} alt="" aria-hidden="true" />
+      </span>
+    )
+  }
+
   return (
     <span className={`initial-avatar initial-avatar-${size}`}>
       {name.trim().slice(0, 1) || '만'}
@@ -1304,6 +1995,189 @@ function getNumber(record: ActivityRecord, key: string, fallback = 0) {
     if (Number.isFinite(parsed)) return parsed
   }
   return fallback
+}
+
+function toProfileGender(value: unknown): ActivityProfile['gender'] {
+  if (value === 'male' || value === 'female' || value === 'unknown' || value === 'private') return value
+  return null
+}
+
+function createEmptyActivityProfileForm(gender?: ActivityProfile['gender']): ActivityProfileFormState {
+  return {
+    avatarUrl: null,
+    defaultAvatarKey: defaultProfileAvatars[0],
+    gender: gender ?? null,
+    nickname: '',
+    bio: '',
+    activityMode: '',
+    addressText: '',
+    region1Depth: '',
+    region2Depth: '',
+    region3Depth: '',
+    regionCode: null,
+    latitude: null,
+    longitude: null,
+    careerSummary: '',
+    careerDescription: '',
+    linkTitle: '',
+    linkUrl: '',
+    availableTimeText: '',
+    basePriceText: '',
+    workSampleImages: [],
+    phoneVerified: false,
+    ratingAvg: 0,
+    reviewCount: 0,
+    completedCount: 0,
+  }
+}
+
+function activityProfileToForm(profile: ActivityProfile): ActivityProfileFormState {
+  const link = profile.portfolioLinks?.[0]
+  return {
+    id: profile.id,
+    avatarUrl: profile.avatarUrl ?? null,
+    defaultAvatarKey: profile.defaultAvatarKey || defaultProfileAvatars[0],
+    gender: profile.gender ?? null,
+    nickname: profile.nickname,
+    bio: profile.bio,
+    activityMode: profile.activityMode,
+    addressText: profile.addressText ?? '',
+    region1Depth: profile.region1Depth ?? profile.region1depth ?? '',
+    region2Depth: profile.region2Depth ?? profile.region2depth ?? '',
+    region3Depth: profile.region3Depth ?? profile.region3depth ?? '',
+    regionCode: profile.regionCode ?? null,
+    latitude: profile.latitude ?? null,
+    longitude: profile.longitude ?? null,
+    careerSummary: profile.careerSummary ?? '',
+    careerDescription: profile.careerDescription ?? '',
+    linkTitle: link?.title ?? '',
+    linkUrl: link?.url ?? '',
+    availableTimeText: profile.availableTimeText ?? '',
+    basePriceText: profile.basePrice ? String(profile.basePrice) : '',
+    workSampleImages: Array.isArray(profile.workSampleImages) ? profile.workSampleImages : [],
+    phoneVerified: profile.phoneVerified,
+    ratingAvg: profile.ratingAvg,
+    reviewCount: profile.reviewCount,
+    completedCount: profile.completedCount,
+  }
+}
+
+function validateActivityProfileForm(form: ActivityProfileFormState) {
+  const errors: Record<string, string> = {}
+  const nickname = form.nickname.trim().replace(/\s+/g, '')
+  if (nickname.length < 2 || nickname.length > 12) errors.nickname = '닉네임은 2~12자로 입력해주세요.'
+  if (!form.bio.trim()) errors.bio = '한 줄 소개를 입력해주세요.'
+  if (!form.activityMode) {
+    errors.activityMode = '활동 방식을 선택해주세요.'
+  } else if ((form.activityMode === 'nearby' || form.activityMode === 'both') && (!form.region2Depth || !form.region3Depth)) {
+    errors.region = '활동 지역을 선택해주세요.'
+  }
+  if (form.linkUrl.trim() && !isValidHttpUrl(form.linkUrl)) {
+    errors.linkUrl = 'http 또는 https 링크를 입력해주세요.'
+  }
+  return errors
+}
+
+function activityProfileFormToPayload(form: ActivityProfileFormState): ActivityProfilePayload {
+  if (!form.activityMode) throw new Error('활동 방식을 선택해주세요.')
+  const activityMode = form.activityMode
+  const linkUrl = form.linkUrl.trim()
+  return {
+    avatarUrl: form.avatarUrl,
+    defaultAvatarKey: form.defaultAvatarKey,
+    nickname: form.nickname.trim().replace(/\s+/g, ''),
+    bio: form.bio.trim(),
+    activityMode,
+    addressText: activityMode === 'online' ? null : form.addressText.trim() || null,
+    region1Depth: activityMode === 'online' ? null : form.region1Depth || null,
+    region2Depth: activityMode === 'online' ? null : form.region2Depth || null,
+    region3Depth: activityMode === 'online' ? null : form.region3Depth || null,
+    regionCode: activityMode === 'online' ? null : form.regionCode,
+    latitude: activityMode === 'online' ? null : form.latitude,
+    longitude: activityMode === 'online' ? null : form.longitude,
+    careerSummary: form.careerSummary.trim() || null,
+    careerDescription: form.careerDescription.trim() || null,
+    portfolioLinks: linkUrl ? [{ title: form.linkTitle.trim() || '포트폴리오', url: linkUrl }] : [],
+    workSampleImages: form.workSampleImages,
+    availableTimeText: form.availableTimeText.trim() || null,
+    basePrice: form.basePriceText ? Number(form.basePriceText) : null,
+  }
+}
+
+function formToPreviewProfile(form: ActivityProfileFormState): ActivityProfile {
+  return {
+    id: form.id ?? 'preview',
+    userId: '',
+    avatarUrl: form.avatarUrl,
+    defaultAvatarKey: form.defaultAvatarKey,
+    gender: form.gender ?? null,
+    nickname: form.nickname || '만부탁',
+    bio: form.bio,
+    activityMode: form.activityMode || 'online',
+    addressText: form.addressText || null,
+    latitude: form.latitude,
+    longitude: form.longitude,
+    careerSummary: null,
+    careerDescription: null,
+    portfolioLinks: [],
+    workSampleImages: [],
+    availableTimeText: null,
+    basePrice: null,
+    isActive: true,
+  }
+}
+
+function ProfileImage({ profile }: { profile: Pick<ActivityProfile, 'avatarUrl' | 'defaultAvatarKey' | 'nickname' | 'gender'> }) {
+  if (profile.avatarUrl) {
+    return (
+      <span className="activity-profile-image is-photo">
+        {/* eslint-disable-next-line @next/next/no-img-element -- User-uploaded avatar URLs can be runtime external URLs; CSS controls the crop. */}
+        <img src={profile.avatarUrl} alt="" aria-hidden="true" />
+      </span>
+    )
+  }
+  const fallbackImageUrl = getDefaultProfileImageByGender(profile.gender)
+  if (fallbackImageUrl) {
+    return (
+      <span className="activity-profile-image is-photo">
+        {/* eslint-disable-next-line @next/next/no-img-element -- Static public profile defaults are rendered through img for consistency with uploaded avatars. */}
+        <img src={fallbackImageUrl} alt="" aria-hidden="true" />
+      </span>
+    )
+  }
+  const avatarIndex = Number(String(profile.defaultAvatarKey ?? 'default-1').replace(/[^0-9]/g, '')) || 1
+  return <span className={`activity-profile-image is-default default-${avatarIndex}`}>{profile.nickname.trim().slice(0, 1) || '만'}</span>
+}
+
+function getUploadDisplayUrl(image: { imageUrl: string; storageKey: string }) {
+  const displayUrl = getDisplayImageUrl(image) ?? image.imageUrl
+  if (/^https?:\/\//i.test(displayUrl)) return displayUrl
+  if (typeof window === 'undefined') return image.imageUrl
+  return new URL(displayUrl, window.location.origin).toString()
+}
+
+function profileImageBackground(imageUrl: string | null | undefined) {
+  return imageUrl ? { backgroundImage: `url("${imageUrl}")` } : undefined
+}
+
+function profileActivityModeLabel(mode: '' | 'online' | 'nearby' | 'both') {
+  if (!mode) return '활동 방식'
+  if (mode === 'online') return '온라인'
+  if (mode === 'nearby') return '내 주변'
+  return '둘 다 가능'
+}
+
+function getActivityProfileRegion(profile: ActivityProfile) {
+  return [profile.region1Depth ?? profile.region1depth, profile.region2Depth ?? profile.region2depth, profile.region3Depth ?? profile.region3depth].filter(Boolean).join(' ')
+}
+
+function isValidHttpUrl(value: string) {
+  try {
+    const url = new URL(value)
+    return url.protocol === 'http:' || url.protocol === 'https:'
+  } catch {
+    return false
+  }
 }
 
 function mapReportStatus(status: string) {

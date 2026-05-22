@@ -1,4 +1,4 @@
--- 만원부탁소/만원의행복 전용 스키마
+-- 뭐든해줌/만원의행복 전용 스키마
 create schema if not exists manwon_happiness;
 create extension if not exists pgcrypto;
 

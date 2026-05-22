@@ -8,7 +8,7 @@ function base64UrlEncode(input: Buffer | string) {
 }
 
 export function createRealtimeToken(userId: string) {
-  const { jwtSecret } = getSupabaseRealtimeEnv()
+  const { url, anonKey, jwtSecret } = getSupabaseRealtimeEnv()
   const issuedAt = Math.floor(Date.now() / 1000)
   const expiresAt = issuedAt + realtimeTokenTtlSeconds
   const header = {
@@ -29,5 +29,14 @@ export function createRealtimeToken(userId: string) {
   return {
     token: `${body}.${signature}`,
     expiresIn: realtimeTokenTtlSeconds,
+    websocketUrl: getRealtimeWebSocketUrl(url, anonKey),
   }
+}
+
+function getRealtimeWebSocketUrl(url: string, anonKey: string) {
+  const websocketUrl = new URL('/realtime/v1/websocket', url)
+  websocketUrl.protocol = websocketUrl.protocol === 'http:' ? 'ws:' : 'wss:'
+  websocketUrl.searchParams.set('apikey', anonKey)
+  websocketUrl.searchParams.set('vsn', '2.0.0')
+  return websocketUrl.toString()
 }

@@ -63,36 +63,15 @@ export async function requireUser(request: NextRequest) {
   const userId = getRequestUserId(request)
   if (!userId) throw new Error('UNAUTHORIZED')
 
-  await ensureProfile(userId, getHeaderNickname(request))
   const sql = getSql()
-  const [profile] = await sql`
+  const [user] = await sql`
     select withdrawn_at
-    from manwon_happiness.profiles
+    from manwon_happiness.users
     where id = ${userId}
     limit 1
   `
-  if (profile?.withdrawnAt) throw new Error('UNAUTHORIZED')
+  if (!user || user.withdrawnAt) throw new Error('UNAUTHORIZED')
   return userId
-}
-
-export function getHeaderNickname(request: NextRequest) {
-  const value = request.headers.get('x-manwon-nickname')
-  if (!value) return undefined
-  try {
-    return decodeURIComponent(value)
-  } catch {
-    return value
-  }
-}
-
-export async function ensureProfile(userId: string, nickname = '만부탁이') {
-  const sql = getSql()
-  await sql`
-    insert into manwon_happiness.profiles (id, nickname)
-    values (${userId}, ${nickname})
-    on conflict (id) do update
-      set nickname = coalesce(manwon_happiness.profiles.nickname, excluded.nickname)
-  `
 }
 
 export function setAuthCookies(response: NextResponse, userId: string) {

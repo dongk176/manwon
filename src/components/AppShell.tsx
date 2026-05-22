@@ -1,9 +1,9 @@
 'use client'
 
 import { useEffect } from 'react'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { BottomNav } from '@/components/ui/Common'
-import { fetchAuthSession } from '@/lib/manwonApi'
+import { fetchAuthSession, fetchDueReviewReminder } from '@/lib/manwonApi'
 
 function useOverlayScrollLock() {
   useEffect(() => {
@@ -56,20 +56,63 @@ function useOverlayScrollLock() {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
+  const router = useRouter()
   const hideBottomNav =
     pathname.startsWith('/chat/') ||
     pathname.startsWith('/posts/') ||
     pathname.startsWith('/nearby/') ||
+    pathname.startsWith('/my/profiles') ||
+    pathname === '/profile-onboarding' ||
     pathname === '/register/request' ||
     pathname === '/register/offer'
 
   useOverlayScrollLock()
 
   useEffect(() => {
-    void fetchAuthSession().catch(() => {
-      // Anonymous/local users can keep browsing public screens.
-    })
-  }, [])
+    let cancelled = false
+    void fetchAuthSession()
+      .then((session) => {
+        if (cancelled || !session.authenticated) return
+        const profile = session.profile
+        const hasOnboardingFlag =
+          profile != null && Object.prototype.hasOwnProperty.call(profile, 'profileOnboardingCompleted')
+        const onboardingCompleted = hasOnboardingFlag
+          ? Boolean((profile as Record<string, unknown>).profileOnboardingCompleted)
+          : true
+
+        if (!onboardingCompleted && pathname !== '/profile-onboarding') {
+          router.replace('/profile-onboarding')
+          return
+        }
+
+        if (onboardingCompleted && pathname === '/profile-onboarding') {
+          router.replace('/')
+        }
+      })
+      .catch(() => {
+        // Anonymous/local users can keep browsing public screens.
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [pathname, router])
+
+  useEffect(() => {
+    if (pathname.startsWith('/login') || pathname.startsWith('/signup') || pathname.startsWith('/chat/') || pathname === '/profile-onboarding') return
+
+    let cancelled = false
+    void fetchDueReviewReminder()
+      .then((reminder) => {
+        if (cancelled || !reminder?.conversationId) return
+        router.push(`/chat/${encodeURIComponent(reminder.conversationId)}`)
+      })
+      .catch(() => undefined)
+
+    return () => {
+      cancelled = true
+    }
+  }, [pathname, router])
 
   return (
     <main className="app-shell">

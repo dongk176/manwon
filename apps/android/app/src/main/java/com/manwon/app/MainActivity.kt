@@ -33,20 +33,22 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
     private lateinit var bottomNav: LinearLayout
     private lateinit var homeWeb: WebTabView
     private lateinit var registerWeb: WebTabView
+    private lateinit var activityWeb: WebTabView
     private lateinit var myWeb: WebTabView
     private lateinit var chatFrame: FrameLayout
-    private lateinit var nearbyView: NearbyView
     private lateinit var writeButton: TextView
     private val tabViews = mutableMapOf<AppTab, View>()
     private val navButtons = mutableMapOf<AppTab, LinearLayout>()
     private val displayedWebPaths = mutableMapOf(
         AppTab.HOME to "/",
         AppTab.REGISTER to "/register",
+        AppTab.NEARBY to "/activity",
         AppTab.MY to "/my"
     )
     private var selectedTab = AppTab.HOME
     private var homePath = "/"
     private var registerPath = "/register"
+    private var activityPath = "/activity"
     private var myPath = "/my"
     private var chatDetailActive = false
     private var nearbySheetCoversBottomNav = false
@@ -78,6 +80,7 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
         selectTab(AppTab.HOME)
         homeWeb.loadPath(homePath)
         registerWeb.loadPath(registerPath)
+        activityWeb.loadPath(activityPath)
         myWeb.loadPath(myPath)
         handleIntent(intent)
     }
@@ -96,6 +99,7 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
         val currentWeb = when (selectedTab) {
             AppTab.HOME -> homeWeb
             AppTab.REGISTER -> registerWeb
+            AppTab.NEARBY -> activityWeb
             AppTab.MY -> myWeb
             else -> null
         }
@@ -138,12 +142,18 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
             onRouteChange = { path -> webRouteDidChange(path, AppTab.MY) },
             onFinished = { PushBridge.submitPendingToken(this, api) }
         )
+        activityWeb = WebTabView(
+            this,
+            "내 활동",
+            onNativeRoute = ::openNativeRoute,
+            onRouteChange = { path -> webRouteDidChange(path, AppTab.NEARBY) },
+            onFinished = { PushBridge.submitPendingToken(this, api) }
+        )
         chatFrame = FrameLayout(this)
-        nearbyView = NearbyView(this, api, this)
         tabViews[AppTab.HOME] = homeWeb
         tabViews[AppTab.CHAT] = chatFrame
         tabViews[AppTab.REGISTER] = registerWeb
-        tabViews[AppTab.NEARBY] = nearbyView
+        tabViews[AppTab.NEARBY] = activityWeb
         tabViews[AppTab.MY] = myWeb
         tabViews.forEach { (_, view) ->
             view.visibility = View.GONE
@@ -166,7 +176,7 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
         listOf(
             NavItem(AppTab.HOME, "홈"),
             NavItem(AppTab.CHAT, "채팅"),
-            NavItem(AppTab.NEARBY, "주변"),
+            NavItem(AppTab.NEARBY, "내 활동"),
             NavItem(AppTab.MY, "마이")
         ).forEach { item ->
             val button = navButton(item)
@@ -187,7 +197,7 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
                         showChatList()
                         selectTab(AppTab.CHAT)
                     }
-                    AppTab.NEARBY -> showMapUnavailableDialog()
+                    AppTab.NEARBY -> openWebPath("/activity")
                     AppTab.MY -> openWebPath("/my")
                     AppTab.HOME -> openWebPath("/")
                     AppTab.REGISTER -> openWebPath("/register")
@@ -307,7 +317,6 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
             if (key == tab) {
                 view.visibility = View.VISIBLE
                 view.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(180).start()
-                if (key == AppTab.NEARBY) nearbyView.activate()
             } else {
                 view.animate().alpha(0f).scaleX(0.992f).scaleY(0.992f).setDuration(120).withEndAction {
                     if (selectedTab != key) view.visibility = View.GONE
@@ -329,7 +338,7 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
                 showChatDetail(normalized.removePrefix("/chat/").substringBefore("?"))
                 selectTab(AppTab.CHAT)
             }
-            normalized == "/nearby" || normalized.startsWith("/nearby/") -> showMapUnavailableDialog()
+            normalized == "/nearby" || normalized.startsWith("/nearby/") -> openWebPath("/activity")
             else -> openWebPath(normalized)
         }
     }
@@ -355,6 +364,11 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
                 registerWeb.loadPath(registerPath)
                 selectTab(AppTab.REGISTER)
             }
+            normalized == "/activity" || normalized.startsWith("/activity/") -> {
+                activityPath = normalized
+                activityWeb.loadPath(activityPath)
+                selectTab(AppTab.NEARBY)
+            }
             normalized == "/my" || normalized.startsWith("/my/") -> {
                 myPath = normalized
                 myWeb.loadPath(myPath)
@@ -369,7 +383,30 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
     }
 
     private fun webRouteDidChange(path: String, tab: AppTab) {
-        displayedWebPaths[tab] = path.ifBlank { "/" }
+        val normalized = path.ifBlank { "/" }
+        if (normalized == "/activity" || normalized.startsWith("/activity/")) {
+            displayedWebPaths[AppTab.NEARBY] = normalized
+            if (tab != AppTab.NEARBY) {
+                activityPath = normalized
+                activityWeb.loadPath(activityPath)
+                selectTab(AppTab.NEARBY)
+            }
+            updateBottomNavVisibility()
+            return
+        }
+
+        if (normalized == "/my" || normalized.startsWith("/my/")) {
+            displayedWebPaths[AppTab.MY] = normalized
+            if (tab != AppTab.MY) {
+                myPath = normalized
+                myWeb.loadPath(myPath)
+                selectTab(AppTab.MY)
+            }
+            updateBottomNavVisibility()
+            return
+        }
+
+        displayedWebPaths[tab] = normalized
         updateBottomNavVisibility()
     }
 
@@ -421,16 +458,10 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
     }
 
     private fun updateSystemBars(tab: AppTab) {
-        if (tab == AppTab.NEARBY) {
-            window.statusBarColor = Color.TRANSPARENT
-            window.navigationBarColor = ManwonColors.SURFACE
-            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
-        } else {
-            window.statusBarColor = ManwonColors.SURFACE
-            window.navigationBarColor = ManwonColors.SURFACE
-            window.decorView.systemUiVisibility =
-                View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
-        }
+        window.statusBarColor = ManwonColors.SURFACE
+        window.navigationBarColor = ManwonColors.SURFACE
+        window.decorView.systemUiVisibility =
+            View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
     }
 
     private fun watchKeyboard() {
@@ -597,7 +628,7 @@ private class NavIconView(
         when (tab) {
             AppTab.HOME -> drawHome(canvas)
             AppTab.CHAT -> drawChat(canvas)
-            AppTab.NEARBY -> drawMap(canvas)
+            AppTab.NEARBY -> drawActivity(canvas)
             AppTab.MY -> drawPerson(canvas)
             AppTab.REGISTER -> Unit
         }
@@ -655,6 +686,19 @@ private class NavIconView(
         path.lineTo(w * 0.64f, h * 0.70f)
         path.close()
         canvas.drawPath(path, fillPaint)
+    }
+
+    private fun drawActivity(canvas: Canvas) {
+        val w = width.toFloat()
+        val h = height.toFloat()
+        val rows = floatArrayOf(0.30f, 0.50f, 0.70f)
+        rows.forEach { yRatio ->
+            val y = h * yRatio
+            canvas.drawCircle(w * 0.24f, y, w * 0.045f, fillPaint)
+            canvas.drawLine(w * 0.36f, y, w * 0.78f, y, strokePaint)
+        }
+        rect.set(w * 0.14f, h * 0.18f, w * 0.86f, h * 0.82f)
+        canvas.drawRoundRect(rect, w * 0.10f, w * 0.10f, strokePaint)
     }
 
     private fun drawPerson(canvas: Canvas) {

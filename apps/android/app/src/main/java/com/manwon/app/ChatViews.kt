@@ -173,6 +173,9 @@ class ChatDetailView(
     private var currentUserId: String? = null
     private var conversation: Conversation? = null
     private var messages: MutableList<Message> = mutableListOf()
+    private val actionContainer = FrameLayout(context).apply {
+        setBackgroundColor(ManwonColors.BACKGROUND)
+    }
     private val messageList = LinearLayout(context).apply {
         orientation = VERTICAL
         setPadding(context.dp(14), context.dp(12), context.dp(14), context.dp(12))
@@ -196,6 +199,7 @@ class ChatDetailView(
         orientation = VERTICAL
         setBackgroundColor(ManwonColors.SURFACE)
         addView(detailHeader())
+        addView(actionContainer, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(scroll, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
         addView(composer())
         showLoading()
@@ -298,7 +302,7 @@ class ChatDetailView(
 
     private fun renderMessages() {
         messageList.removeAllViews()
-        conversation?.let { messageList.addView(actionPanel(it)) }
+        renderActionPanel()
         if (conversation == null) {
             messageList.addView(centerMessage(context, "채팅방을 찾지 못했어요"))
         } else {
@@ -307,7 +311,18 @@ class ChatDetailView(
         handler.post { scroll.fullScroll(FOCUS_DOWN) }
     }
 
+    private fun renderActionPanel() {
+        actionContainer.removeAllViews()
+        val conversation = conversation ?: return
+        actionContainer.addView(actionPanel(conversation), FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+    }
+
     private fun actionPanel(conversation: Conversation): View {
+        val postCreatorId = conversation.postCreatorId ?: conversation.requesterId
+        val isPostWriter = postCreatorId != null && postCreatorId == currentUserId
+        val isApplicant = currentUserId != null && postCreatorId != null && currentUserId != postCreatorId
+        val hasPendingApplication = conversation.applicationId != null && conversation.applicationStatus == "applied" && conversation.dealId == null
+        val hasChatAfterStarted = conversation.hasChatAfterStarted == true
         val panel = LinearLayout(context).apply {
             orientation = VERTICAL
             setPadding(context.dp(14), context.dp(14), context.dp(14), context.dp(14))
@@ -317,32 +332,56 @@ class ChatDetailView(
             text = when (conversation.dealStatus) {
                 "completed" -> "거래가 완료되었어요."
                 "cancelled" -> "거래가 취소되었어요."
-                "complete_requested" -> "완료 요청이 도착했어요."
-                "accepted" -> "거래를 시작할 수 있어요."
-                "in_progress" -> "진행 중인 거래입니다."
+                "complete_requested" -> if (isPostWriter) "지원자가 완료 요청을 보냈어요." else "완료 요청을 보냈어요."
+                "accepted" -> if (isPostWriter) "거래를 시작할 수 있어요." else "작성자의 진행 시작을 기다리고 있어요."
+                "in_progress" -> if (isApplicant) "완료 요청을 보낼 수 있어요." else "진행 중인 거래입니다."
                 else -> if (conversation.applicationId != null) "지원 요청이 도착했어요." else conversation.postTitle ?: "거래 대화"
             }
             styleText(15f, ManwonColors.TEXT, Typeface.BOLD)
         })
+        var helperText: String? = null
         val actions = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER
         }
         when {
-            conversation.dealStatus == "complete_requested" -> {
+            conversation.dealStatus == "complete_requested" && isPostWriter && hasChatAfterStarted -> {
                 actions.addView(actionButton("완료 승인") { updateDealStatus("completed") }, LinearLayout.LayoutParams(0, context.dp(44), 1f))
                 actions.addView(actionButton("문제 신고", secondary = true) { updateDealStatus("disputed") }, LinearLayout.LayoutParams(0, context.dp(44), 1f).apply { leftMargin = context.dp(8) })
             }
-            conversation.dealStatus == "accepted" || conversation.dealStatus == "in_progress" -> {
-                val title = if (conversation.dealStatus == "accepted") "진행 시작" else "완료 요청"
-                val next = if (conversation.dealStatus == "accepted") "in_progress" else "complete_requested"
-                actions.addView(actionButton(title) { updateDealStatus(next) }, LinearLayout.LayoutParams(0, context.dp(44), 1f))
+            conversation.dealStatus == "complete_requested" && isPostWriter -> {
+                helperText = "진행 시작 후 양쪽 대화가 1턴 이상 있어야 승인할 수 있어요."
+            }
+            conversation.dealStatus == "complete_requested" -> {
+                helperText = "게시글 작성자의 완료 승인을 기다리고 있어요."
+            }
+            conversation.dealStatus == "accepted" && isPostWriter -> {
+                actions.addView(actionButton("진행 시작") { updateDealStatus("in_progress") }, LinearLayout.LayoutParams(0, context.dp(44), 1f))
                 actions.addView(actionButton("취소", secondary = true) { updateDealStatus("cancelled") }, LinearLayout.LayoutParams(0, context.dp(44), 1f).apply { leftMargin = context.dp(8) })
             }
-            conversation.applicationId != null && conversation.applicationStatus == "applied" -> {
+            conversation.dealStatus == "accepted" -> {
+                helperText = "진행 시작 후 완료 요청을 보낼 수 있습니다."
+            }
+            conversation.dealStatus == "in_progress" && isApplicant -> {
+                actions.addView(actionButton("완료 요청 보내기") { updateDealStatus("complete_requested") }, LinearLayout.LayoutParams(0, context.dp(44), 1f))
+                actions.addView(actionButton("취소", secondary = true) { updateDealStatus("cancelled") }, LinearLayout.LayoutParams(0, context.dp(44), 1f).apply { leftMargin = context.dp(8) })
+            }
+            conversation.dealStatus == "in_progress" -> {
+                helperText = "지원자가 완료 요청을 보내면 승인할 수 있습니다."
+            }
+            hasPendingApplication && isPostWriter -> {
                 actions.addView(actionButton("수락하기") { updateApplicationStatus("accepted") }, LinearLayout.LayoutParams(0, context.dp(44), 1f))
                 actions.addView(actionButton("거절하기", secondary = true) { updateApplicationStatus("rejected") }, LinearLayout.LayoutParams(0, context.dp(44), 1f).apply { leftMargin = context.dp(8) })
             }
+            hasPendingApplication -> {
+                helperText = "작성자가 수락하면 거래가 시작됩니다."
+            }
+        }
+        helperText?.let { message ->
+            panel.addView(TextView(context).apply {
+                text = message
+                styleText(13f, ManwonColors.MUTED, Typeface.BOLD)
+            }, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = context.dp(8) })
         }
         if (actions.childCount > 0) {
             panel.addView(actions, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = context.dp(12) })
@@ -465,6 +504,9 @@ class ChatDetailView(
                 setHintTextColor(ManwonColors.MUTED)
                 setPadding(context.dp(14), context.dp(8), context.dp(14), context.dp(8))
                 background = rounded(0xFFF5F5F6.toInt(), 18, context = context)
+                setOnFocusChangeListener { _, hasFocus ->
+                    if (hasFocus) handler.postDelayed({ scroll.fullScroll(FOCUS_DOWN) }, 250)
+                }
             }, LinearLayout.LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply {
                 leftMargin = context.dp(9)
                 rightMargin = context.dp(9)
@@ -483,11 +525,13 @@ class ChatDetailView(
     }
 
     private fun showLoading() {
+        actionContainer.removeAllViews()
         messageList.removeAllViews()
         messageList.addView(centerMessage(context, "채팅방을 불러오는 중입니다."))
     }
 
     private fun showError(message: String) {
+        actionContainer.removeAllViews()
         messageList.removeAllViews()
         messageList.addView(emptyView(context, "문제가 생겼어요", message, "다시 시도") { load() })
     }

@@ -47,6 +47,7 @@ export interface UserProfile {
   phoneVerified?: boolean
   identityVerified?: boolean
   responseTime?: string | null
+  gender?: 'male' | 'female' | 'unknown' | 'private' | null
   avatarTone: 'coral' | 'green' | 'blue' | 'violet' | 'gray'
 }
 

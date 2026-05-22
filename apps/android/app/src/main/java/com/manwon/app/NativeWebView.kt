@@ -279,7 +279,7 @@ class WebTabView(
           if (window.__manwonAndroidBridgeInstalled) return;
           window.__manwonAndroidBridgeInstalled = true;
           function shouldNativeRoute(path) {
-            return path === '/chat' || path.indexOf('/chat/') === 0 || path === '/nearby' || path.indexOf('/nearby/') === 0;
+            return path === '/chat' || path.indexOf('/chat/') === 0 || path === '/activity' || path.indexOf('/activity/') === 0 || path === '/nearby' || path.indexOf('/nearby/') === 0;
           }
           function postNativeRoute(rawUrl) {
             try {

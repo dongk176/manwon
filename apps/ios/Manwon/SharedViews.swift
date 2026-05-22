@@ -37,7 +37,7 @@ private struct ManwonBottomNavItem: Identifiable {
 private let manwonBottomNavItems = [
     ManwonBottomNavItem(id: .home, title: "홈", systemImage: "house.fill"),
     ManwonBottomNavItem(id: .chat, title: "채팅", systemImage: "message.fill"),
-    ManwonBottomNavItem(id: .nearby, title: "주변", systemImage: "map.fill"),
+    ManwonBottomNavItem(id: .nearby, title: "내 활동", systemImage: "list.bullet.rectangle.fill"),
     ManwonBottomNavItem(id: .my, title: "마이", systemImage: "person.fill")
 ]
 
@@ -54,11 +54,6 @@ struct ManwonBottomNav: View {
             HStack(alignment: .top, spacing: 0) {
                 ForEach(manwonBottomNavItems) { item in
                     Button {
-                        if item.id == .nearby {
-                            onUnavailableNearby()
-                            return
-                        }
-
                         withAnimation(ManwonMotion.select) {
                             selectedTab = item.id
                         }

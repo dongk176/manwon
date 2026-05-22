@@ -1,4 +1,4 @@
--- 만원부탁소/만원의행복 전용 스키마 MVP 플로우 보강
+-- 뭐든해줌/만원의행복 전용 스키마 MVP 플로우 보강
 create unique index if not exists conversations_unique_deal_idx
   on manwon_happiness.conversations (deal_id)
   where deal_id is not null;

@@ -23,14 +23,18 @@ import {
   addFavorite,
   createBlock,
   createReport,
+  fetchActivityProfiles,
   fetchAuthSession,
   fetchTaskPost,
+  getDefaultProfileImageByGender,
   getDisplayImageUrl,
+  isDefaultActivityProfile,
   mapApiPostToRequestPost,
   removeFavorite,
   reopenTaskPost,
   startConversationFromPost,
   updateTaskPost,
+  type ActivityProfile,
   type ApiTaskPost,
 } from '@/lib/manwonApi'
 import {
@@ -153,6 +157,9 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
   const [showLocationPrompt, setShowLocationPrompt] = useState(false)
   const [showNeighborhoodSheet, setShowNeighborhoodSheet] = useState(false)
   const [showReopenNotice, setShowReopenNotice] = useState(false)
+  const [activityProfiles, setActivityProfiles] = useState<ActivityProfile[]>([])
+  const [profileLoadState, setProfileLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [showProfileSelect, setShowProfileSelect] = useState(false)
   const detailScrollYRef = useRef(0)
   const detailScrollFrameRef = useRef<number | null>(null)
 
@@ -191,10 +198,17 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
 
     fetchAuthSession()
       .then((session) => {
-        if (!cancelled) setCurrentUserId(session.authenticated ? session.userId ?? null : null)
+        if (!cancelled) {
+          const nextUserId = session.authenticated ? session.userId ?? null : null
+          setCurrentUserId(nextUserId)
+          if (!nextUserId) setProfileLoadState('error')
+        }
       })
       .catch(() => {
-        if (!cancelled) setCurrentUserId(null)
+        if (!cancelled) {
+          setCurrentUserId(null)
+          setProfileLoadState('error')
+        }
       })
 
     return () => {
@@ -203,12 +217,31 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
   }, [])
 
   useEffect(() => {
+    if (!currentUserId) return
+    let cancelled = false
+    fetchActivityProfiles()
+      .then((profiles) => {
+        if (cancelled) return
+        setActivityProfiles(profiles)
+        setProfileLoadState('ready')
+      })
+      .catch(() => {
+        if (!cancelled) setProfileLoadState('error')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [currentUserId])
+
+  useEffect(() => {
     getLocationPermissionState().then(setPermissionState).catch(() => setPermissionState('unknown'))
   }, [])
 
   const displayPost = useMemo(() => (post ? mapApiPostToRequestPost(post) : fallbackPost), [fallbackPost, post])
   const requester = getUser(displayPost?.requesterId ?? 'minji')
   const creatorName = post?.creatorNickname ?? displayPost?.requesterName ?? requester.name
+  const creatorGenderLabel = genderText(post?.creatorGender)
   const creatorRating = Number(post?.creatorRatingAvg ?? displayPost?.requesterRating ?? requester.rating)
   const creatorCompleted = Number(post?.creatorCompletedCount ?? displayPost?.requesterCompletedCount ?? requester.completedCount)
   const detailImageUrls = getDetailImageUrls(post, displayPost)
@@ -300,12 +333,13 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
     }
   }, [currentUserId, isOwner, post])
 
-  async function handleStartChat() {
+  async function handleStartChat(profileId: string) {
     if (!displayPost) return
     setActionState('saving')
     setMessage('')
+    setShowProfileSelect(false)
     try {
-      const conversation = await startConversationFromPost(displayPost.id, '안녕하세요. 이 부탁 도와드릴 수 있어요.')
+      const conversation = await startConversationFromPost(displayPost.id, profileId, getDefaultStartMessage(displayPost.postType))
       setActionState('done')
       setMessage('채팅방으로 이동합니다.')
       requestIOSPushPermission('conversation_started')
@@ -520,14 +554,32 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
       return
     }
     if (postStatus !== 'open') return
-    void handleStartChat()
+    const activeProfiles = activityProfiles.filter((profile) => profile.isActive !== false)
+    if (profileLoadState === 'loading') {
+      setMessage('프로필을 불러오는 중입니다.')
+      return
+    }
+    if (profileLoadState === 'error') {
+      setActionState('error')
+      setMessage('활동 프로필을 불러오지 못했습니다.')
+      return
+    }
+    if (activeProfiles.length === 0) {
+      router.push(`/my/profiles?next=${encodeURIComponent(`/posts/${displayPost?.id ?? postId}`)}`)
+      return
+    }
+    if (activeProfiles.length === 1) {
+      void handleStartChat(activeProfiles[0].id)
+      return
+    }
+    setShowProfileSelect(true)
   }
 
   async function handleSharePost() {
     if (!displayPost || typeof window === 'undefined') return
     const shareUrl = window.location.href
     const shareTitle = displayPost.title
-    const shareText = `${displayPost.title} - 만원부탁소`
+    const shareText = `${displayPost.title} - 뭐든해줌`
 
     try {
       if (navigator.share) {
@@ -641,22 +693,29 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
               <section className="detail-section-card requester-card">
                 <h3>작성자 정보</h3>
                 <div>
-                  <span className="avatar avatar-md avatar-green">
-                    <span>{creatorName.slice(0, 1)}</span>
-                  </span>
+                  {post?.creatorAvatarUrl ? (
+                    <span className="avatar avatar-md avatar-green is-image-avatar" style={{ backgroundImage: `url("${post.creatorAvatarUrl}")` }} />
+                  ) : (
+                    <span className="avatar avatar-md avatar-green">
+                      <span>{creatorName.slice(0, 1)}</span>
+                    </span>
+                  )}
                   <span>
-                    <strong>{creatorName}</strong>
+                    <strong>{creatorName}{creatorGenderLabel ? ` · ${creatorGenderLabel}` : ''}</strong>
+                    {post?.creatorBio && <small>{post.creatorBio}</small>}
                     <em>
                       <RatingStars rating={creatorRating || 0} />
                     </em>
-                    <small>거래 완료 {creatorCompleted}회</small>
+                    <small>
+                      후기 {post?.creatorReviewCount ?? 0}개 · 거래 완료 {creatorCompleted}회
+                    </small>
                   </span>
                   <ShieldCheck size={20} />
                 </div>
               </section>
 
               {!isOwner && (
-                <p className="detail-platform-note">만원부탁소는 거래를 연결하는 플랫폼입니다. 실제 거래의 내용과 이행 책임은 이용자 당사자에게 있습니다.</p>
+                <p className="detail-platform-note">뭐든해줌은 거래를 연결하는 플랫폼입니다. 실제 거래의 내용과 이행 책임은 이용자 당사자에게 있습니다.</p>
               )}
             </>
           )}
@@ -698,6 +757,17 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
               onSubmit={(input) => void handleReport(input)}
             />
           )}
+          {showProfileSelect && (
+            <ActivityProfileSelectSheet
+              postType={displayPost.postType}
+              post={displayPost}
+              profiles={activityProfiles.filter((profile) => profile.isActive !== false)}
+              busy={actionState === 'saving'}
+              onClose={() => setShowProfileSelect(false)}
+              onCreate={() => router.push(`/my/profiles?next=${encodeURIComponent(`/posts/${displayPost.id}`)}`)}
+              onSelect={(profileId) => void handleStartChat(profileId)}
+            />
+          )}
           {showLocationPrompt && (
             <LocationPermissionSheet
               context={post?.postType === 'offer' ? 'offer' : 'request'}
@@ -731,6 +801,118 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
       )}
     </section>
   )
+}
+
+function ActivityProfileSelectSheet({
+  postType,
+  post,
+  profiles,
+  busy,
+  onClose,
+  onCreate,
+  onSelect,
+}: {
+  postType?: 'request' | 'offer'
+  post: RequestPost
+  profiles: ActivityProfile[]
+  busy: boolean
+  onClose: () => void
+  onCreate: () => void
+  onSelect: (profileId: string) => void
+}) {
+  const [selectedProfileId, setSelectedProfileId] = useState(profiles[0]?.id ?? '')
+  const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId)
+  const actionLabel = postType === 'offer' ? '이 프로필로 문의하기' : '이 프로필로 지원하기'
+
+  return (
+    <div className="profile-select-fullscreen" role="dialog" aria-modal="true" aria-labelledby="activity-profile-select-title">
+      <header className="profile-select-header">
+        <button type="button" onClick={onClose} aria-label="닫기">
+          <ChevronLeft size={22} />
+        </button>
+        <h2 id="activity-profile-select-title">{postType === 'offer' ? '문의 프로필 선택' : '지원 프로필 선택'}</h2>
+        <span />
+      </header>
+      <div className="profile-select-content">
+        <article className="profile-select-post-summary">
+          <span>{post.category.slice(0, 1)}</span>
+          <div>
+            <h3>{post.title}</h3>
+            <p>
+              <MapPin size={16} />
+              {post.detailLocation || post.location}
+            </p>
+            <p>
+              <Clock size={16} />
+              {post.deadline}
+            </p>
+          </div>
+          <strong>{formatPrice(post.price)}</strong>
+        </article>
+        <div className="profile-select-title-block">
+          <h3>어떤 프로필로 {postType === 'offer' ? '문의할까요?' : '지원할까요?'}</h3>
+          <p>프로필은 등록한 정보에 따라 다르게 보여요.</p>
+        </div>
+        <div className="profile-select-list">
+          {profiles.map((profile) => {
+            const selected = selectedProfileId === profile.id
+            return (
+              <button key={profile.id} className={selected ? 'is-selected' : ''} type="button" disabled={busy} onClick={() => setSelectedProfileId(profile.id)}>
+                <DetailActivityProfileAvatar profile={profile} />
+                <span>
+                  <strong>
+                    {profile.nickname}
+                    {isDefaultActivityProfile(profile) && <b>기본 프로필</b>}
+                  </strong>
+                  <small>{profile.bio}</small>
+                  <em>{formatProfileStats(profile)}</em>
+                </span>
+                <i />
+              </button>
+            )
+          })}
+          <button className="profile-select-create-row" type="button" disabled={busy} onClick={onCreate}>
+            <span>+</span>
+            <strong>새 프로필 만들기</strong>
+            <ChevronRight size={20} />
+          </button>
+        </div>
+      </div>
+      <div className="profile-select-footer">
+        <button type="button" disabled={busy || !selectedProfile} onClick={() => selectedProfile && onSelect(selectedProfile.id)}>
+          {busy ? '처리 중' : actionLabel}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function DetailActivityProfileAvatar({ profile }: { profile: ActivityProfile }) {
+  if (profile.avatarUrl) {
+    return (
+      <span className="activity-profile-avatar is-image">
+        {/* eslint-disable-next-line @next/next/no-img-element -- Runtime profile URLs may be external; CSS controls the avatar crop. */}
+        <img src={profile.avatarUrl} alt="" aria-hidden="true" />
+      </span>
+    )
+  }
+
+  const fallbackImageUrl = getDefaultProfileImageByGender(profile.gender)
+  if (fallbackImageUrl) {
+    return (
+      <span className="activity-profile-avatar is-image">
+        {/* eslint-disable-next-line @next/next/no-img-element -- Static public profile defaults are rendered through img for consistency with uploaded avatars. */}
+        <img src={fallbackImageUrl} alt="" aria-hidden="true" />
+      </span>
+    )
+  }
+
+  return <span className="activity-profile-avatar">{profile.nickname.trim().slice(0, 1) || '만'}</span>
+}
+
+function formatProfileStats(profile: ActivityProfile) {
+  const rating = Number(profile.ratingAvg ?? 0).toFixed(1)
+  return `평점 ${rating} · 거래 완료 ${profile.completedCount ?? 0}건`
 }
 
 function ReopenNoticeDialog({
@@ -792,6 +974,10 @@ function getPrimaryActionLabel({
   if (postStatus === 'completed') return '거래 완료됨'
   if (postStatus === 'cancelled' || postStatus === 'hidden') return '취소된 부탁입니다'
   return postType === 'offer' ? '문의하기' : '제가 할게요'
+}
+
+function getDefaultStartMessage(postType?: 'request' | 'offer') {
+  return postType === 'offer' ? '안녕하세요. 이 서비스에 문의드려요.' : '안녕하세요. 이 부탁 도와드릴 수 있어요.'
 }
 
 function getReopenNoticeStorageKey(postId: string, dealId: string) {
@@ -1459,6 +1645,12 @@ function genderVisibilityText(value?: GenderVisibility) {
   if (value === 'male') return '남성'
   if (value === 'female') return '여성'
   return '공개 안 함'
+}
+
+function genderText(value?: 'male' | 'female' | 'unknown' | 'private' | null) {
+  if (value === 'male') return '남성'
+  if (value === 'female') return '여성'
+  return ''
 }
 
 function getDetailInfoRows(post: ApiTaskPost | null, displayPost: RequestPost) {

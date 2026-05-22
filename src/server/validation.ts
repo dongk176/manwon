@@ -35,6 +35,7 @@ export const listPostsSchema = z.object({
 })
 
 export const createPostSchema = z.object({
+  profileId: z.string().uuid(),
   postType: postTypeSchema,
   title: z.string().trim().min(1).max(80),
   category: z.string().trim().min(1).max(40),
@@ -143,8 +144,32 @@ export const signupOtpConfirmSchema = signupOtpRequestSchema.extend({
 
 export const createApplicationSchema = z.object({
   postId: z.string().uuid(),
+  profileId: z.string().uuid(),
   message: z.string().max(500).nullable().optional(),
 })
+
+export const activityProfileSchema = z.object({
+  avatarUrl: z.string().url().nullable().optional(),
+  defaultAvatarKey: z.string().trim().max(40).nullable().optional(),
+  nickname: z.string().trim().min(2).max(12),
+  bio: z.string().trim().min(1).max(40),
+  activityMode: taskModeSchema,
+  addressText: z.string().trim().max(120).nullable().optional(),
+  region1Depth: z.string().trim().max(40).nullable().optional(),
+  region2Depth: z.string().trim().max(40).nullable().optional(),
+  region3Depth: z.string().trim().max(40).nullable().optional(),
+  regionCode: z.string().trim().max(40).nullable().optional(),
+  latitude: z.number().min(-90).max(90).nullable().optional(),
+  longitude: z.number().min(-180).max(180).nullable().optional(),
+  careerSummary: z.string().trim().max(80).nullable().optional(),
+  careerDescription: z.string().trim().max(1000).nullable().optional(),
+  portfolioLinks: z.array(portfolioLinkInputSchema).max(8).default([]),
+  workSampleImages: z.array(imageRecordInputSchema).max(5).default([]),
+  availableTimeText: z.string().trim().max(80).nullable().optional(),
+  basePrice: z.number().int().min(0).max(1000000).nullable().optional(),
+})
+
+export const updateActivityProfileSchema = activityProfileSchema.partial()
 
 export const updateApplicationStatusSchema = z.object({
   status: z.enum(['accepted', 'rejected', 'cancelled']),
@@ -152,6 +177,16 @@ export const updateApplicationStatusSchema = z.object({
 
 export const updateDealStatusSchema = z.object({
   status: dealStatusSchema,
+})
+
+export const createReviewSchema = z.object({
+  dealId: z.string().uuid(),
+  rating: z.number().int().min(1).max(5),
+  content: z.string().trim().max(1000).nullable().optional(),
+})
+
+export const reviewReminderSchema = z.object({
+  dealId: z.string().uuid(),
 })
 
 export const createConversationSchema = z.object({

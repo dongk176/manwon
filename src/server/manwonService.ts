@@ -1,11 +1,14 @@
 import { getSql } from '@/server/db'
+import { HttpError } from '@/server/http'
 import { createNotificationEvent } from '@/server/notifications'
 import { assertPhoneVerified } from '@/server/phoneVerification'
 import type {
+  activityProfileSchema,
   blockSchema,
   createApplicationSchema,
   createConversationSchema,
   createMessageSchema,
+  createReviewSchema,
   createPostSchema,
   favoriteSchema,
   imageRecordSchema,
@@ -13,12 +16,16 @@ import type {
   reportSchema,
   supportInquirySchema,
   updateApplicationStatusSchema,
+  updateActivityProfileSchema,
   updateDealStatusSchema,
   updatePostSchema,
+  reviewReminderSchema,
 } from '@/server/validation'
 import type { z } from 'zod'
 
 type ListPostsInput = z.infer<typeof listPostsSchema>
+type ActivityProfileInput = z.infer<typeof activityProfileSchema>
+type UpdateActivityProfileInput = z.infer<typeof updateActivityProfileSchema>
 type CreatePostInput = z.infer<typeof createPostSchema>
 type UpdatePostInput = z.infer<typeof updatePostSchema>
 type ImageRecordInput = z.infer<typeof imageRecordSchema>
@@ -27,6 +34,8 @@ type UpdateApplicationStatusInput = z.infer<typeof updateApplicationStatusSchema
 type UpdateDealStatusInput = z.infer<typeof updateDealStatusSchema>
 type CreateConversationInput = z.infer<typeof createConversationSchema>
 type CreateMessageInput = z.infer<typeof createMessageSchema>
+type CreateReviewInput = z.infer<typeof createReviewSchema>
+type ReviewReminderInput = z.infer<typeof reviewReminderSchema>
 type ReportInput = z.infer<typeof reportSchema>
 type SupportInquiryInput = z.infer<typeof supportInquirySchema>
 type BlockInput = z.infer<typeof blockSchema>
@@ -34,6 +43,238 @@ type FavoriteInput = z.infer<typeof favoriteSchema>
 
 const schema = 'manwon_happiness'
 let dealsCancelledByColumnExists: boolean | null = null
+const blockedNicknameParts = ['시발', '씨발', '병신', '좆', '개새', 'fuck', 'admin', '관리자', '운영자']
+
+function normalizeNickname(value: string) {
+  return value.trim().replace(/\s+/g, '')
+}
+
+function assertActivityProfileNickname(nickname: string) {
+  const normalized = normalizeNickname(nickname).toLowerCase()
+  if (normalized.length < 2 || normalized.length > 12) {
+    throw new HttpError('닉네임은 2~12자로 입력해주세요.', 400)
+  }
+  if (blockedNicknameParts.some((part) => normalized.includes(part))) {
+    throw new HttpError('사용할 수 없는 닉네임입니다.', 400)
+  }
+}
+
+async function isActivityProfileNicknameTaken(nickname: string, excludeId?: string | null) {
+  const sql = getSql()
+  const rows = await sql`
+    select 1
+    from manwon_happiness.activity_profiles
+    where is_active = true
+      and lower(nickname) = lower(${normalizeNickname(nickname)})
+      and (${excludeId ?? null}::uuid is null or id <> ${excludeId ?? null})
+    limit 1
+  `
+  return Boolean(rows[0])
+}
+
+async function getDefaultActivityProfileId(userId: string) {
+  const sql = getSql()
+  const [profile] = await sql`
+    select id
+    from manwon_happiness.activity_profiles
+    where user_id = ${userId}
+      and is_active = true
+    order by created_at asc
+    limit 1
+  `
+  return profile?.id ? String(profile.id) : null
+}
+
+async function assertOwnedActiveActivityProfile(userId: string, profileId: string) {
+  const sql = getSql()
+  const rows = await sql`
+    select *
+    from manwon_happiness.activity_profiles
+    where id = ${profileId}
+      and user_id = ${userId}
+      and is_active = true
+    limit 1
+  `
+  if (!rows[0]) throw new HttpError('사용할 수 없는 프로필입니다.', 400)
+  return rows[0]
+}
+
+function activityProfilePayload(input: ActivityProfileInput | UpdateActivityProfileInput) {
+  return {
+    avatarUrl: input.avatarUrl ?? null,
+    defaultAvatarKey: input.defaultAvatarKey ?? null,
+    nickname: input.nickname !== undefined ? normalizeNickname(input.nickname) : undefined,
+    bio: input.bio ?? undefined,
+    activityMode: input.activityMode,
+    addressText: input.addressText ?? null,
+    region1Depth: input.region1Depth ?? null,
+    region2Depth: input.region2Depth ?? null,
+    region3Depth: input.region3Depth ?? null,
+    regionCode: input.regionCode ?? null,
+    latitude: input.latitude ?? null,
+    longitude: input.longitude ?? null,
+    careerSummary: input.careerSummary ?? null,
+    careerDescription: input.careerDescription ?? null,
+    portfolioLinks: jsonArray(input.portfolioLinks),
+    workSampleImages: jsonArray(input.workSampleImages),
+    availableTimeText: input.availableTimeText ?? null,
+    basePrice: input.basePrice ?? null,
+  }
+}
+
+export async function listActivityProfiles(userId: string) {
+  const sql = getSql()
+  return sql`
+    with default_profile as (
+      select id
+      from manwon_happiness.activity_profiles
+      where user_id = ${userId}
+        and is_active = true
+      order by created_at asc
+      limit 1
+    )
+    select ap.*, (ap.id = default_profile.id) as is_default, p.gender, p.phone_verified, p.identity_verified, p.rating_avg::float8, p.review_count, p.completed_count
+    from manwon_happiness.activity_profiles ap
+    join manwon_happiness.users p on p.id = ap.user_id
+    left join default_profile on true
+    where ap.user_id = ${userId}
+      and ap.is_active = true
+    order by case when ap.id = default_profile.id then 0 else 1 end, ap.created_at asc
+  `
+}
+
+export async function checkActivityProfileNickname(userId: string, nickname: string, excludeId?: string | null) {
+  assertActivityProfileNickname(nickname)
+  if (excludeId) {
+    const [owned] = await getSql()`
+      select 1 from manwon_happiness.activity_profiles where id = ${excludeId} and user_id = ${userId} limit 1
+    `
+    if (!owned) throw new HttpError('프로필을 찾을 수 없습니다.', 404)
+  }
+  return { available: !await isActivityProfileNicknameTaken(nickname, excludeId), nickname: normalizeNickname(nickname) }
+}
+
+export async function createActivityProfile(userId: string, input: ActivityProfileInput) {
+  const payload = activityProfilePayload(input)
+  const nickname = payload.nickname
+  const bio = payload.bio
+  const activityMode = payload.activityMode
+  if (!nickname) throw new HttpError('닉네임을 입력해주세요.', 400)
+  if (!bio) throw new HttpError('한 줄 소개를 입력해주세요.', 400)
+  if (!activityMode) throw new HttpError('활동 방식을 선택해주세요.', 400)
+  assertActivityProfileNickname(nickname)
+  if (await isActivityProfileNicknameTaken(nickname)) throw new HttpError('이미 사용 중인 닉네임입니다.', 409)
+  if ((activityMode === 'nearby' || activityMode === 'both') && (!payload.region2Depth || !payload.region3Depth)) {
+    throw new HttpError('활동 지역을 선택해주세요.', 400)
+  }
+
+  const sql = getSql()
+  return sql.begin(async (tx) => {
+    const [created] = await tx`
+      insert into manwon_happiness.activity_profiles (
+        user_id, avatar_url, default_avatar_key, nickname, bio,
+        activity_mode, address_text, region_1depth, region_2depth, region_3depth, region_code,
+        latitude, longitude, career_summary, career_description, portfolio_links, work_sample_images,
+        available_time_text, base_price
+      )
+      values (
+        ${userId}, ${payload.avatarUrl}, ${payload.defaultAvatarKey}, ${nickname}, ${bio},
+        ${activityMode}, ${payload.addressText}, ${payload.region1Depth}, ${payload.region2Depth},
+        ${payload.region3Depth}, ${payload.regionCode}, ${payload.latitude}, ${payload.longitude},
+        ${payload.careerSummary}, ${payload.careerDescription}, ${tx.json(payload.portfolioLinks)}::jsonb,
+        ${tx.json(payload.workSampleImages)}::jsonb, ${payload.availableTimeText}, ${payload.basePrice}
+      )
+      returning *
+    `
+
+    await tx`
+      update manwon_happiness.users
+      set profile_onboarding_completed = true,
+          profile_onboarding_completed_at = coalesce(profile_onboarding_completed_at, now()),
+          updated_at = now()
+      where id = ${userId}
+    `
+
+    return created ?? null
+  })
+}
+
+export async function updateActivityProfile(userId: string, profileId: string, input: UpdateActivityProfileInput) {
+  const sql = getSql()
+  const [existing] = await sql`
+    select *
+    from manwon_happiness.activity_profiles
+    where id = ${profileId}
+      and user_id = ${userId}
+      and is_active = true
+    limit 1
+  `
+  if (!existing) return null
+
+  const payload = activityProfilePayload(input)
+  const nickname = payload.nickname ?? String(existing.nickname)
+  assertActivityProfileNickname(nickname)
+  if (payload.nickname && await isActivityProfileNicknameTaken(payload.nickname, profileId)) throw new HttpError('이미 사용 중인 닉네임입니다.', 409)
+  const activityMode = payload.activityMode ?? existing.activityMode
+  const region2Depth = input.region2Depth !== undefined ? payload.region2Depth : existing.region2depth
+  const region3Depth = input.region3Depth !== undefined ? payload.region3Depth : existing.region3depth
+  if ((activityMode === 'nearby' || activityMode === 'both') && (!region2Depth || !region3Depth)) {
+    throw new HttpError('활동 지역을 선택해주세요.', 400)
+  }
+
+  const rows = await sql`
+    update manwon_happiness.activity_profiles
+    set avatar_url = ${input.avatarUrl !== undefined ? payload.avatarUrl : existing.avatarUrl},
+        default_avatar_key = ${input.defaultAvatarKey !== undefined ? payload.defaultAvatarKey : existing.defaultAvatarKey},
+        nickname = ${nickname},
+        bio = ${input.bio !== undefined ? payload.bio : existing.bio},
+        activity_mode = ${activityMode},
+        address_text = ${input.addressText !== undefined ? payload.addressText : existing.addressText},
+        region_1depth = ${input.region1Depth !== undefined ? payload.region1Depth : existing.region1depth},
+        region_2depth = ${input.region2Depth !== undefined ? payload.region2Depth : existing.region2depth},
+        region_3depth = ${input.region3Depth !== undefined ? payload.region3Depth : existing.region3depth},
+        region_code = ${input.regionCode !== undefined ? payload.regionCode : existing.regionCode},
+        latitude = ${input.latitude !== undefined ? payload.latitude : existing.latitude},
+        longitude = ${input.longitude !== undefined ? payload.longitude : existing.longitude},
+        career_summary = ${input.careerSummary !== undefined ? payload.careerSummary : existing.careerSummary},
+        career_description = ${input.careerDescription !== undefined ? payload.careerDescription : existing.careerDescription},
+        portfolio_links = ${input.portfolioLinks !== undefined ? sql.json(payload.portfolioLinks) : sql.json(jsonArray(existing.portfolioLinks))}::jsonb,
+        work_sample_images = ${input.workSampleImages !== undefined ? sql.json(payload.workSampleImages) : sql.json(jsonArray(existing.workSampleImages))}::jsonb,
+        available_time_text = ${input.availableTimeText !== undefined ? payload.availableTimeText : existing.availableTimeText},
+        base_price = ${input.basePrice !== undefined ? payload.basePrice : existing.basePrice}
+    where id = ${profileId}
+      and user_id = ${userId}
+    returning *
+  `
+  return rows[0] ?? null
+}
+
+export async function deactivateActivityProfile(userId: string, profileId: string) {
+  const defaultProfileId = await getDefaultActivityProfileId(userId)
+  if (defaultProfileId === profileId) {
+    throw new HttpError('기본 프로필은 비활성화할 수 없습니다.', 400)
+  }
+
+  const sql = getSql()
+  const [activeCount] = await sql`
+    select count(*)::integer as count
+    from manwon_happiness.activity_profiles
+    where user_id = ${userId}
+      and is_active = true
+  `
+  if (Number(activeCount?.count ?? 0) <= 1) {
+    throw new HttpError('활동 프로필은 최소 1개가 필요합니다.', 400)
+  }
+  const rows = await sql`
+    update manwon_happiness.activity_profiles
+    set is_active = false
+    where id = ${profileId}
+      and user_id = ${userId}
+      and is_active = true
+    returning *
+  `
+  return rows[0] ?? null
+}
 
 export async function listTaskPosts(input: ListPostsInput, viewerId?: string | null) {
   const sql = getSql()
@@ -46,8 +287,16 @@ export async function listTaskPosts(input: ListPostsInput, viewerId?: string | n
   return sql`
     select
       p.*,
-      creator.nickname as creator_nickname,
-      creator.avatar_url as creator_avatar_url,
+      p.creator_profile_id as creator_profile_id,
+      coalesce(creator_profile.nickname, creator.nickname) as creator_nickname,
+      coalesce(creator_profile.avatar_url, creator.avatar_url) as creator_avatar_url,
+      creator_profile.bio as creator_bio,
+      creator.gender as creator_gender,
+      creator.phone_verified as creator_phone_verified,
+      creator.identity_verified as creator_identity_verified,
+      creator.rating_avg::float8 as creator_rating_avg,
+      creator.review_count as creator_review_count,
+      creator.completed_count as creator_completed_count,
       case
         when ${lat}::numeric is not null and ${lng}::numeric is not null and p.latitude is not null and p.longitude is not null then
           6371000 * acos(
@@ -73,7 +322,8 @@ export async function listTaskPosts(input: ListPostsInput, viewerId?: string | n
         '[]'::json
       ) as images
     from manwon_happiness.task_posts p
-    join manwon_happiness.profiles creator on creator.id = p.creator_id
+    join manwon_happiness.users creator on creator.id = p.creator_id
+    left join manwon_happiness.activity_profiles creator_profile on creator_profile.id = p.creator_profile_id
     left join manwon_happiness.task_post_images i on i.post_id = p.id
     where (
         (${publicStatusScope}::boolean = false and p.status = 'open')
@@ -113,7 +363,7 @@ export async function listTaskPosts(input: ListPostsInput, viewerId?: string | n
           where b.blocker_id = ${currentUserId}::uuid and b.blocked_user_id = p.creator_id
         )
       )
-    group by p.id, creator.nickname, creator.avatar_url
+    group by p.id, creator.nickname, creator.avatar_url, creator.gender, creator.phone_verified, creator.identity_verified, creator.rating_avg, creator.review_count, creator.completed_count, creator_profile.id, creator_profile.nickname, creator_profile.avatar_url, creator_profile.bio
     order by
       case
         when ${publicStatusScope}::boolean = true and p.status = 'open' then 0
@@ -136,9 +386,15 @@ export async function getTaskPost(postId: string) {
   const rows = await sql`
     select
       p.*,
-      creator.nickname as creator_nickname,
-      creator.avatar_url as creator_avatar_url,
+      p.creator_profile_id as creator_profile_id,
+      coalesce(creator_profile.nickname, creator.nickname) as creator_nickname,
+      coalesce(creator_profile.avatar_url, creator.avatar_url) as creator_avatar_url,
+      creator_profile.bio as creator_bio,
+      creator.gender as creator_gender,
+      creator.phone_verified as creator_phone_verified,
+      creator.identity_verified as creator_identity_verified,
       creator.rating_avg as creator_rating_avg,
+      creator.review_count as creator_review_count,
       creator.completed_count as creator_completed_count,
       latest_deal.id as latest_deal_id,
       latest_deal.status as latest_deal_status,
@@ -156,7 +412,8 @@ export async function getTaskPost(postId: string) {
         '[]'::json
       ) as images
     from manwon_happiness.task_posts p
-    join manwon_happiness.profiles creator on creator.id = p.creator_id
+    join manwon_happiness.users creator on creator.id = p.creator_id
+    left join manwon_happiness.activity_profiles creator_profile on creator_profile.id = p.creator_profile_id
     left join manwon_happiness.task_post_images i on i.post_id = p.id
     left join lateral (
       select d.id, d.status, ${cancelledByColumn} as cancelled_by, d.cancelled_at, d.completed_at, d.updated_at, d.created_at
@@ -166,7 +423,7 @@ export async function getTaskPost(postId: string) {
       limit 1
     ) latest_deal on true
     where p.id = ${postId}
-    group by p.id, creator.nickname, creator.avatar_url, creator.rating_avg, creator.completed_count, latest_deal.id, latest_deal.status, latest_deal.cancelled_by
+    group by p.id, creator.nickname, creator.avatar_url, creator.gender, creator.phone_verified, creator.identity_verified, creator.rating_avg, creator.review_count, creator.completed_count, creator_profile.id, creator_profile.nickname, creator_profile.avatar_url, creator_profile.bio, latest_deal.id, latest_deal.status, latest_deal.cancelled_by
     limit 1
   `
 
@@ -183,6 +440,7 @@ export async function getTaskPost(postId: string) {
 
 export async function createTaskPost(userId: string, input: CreatePostInput) {
   await assertPhoneVerified(userId)
+  await assertOwnedActiveActivityProfile(userId, input.profileId)
 
   const sql = getSql()
   const serviceScopeJson = jsonArray(input.serviceScope)
@@ -194,6 +452,7 @@ export async function createTaskPost(userId: string, input: CreatePostInput) {
     const rows = await tx`
       insert into manwon_happiness.task_posts (
         creator_id,
+        creator_profile_id,
         post_type,
         title,
         category,
@@ -229,6 +488,7 @@ export async function createTaskPost(userId: string, input: CreatePostInput) {
       )
       values (
         ${userId},
+        ${input.profileId},
         ${input.postType},
         ${input.title},
         ${input.category},
@@ -300,7 +560,7 @@ export async function createTaskPost(userId: string, input: CreatePostInput) {
       }
 
       await tx`
-        update manwon_happiness.profiles
+        update manwon_happiness.users
         set trust_experience_summary = coalesce(${input.experienceSummary ?? null}, trust_experience_summary),
             trust_career_summary = coalesce(${input.careerSummary ?? input.experienceSummary ?? null}, trust_career_summary),
             trust_portfolio_url = coalesce(${input.portfolioUrl ?? null}, trust_portfolio_url),
@@ -352,7 +612,7 @@ function canTransitionDealStatus(current: string, next: string) {
   const transitions: Record<string, string[]> = {
     pending: ['accepted', 'cancelled'],
     accepted: ['in_progress', 'cancelled'],
-    in_progress: ['complete_requested', 'completed', 'cancelled', 'disputed'],
+    in_progress: ['complete_requested', 'cancelled'],
     complete_requested: ['completed', 'cancelled', 'disputed'],
     disputed: [],
     completed: [],
@@ -425,10 +685,12 @@ export async function updateTaskPost(userId: string, postId: string, input: Upda
   `
 
   if (!existing) return null
+  if (input.profileId) await assertOwnedActiveActivityProfile(userId, input.profileId)
 
   const rows = await sql`
     update manwon_happiness.task_posts
-    set post_type = ${input.postType !== undefined ? input.postType : existing.postType},
+    set creator_profile_id = ${input.profileId !== undefined ? input.profileId : existing.creatorProfileId},
+        post_type = ${input.postType !== undefined ? input.postType : existing.postType},
         title = ${input.title !== undefined ? input.title : existing.title},
         category = ${input.category !== undefined ? input.category : existing.category},
         category_detail = ${input.categoryDetail !== undefined ? input.categoryDetail : existing.categoryDetail},
@@ -524,17 +786,21 @@ export async function addTaskPostImage(userId: string, postId: string, input: Im
 
 export async function createApplication(userId: string, input: CreateApplicationInput) {
   await assertPhoneVerified(userId)
+  await assertOwnedActiveActivityProfile(userId, input.profileId)
 
   const sql = getSql()
   const rows = await sql`
-    insert into manwon_happiness.applications (post_id, applicant_id, message, recruitment_round)
-    select p.id, ${userId}, ${input.message ?? null}, p.recruitment_round
+    insert into manwon_happiness.applications (post_id, applicant_id, applicant_profile_id, message, recruitment_round)
+    select p.id, ${userId}, ${input.profileId}, ${input.message ?? null}, p.recruitment_round
     from manwon_happiness.task_posts p
     where p.id = ${input.postId}
       and p.creator_id <> ${userId}
       and p.status = 'open'
     on conflict (post_id, applicant_id, recruitment_round) do update
-      set message = excluded.message, status = 'applied'
+      set applicant_profile_id = excluded.applicant_profile_id,
+          message = excluded.message,
+          status = 'applied',
+          updated_at = now()
     returning *
   `
 
@@ -549,6 +815,7 @@ export async function updateApplicationStatus(userId: string, applicationId: str
       select
         a.*,
         p.creator_id,
+        p.creator_profile_id,
         p.post_type,
         p.price,
         p.status as post_status,
@@ -576,6 +843,9 @@ export async function updateApplicationStatus(userId: string, applicationId: str
 
     const requesterId = application.postType === 'request' ? application.creatorId : application.applicantId
     const helperId = application.postType === 'request' ? application.applicantId : application.creatorId
+    const requesterProfileId = application.postType === 'request' ? application.creatorProfileId : application.applicantProfileId
+    const helperProfileId = application.postType === 'request' ? application.applicantProfileId : application.creatorProfileId
+    if (!requesterProfileId || !helperProfileId) return null
     const existingConversationRows = await tx`
       select id
       from manwon_happiness.conversations
@@ -630,8 +900,8 @@ export async function updateApplicationStatus(userId: string, applicationId: str
     `
 
     const dealRows = await tx`
-      insert into manwon_happiness.deals (post_id, requester_id, helper_id, application_id, price, status, accepted_at, recruitment_round)
-      values (${application.postId}, ${requesterId}, ${helperId}, ${applicationId}, ${application.price}, 'accepted', now(), ${application.recruitmentRound})
+      insert into manwon_happiness.deals (post_id, requester_id, helper_id, requester_profile_id, helper_profile_id, application_id, price, status, accepted_at, recruitment_round)
+      values (${application.postId}, ${requesterId}, ${helperId}, ${requesterProfileId}, ${helperProfileId}, ${applicationId}, ${application.price}, 'accepted', now(), ${application.recruitmentRound})
       returning *
     `
 
@@ -777,16 +1047,34 @@ export async function updateDealStatus(userId: string, dealId: string, input: Up
 
   const result = await sql.begin(async (tx) => {
     const existingRows = await tx`
-      select *
-      from manwon_happiness.deals
-      where id = ${dealId}
-        and (requester_id = ${userId} or helper_id = ${userId})
+      select d.*, p.creator_id as post_creator_id
+      from manwon_happiness.deals d
+      join manwon_happiness.task_posts p on p.id = d.post_id
+      where d.id = ${dealId}
+        and (d.requester_id = ${userId} or d.helper_id = ${userId})
       for update
       limit 1
     `
     const existing = existingRows[0]
     if (!existing) return null
     if (!canTransitionDealStatus(existing.status, input.status)) return null
+    const isPostCreator = String(existing.postCreatorId) === userId
+    const isApplicant = Boolean(existing.postCreatorId) && !isPostCreator
+    if (input.status === 'in_progress' && !isPostCreator) return null
+    if (input.status === 'complete_requested' && !isApplicant) return null
+    if ((input.status === 'completed' || input.status === 'disputed') && !isPostCreator) return null
+    if (input.status === 'completed' || input.status === 'disputed') {
+      const turnRows = await tx`
+        select count(distinct m.sender_id)::integer as sender_count
+        from manwon_happiness.conversations c
+        join manwon_happiness.deals d on d.id = c.deal_id
+        join manwon_happiness.messages m on m.conversation_id = c.id
+        where c.deal_id = ${dealId}
+          and m.message_type <> 'system'
+          and m.created_at > coalesce(d.started_at, d.accepted_at, c.created_at)
+      `
+      if (Number(turnRows[0]?.senderCount ?? 0) < 2) return null
+    }
 
     const rows = input.status === 'cancelled'
       ? canStoreCancelledBy
@@ -828,7 +1116,7 @@ export async function updateDealStatus(userId: string, dealId: string, input: Up
     if (input.status === 'completed') {
       await tx`update manwon_happiness.task_posts set status = 'completed' where id = ${deal.postId}`
       await tx`
-        update manwon_happiness.profiles
+        update manwon_happiness.users
         set completed_count = completed_count + 1
         where id in (${deal.requesterId}, ${deal.helperId})
       `
@@ -894,23 +1182,62 @@ export async function listConversations(userId: string) {
       p.category as post_category,
       p.price as post_price,
       p.status as post_status,
+      p.creator_id as post_creator_id,
+      p.post_type as post_type,
       d.status as deal_status,
+      coalesce(
+        d.requester_profile_id,
+        case
+          when p.post_type = 'request' then p.creator_profile_id
+          when p.post_type = 'offer' then a.applicant_profile_id
+          else null
+        end
+      ) as requester_profile_id,
+      coalesce(
+        d.helper_profile_id,
+        case
+          when p.post_type = 'request' then a.applicant_profile_id
+          when p.post_type = 'offer' then p.creator_profile_id
+          else null
+        end
+      ) as helper_profile_id,
       a.id as application_id,
       a.status as application_status,
-      requester.nickname as requester_nickname,
-      requester.avatar_url as requester_avatar_url,
-      helper.nickname as helper_nickname,
-      helper.avatar_url as helper_avatar_url,
+      a.applicant_id as application_applicant_id,
+      coalesce(requester_activity.nickname, requester.nickname) as requester_nickname,
+      coalesce(requester_activity.avatar_url, requester.avatar_url) as requester_avatar_url,
+      requester_activity.bio as requester_bio,
+      coalesce(helper_activity.nickname, helper.nickname) as helper_nickname,
+      coalesce(helper_activity.avatar_url, helper.avatar_url) as helper_avatar_url,
+      helper_activity.bio as helper_bio,
       case when c.requester_id = ${userId} then c.helper_id else c.requester_id end as other_user_id,
-      case when c.requester_id = ${userId} then helper.nickname else requester.nickname end as other_nickname,
-      case when c.requester_id = ${userId} then helper.avatar_url else requester.avatar_url end as other_avatar_url,
+      case when c.requester_id = ${userId} then coalesce(helper_activity.nickname, helper.nickname) else coalesce(requester_activity.nickname, requester.nickname) end as other_nickname,
+      case when c.requester_id = ${userId} then coalesce(helper_activity.avatar_url, helper.avatar_url) else coalesce(requester_activity.avatar_url, requester.avatar_url) end as other_avatar_url,
+      case when c.requester_id = ${userId} then helper_activity.bio else requester_activity.bio end as other_bio,
+      case when c.requester_id = ${userId} then helper.gender else requester.gender end as other_gender,
       case when c.requester_id = ${userId} then helper.rating_avg::float8 else requester.rating_avg::float8 end as other_rating_avg,
       case when c.requester_id = ${userId} then helper.review_count else requester.review_count end as other_review_count,
       case when c.requester_id = ${userId} then helper.completed_count else requester.completed_count end as other_completed_count,
       case when c.requester_id = ${userId} then helper.phone_verified else requester.phone_verified end as other_phone_verified,
       case when c.requester_id = ${userId} then helper.identity_verified else requester.identity_verified end as other_identity_verified,
-      case when c.requester_id = ${userId} then helper.trust_career_summary else requester.trust_career_summary end as other_career_summary,
-      case when c.requester_id = ${userId} then coalesce(helper.trust_response_time, helper.trust_response_time_text) else coalesce(requester.trust_response_time, requester.trust_response_time_text) end as other_response_time,
+      case when c.requester_id = ${userId} then coalesce(helper_activity.career_summary, helper.trust_career_summary) else coalesce(requester_activity.career_summary, requester.trust_career_summary) end as other_career_summary,
+      case when c.requester_id = ${userId} then coalesce(helper_activity.available_time_text, helper.trust_response_time, helper.trust_response_time_text) else coalesce(requester_activity.available_time_text, requester.trust_response_time, requester.trust_response_time_text) end as other_response_time,
+      exists (
+        select 1
+        from manwon_happiness.messages m
+        where m.conversation_id = c.id
+          and m.message_type <> 'system'
+          and m.created_at > coalesce(d.started_at, d.accepted_at, c.created_at)
+        group by m.conversation_id
+        having count(distinct m.sender_id) >= 2
+      ) as has_chat_after_started,
+      (
+        select r.id
+        from manwon_happiness.reviews r
+        where r.deal_id = c.deal_id
+          and r.reviewer_id = ${userId}
+        limit 1
+      ) as my_review_id,
       (
         select count(*)::integer
         from manwon_happiness.messages m
@@ -927,8 +1254,24 @@ export async function listConversations(userId: string) {
         (p.post_type = 'request' and a.applicant_id = c.helper_id)
         or (p.post_type = 'offer' and a.applicant_id = c.requester_id)
       )
-    join manwon_happiness.profiles requester on requester.id = c.requester_id
-    join manwon_happiness.profiles helper on helper.id = c.helper_id
+    left join manwon_happiness.activity_profiles requester_activity on requester_activity.id = coalesce(
+      d.requester_profile_id,
+      case
+        when p.post_type = 'request' then p.creator_profile_id
+        when p.post_type = 'offer' then a.applicant_profile_id
+        else null
+      end
+    )
+    left join manwon_happiness.activity_profiles helper_activity on helper_activity.id = coalesce(
+      d.helper_profile_id,
+      case
+        when p.post_type = 'request' then a.applicant_profile_id
+        when p.post_type = 'offer' then p.creator_profile_id
+        else null
+      end
+    )
+    join manwon_happiness.users requester on requester.id = c.requester_id
+    join manwon_happiness.users helper on helper.id = c.helper_id
     where (c.requester_id = ${userId} or c.helper_id = ${userId})
       and not exists (
         select 1 from manwon_happiness.blocks b
@@ -990,8 +1333,9 @@ export async function createConversation(userId: string, input: CreateConversati
   return existingRows[0] ?? null
 }
 
-export async function startConversationForPost(userId: string, postId: string, message?: string | null) {
+export async function startConversationForPost(userId: string, postId: string, profileId: string, message?: string | null) {
   await assertPhoneVerified(userId)
+  await assertOwnedActiveActivityProfile(userId, profileId)
 
   const sql = getSql()
 
@@ -1024,7 +1368,7 @@ export async function startConversationForPost(userId: string, postId: string, m
     const initialLastMessage = post.postType === 'request' ? applicationSystemMessage : message ?? '문의가 시작되었어요.'
 
     let previousApplicationStatus: string | null = null
-    if (post.postType === 'request') {
+    if (post.postType === 'request' || post.postType === 'offer') {
       const [existingApplication] = await tx`
         select status
         from manwon_happiness.applications
@@ -1036,10 +1380,11 @@ export async function startConversationForPost(userId: string, postId: string, m
       previousApplicationStatus = existingApplication?.status ? String(existingApplication.status) : null
 
       await tx`
-        insert into manwon_happiness.applications (post_id, applicant_id, message, recruitment_round)
-        values (${postId}, ${userId}, ${message ?? '도와드릴 수 있어요.'}, ${post.recruitmentRound})
+        insert into manwon_happiness.applications (post_id, applicant_id, applicant_profile_id, message, recruitment_round)
+        values (${postId}, ${userId}, ${profileId}, ${message ?? (post.postType === 'request' ? '도와드릴 수 있어요.' : '문의드려요.')}, ${post.recruitmentRound})
         on conflict (post_id, applicant_id, recruitment_round) do update
-          set message = coalesce(excluded.message, manwon_happiness.applications.message),
+          set applicant_profile_id = excluded.applicant_profile_id,
+              message = coalesce(excluded.message, manwon_happiness.applications.message),
               status = case
                 when manwon_happiness.applications.status in ('cancelled', 'rejected') then 'applied'::manwon_happiness.application_status
                 else manwon_happiness.applications.status
@@ -1197,7 +1542,7 @@ export async function sendMessage(userId: string, conversationId: string, input:
         case when c.requester_id = ${userId} then c.helper_id else c.requester_id end as other_user_id
       from manwon_happiness.conversations c
       left join manwon_happiness.task_posts p on p.id = c.post_id
-      left join manwon_happiness.profiles sender on sender.id = ${userId}
+      left join manwon_happiness.users sender on sender.id = ${userId}
       where c.id = ${conversationId}
         and (c.requester_id = ${userId} or c.helper_id = ${userId})
       limit 1
@@ -1269,7 +1614,7 @@ export async function sendMessage(userId: string, conversationId: string, input:
       message,
       lastMessage,
       notifyUserId: String(conversation.otherUserId),
-      senderNickname: conversation.senderNickname ? String(conversation.senderNickname) : '만원부탁소',
+      senderNickname: conversation.senderNickname ? String(conversation.senderNickname) : '뭐든해줌',
       postId: conversation.postId ? String(conversation.postId) : null,
       dealId: conversation.dealId ? String(conversation.dealId) : null,
     }
@@ -1291,6 +1636,193 @@ export async function sendMessage(userId: string, conversationId: string, input:
   }).catch(() => undefined)
 
   return result.message
+}
+
+export async function createReview(userId: string, input: CreateReviewInput) {
+  const sql = getSql()
+  const result = await sql.begin(async (tx) => {
+    const dealRows = await tx`
+      select d.*, p.title as post_title, c.id as conversation_id
+      from manwon_happiness.deals d
+      join manwon_happiness.task_posts p on p.id = d.post_id
+      left join manwon_happiness.conversations c on c.deal_id = d.id
+      where d.id = ${input.dealId}
+        and d.status = 'completed'
+        and (d.requester_id = ${userId} or d.helper_id = ${userId})
+      for update of d
+      limit 1
+    `
+    const deal = dealRows[0]
+    if (!deal) return null
+
+    const revieweeId = String(deal.requesterId) === userId ? String(deal.helperId) : String(deal.requesterId)
+    const reviewerProfileId = String(deal.requesterId) === userId ? deal.requesterProfileId : deal.helperProfileId
+    const revieweeProfileId = String(deal.requesterId) === userId ? deal.helperProfileId : deal.requesterProfileId
+    const content = input.content?.trim() || null
+    const reviewRows = await tx`
+      insert into manwon_happiness.reviews (deal_id, reviewer_id, reviewee_id, reviewer_profile_id, reviewee_profile_id, rating, content)
+      values (${input.dealId}, ${userId}, ${revieweeId}, ${reviewerProfileId ?? null}, ${revieweeProfileId ?? null}, ${input.rating}, ${content})
+      on conflict (deal_id, reviewer_id) do update
+        set rating = excluded.rating,
+            content = excluded.content,
+            reviewer_profile_id = excluded.reviewer_profile_id,
+            reviewee_profile_id = excluded.reviewee_profile_id
+      returning *
+    `
+    const review = reviewRows[0]
+    if (!review) return null
+
+    await tx`
+      update manwon_happiness.review_reminders
+      set cancelled_at = coalesce(cancelled_at, now()),
+          updated_at = now()
+      where deal_id = ${input.dealId}
+        and user_id = ${userId}
+    `
+
+    await tx`
+      update manwon_happiness.users p
+      set review_count = stats.review_count,
+          rating_avg = stats.rating_avg
+      from (
+        select reviewee_id, count(*)::integer as review_count, coalesce(round(avg(rating)::numeric, 2), 0) as rating_avg
+        from manwon_happiness.reviews
+        where reviewee_id = ${revieweeId}
+        group by reviewee_id
+      ) stats
+      where p.id = stats.reviewee_id
+    `
+
+    return {
+      review,
+      revieweeId,
+      conversationId: deal.conversationId ? String(deal.conversationId) : null,
+      postTitle: deal.postTitle ? String(deal.postTitle) : null,
+    }
+  })
+
+  if (!result) return null
+
+  void createNotificationEvent(result.revieweeId, {
+    type: 'review.created',
+    title: '새 후기가 도착했어요',
+    body: result.postTitle ? `"${result.postTitle}" 거래 후기가 등록됐습니다.` : '거래 후기가 등록됐습니다.',
+    data: {
+      type: 'review.created',
+      conversationId: result.conversationId,
+      dealId: String(result.review.dealId),
+    },
+  }).catch(() => undefined)
+
+  return result.review
+}
+
+export async function scheduleReviewReminder(userId: string, input: ReviewReminderInput) {
+  const sql = getSql()
+  const rows = await sql`
+    insert into manwon_happiness.review_reminders (deal_id, user_id, due_at)
+    select d.id, ${userId}, now() + interval '1 day'
+    from manwon_happiness.deals d
+    where d.id = ${input.dealId}
+      and d.status = 'completed'
+      and (d.requester_id = ${userId} or d.helper_id = ${userId})
+      and not exists (
+        select 1
+        from manwon_happiness.reviews r
+        where r.deal_id = d.id
+          and r.reviewer_id = ${userId}
+      )
+    on conflict (deal_id, user_id) do update
+      set due_at = now() + interval '1 day',
+          sent_at = null,
+          cancelled_at = null,
+          updated_at = now()
+    returning *
+  `
+
+  return rows[0] ?? null
+}
+
+export async function getDueReviewReminder(userId: string) {
+  const sql = getSql()
+  const rows = await sql`
+    select
+      rr.*,
+      c.id as conversation_id,
+      p.title as post_title
+    from manwon_happiness.review_reminders rr
+    join manwon_happiness.deals d on d.id = rr.deal_id
+    join manwon_happiness.task_posts p on p.id = d.post_id
+    left join manwon_happiness.conversations c on c.deal_id = d.id
+    where rr.user_id = ${userId}
+      and rr.due_at <= now()
+      and rr.cancelled_at is null
+      and d.status = 'completed'
+      and not exists (
+        select 1
+        from manwon_happiness.reviews r
+        where r.deal_id = rr.deal_id
+          and r.reviewer_id = rr.user_id
+      )
+    order by rr.due_at asc
+    limit 1
+  `
+
+  return rows[0] ?? null
+}
+
+export async function processDueReviewReminders(limit = 100) {
+  const sql = getSql()
+  const cappedLimit = Math.min(Math.max(limit, 1), 500)
+  const reminders = await sql.begin(async (tx) => tx`
+    with due as (
+      select
+        rr.id,
+        rr.user_id,
+        rr.deal_id,
+        c.id as conversation_id,
+        p.title as post_title
+      from manwon_happiness.review_reminders rr
+      join manwon_happiness.deals d on d.id = rr.deal_id
+      join manwon_happiness.task_posts p on p.id = d.post_id
+      left join manwon_happiness.conversations c on c.deal_id = d.id
+      where rr.due_at <= now()
+        and rr.sent_at is null
+        and rr.cancelled_at is null
+        and d.status = 'completed'
+        and not exists (
+          select 1
+          from manwon_happiness.reviews r
+          where r.deal_id = rr.deal_id
+            and r.reviewer_id = rr.user_id
+        )
+      order by rr.due_at asc
+      limit ${cappedLimit}
+      for update of rr skip locked
+    ),
+    updated as (
+      update manwon_happiness.review_reminders rr
+      set sent_at = now(),
+          updated_at = now()
+      from due
+      where rr.id = due.id
+      returning rr.id, rr.user_id, rr.deal_id, due.conversation_id, due.post_title
+    )
+    select * from updated
+  `)
+
+  await Promise.all(reminders.map((reminder) => createNotificationEvent(String(reminder.userId), {
+    type: 'review.reminder',
+    title: '거래 후기를 남겨주세요',
+    body: reminder.postTitle ? `"${String(reminder.postTitle)}" 거래는 어떠셨나요?` : '완료된 거래는 어떠셨나요?',
+    data: {
+      type: 'review.reminder',
+      conversationId: reminder.conversationId ? String(reminder.conversationId) : null,
+      dealId: String(reminder.dealId),
+    },
+  }).catch(() => undefined)))
+
+  return { processed: reminders.length }
 }
 
 export async function getMyActivity(userId: string) {
@@ -1325,7 +1857,7 @@ export async function getMyActivity(userId: string) {
         requester.avatar_url as requester_avatar_url
       from manwon_happiness.deals d
       join manwon_happiness.task_posts p on p.id = d.post_id
-      join manwon_happiness.profiles requester on requester.id = d.requester_id
+      join manwon_happiness.users requester on requester.id = d.requester_id
       where d.helper_id = ${userId}
       order by d.created_at desc
       limit 50
@@ -1358,7 +1890,7 @@ export async function getMyActivity(userId: string) {
         reviewer.avatar_url as reviewer_avatar_url,
         p.title as post_title
       from manwon_happiness.reviews r
-      join manwon_happiness.profiles reviewer on reviewer.id = r.reviewer_id
+      join manwon_happiness.users reviewer on reviewer.id = r.reviewer_id
       left join manwon_happiness.deals d on d.id = r.deal_id
       left join manwon_happiness.task_posts p on p.id = d.post_id
       where r.reviewee_id = ${userId}
@@ -1371,7 +1903,7 @@ export async function getMyActivity(userId: string) {
         reviewee.nickname as reviewee_nickname,
         p.title as post_title
       from manwon_happiness.reviews r
-      join manwon_happiness.profiles reviewee on reviewee.id = r.reviewee_id
+      join manwon_happiness.users reviewee on reviewee.id = r.reviewee_id
       left join manwon_happiness.deals d on d.id = r.deal_id
       left join manwon_happiness.task_posts p on p.id = d.post_id
       where r.reviewer_id = ${userId}
@@ -1384,7 +1916,7 @@ export async function getMyActivity(userId: string) {
         target.nickname as target_nickname,
         p.title as post_title
       from manwon_happiness.reports r
-      left join manwon_happiness.profiles target on target.id = r.target_user_id
+      left join manwon_happiness.users target on target.id = r.target_user_id
       left join manwon_happiness.task_posts p on p.id = r.post_id
       where r.reporter_id = ${userId}
       order by r.created_at desc
@@ -1396,7 +1928,7 @@ export async function getMyActivity(userId: string) {
         blocked.nickname as blocked_nickname,
         blocked.avatar_url as blocked_avatar_url
       from manwon_happiness.blocks b
-      join manwon_happiness.profiles blocked on blocked.id = b.blocked_user_id
+      join manwon_happiness.users blocked on blocked.id = b.blocked_user_id
       where b.blocker_id = ${userId}
       order by b.created_at desc
       limit 50
@@ -1411,11 +1943,13 @@ export async function getMyPage(userId: string) {
   const rows = await sql`
     select
       p.*,
+      (select count(*)::integer from manwon_happiness.task_posts where creator_id = ${userId}) as posts_count,
+      (select count(*)::integer from manwon_happiness.deals where helper_id = ${userId}) as helping_count,
       (select count(*)::integer from manwon_happiness.task_posts where creator_id = ${userId} and status in ('open', 'pending', 'in_progress')) as active_posts_count,
       (select count(*)::integer from manwon_happiness.deals where helper_id = ${userId} and status in ('accepted', 'in_progress', 'complete_requested')) as active_helping_count,
       (select count(*)::integer from manwon_happiness.favorites where user_id = ${userId}) as favorite_count,
       (select count(*)::integer from manwon_happiness.reviews where reviewee_id = ${userId}) as received_review_count
-    from manwon_happiness.profiles p
+    from manwon_happiness.users p
     where p.id = ${userId}
     limit 1
   `
@@ -1436,7 +1970,7 @@ export async function updateLocationPreference(
 ) {
   const sql = getSql()
   const rows = await sql`
-    update manwon_happiness.profiles
+    update manwon_happiness.users
     set default_latitude = ${input.latitude ?? null},
         default_longitude = ${input.longitude ?? null},
         default_region_1depth = ${input.region1Depth ?? null},
@@ -1560,7 +2094,7 @@ export async function withdrawMyAccount(userId: string) {
     `
 
     const [profile] = await tx`
-      update manwon_happiness.profiles
+      update manwon_happiness.users
       set nickname = '탈퇴한 사용자',
           display_name = null,
           login_id = null,
@@ -1628,8 +2162,8 @@ export async function listAdminReports() {
       m.created_at as message_created_at,
       context.message_context
     from manwon_happiness.reports r
-    left join manwon_happiness.profiles reporter on reporter.id = r.reporter_id
-    left join manwon_happiness.profiles target on target.id = r.target_user_id
+    left join manwon_happiness.users reporter on reporter.id = r.reporter_id
+    left join manwon_happiness.users target on target.id = r.target_user_id
     left join manwon_happiness.task_posts p on p.id = r.post_id
     left join manwon_happiness.messages m on m.id = r.message_id
     left join lateral (

@@ -1,7 +1,7 @@
 import { getSql } from '@/server/db'
 import { HttpError } from '@/server/http'
 import { hashPassword, verifyPassword } from '@/server/password'
-import { confirmPhoneOtp, normalizePhone, requestPhoneOtp } from '@/server/phoneVerification'
+import { normalizePhone, requestSignupPhoneOtp, verifySignupPhoneOtp } from '@/server/phoneVerification'
 import type { loginCheckSchema, signupLoginIdCheckSchema, signupOtpConfirmSchema, signupOtpRequestSchema } from '@/server/validation'
 import type { z } from 'zod'
 
@@ -33,29 +33,29 @@ function assertRequiredAgreements(input: SignupOtpRequestInput['agreements']) {
 
 export async function checkLoginCredential(input: LoginCheckInput) {
   const sql = getSql()
-  const [profile] = await sql`
+  const [user] = await sql`
     select *
-    from ${sql(schema)}.profiles
+    from ${sql(schema)}.users
     where login_id = ${input.loginId}
       and withdrawn_at is null
     limit 1
   `
 
-  if (!profile) return { mode: 'signup_required' as const }
+  if (!user) return { mode: 'signup_required' as const }
 
-  if (!verifyPassword(input.password, profile.passwordHash)) {
+  if (!verifyPassword(input.password, user.passwordHash)) {
     throw new HttpError('아이디 또는 비밀번호를 확인해주세요.', 401)
   }
 
-  if (!profile.phoneVerified) {
+  if (!user.phoneVerified) {
     return { mode: 'signup_required' as const, resume: true }
   }
 
   const [updated] = await sql`
-    update ${sql(schema)}.profiles
+    update ${sql(schema)}.users
     set last_login_at = now(),
         updated_at = now()
-    where id = ${profile.id}
+    where id = ${user.id}
     returning *
   `
 
@@ -67,15 +67,15 @@ export async function checkLoginCredential(input: LoginCheckInput) {
 
 export async function checkSignupLoginId(input: SignupLoginIdCheckInput) {
   const sql = getSql()
-  const [profile] = await sql`
+  const [user] = await sql`
     select id
-    from ${sql(schema)}.profiles
+    from ${sql(schema)}.users
     where login_id = ${input.loginId}
       and withdrawn_at is null
     limit 1
   `
 
-  return { available: !profile }
+  return { available: !user }
 }
 
 export async function requestSignupOtp(input: SignupOtpRequestInput, request: Request) {
@@ -85,110 +85,179 @@ export async function requestSignupOtp(input: SignupOtpRequestInput, request: Re
   const birthDate = parseBirthDate(input.birthDate)
   const sql = getSql()
 
-  const userId = await sql.begin(async (tx) => {
+  const draftId = await sql.begin(async (tx) => {
+    await tx`
+      delete from ${sql(schema)}.signup_drafts
+      where expires_at <= now()
+        or login_id = ${input.loginId}
+        or phone = ${phone}
+    `
+
     const [existingLogin] = await tx`
-      select id, password_hash, phone_verified
-      from ${sql(schema)}.profiles
+      select id
+      from ${sql(schema)}.users
       where login_id = ${input.loginId}
         and withdrawn_at is null
       limit 1
     `
-
-    if (existingLogin && !verifyPassword(input.password, existingLogin.passwordHash)) {
-      throw new HttpError('이미 사용 중인 아이디입니다.', 409)
-    }
+    if (existingLogin) throw new HttpError('이미 사용 중인 아이디입니다.', 409)
 
     const [phoneOwner] = await tx`
       select id
-      from ${sql(schema)}.profiles
+      from ${sql(schema)}.users
       where phone = ${phone}
-        and (${existingLogin?.id ?? null}::uuid is null or id <> ${existingLogin?.id ?? null})
         and withdrawn_at is null
       limit 1
     `
     if (phoneOwner) throw new HttpError('이미 가입된 휴대폰 번호입니다.', 409)
 
     const agreementTimestamp = new Date()
-    const passwordHash = existingLogin?.passwordHash && verifyPassword(input.password, existingLogin.passwordHash)
-      ? existingLogin.passwordHash
-      : hashPassword(input.password)
+    const passwordHash = hashPassword(input.password)
 
-    const [profile] = existingLogin
-      ? await tx`
-          update ${sql(schema)}.profiles
-          set nickname = ${input.name},
-              display_name = ${input.name},
-              gender = ${input.gender}::manwon_happiness.gender_type,
-              login_id = ${input.loginId},
-              password_hash = ${passwordHash},
-              birth_date = ${birthDate}::date,
-              phone = ${phone},
-              terms_agreed_at = coalesce(terms_agreed_at, ${agreementTimestamp}),
-              privacy_agreed_at = coalesce(privacy_agreed_at, ${agreementTimestamp}),
-              marketing_agreed_at = case when ${input.agreements.marketing} then coalesce(marketing_agreed_at, ${agreementTimestamp}) else marketing_agreed_at end,
-              updated_at = now()
-          where id = ${existingLogin.id}
-          returning id
-        `
-      : await tx`
-          insert into ${sql(schema)}.profiles (
-            nickname,
-            display_name,
-            gender,
-            login_id,
-            password_hash,
-            birth_date,
-            phone,
-            terms_agreed_at,
-            privacy_agreed_at,
-            marketing_agreed_at
-          )
-          values (
-            ${input.name},
-            ${input.name},
-            ${input.gender}::manwon_happiness.gender_type,
-            ${input.loginId},
-            ${passwordHash},
-            ${birthDate}::date,
-            ${phone},
-            ${agreementTimestamp},
-            ${agreementTimestamp},
-            ${input.agreements.marketing ? agreementTimestamp : null}
-          )
-          returning id
-        `
+    const [draft] = await tx`
+      insert into ${sql(schema)}.signup_drafts (
+        display_name,
+        gender,
+        login_id,
+        password_hash,
+        birth_date,
+        phone,
+        terms_agreed_at,
+        privacy_agreed_at,
+        marketing_agreed_at
+      )
+      values (
+        ${input.name},
+        ${input.gender}::manwon_happiness.gender_type,
+        ${input.loginId},
+        ${passwordHash},
+        ${birthDate}::date,
+        ${phone},
+        ${agreementTimestamp},
+        ${agreementTimestamp},
+        ${input.agreements.marketing ? agreementTimestamp : null}
+      )
+      returning id
+    `
 
-    return String(profile.id)
+    return String(draft.id)
   })
 
-  return requestPhoneOtp(userId, phone, request)
+  return requestSignupPhoneOtp(draftId, phone, request)
 }
 
-export async function confirmSignupOtp(input: SignupOtpConfirmInput) {
+async function getSignupDraft(input: SignupOtpRequestInput) {
   const phone = normalizePhone(input.phone)
   const sql = getSql()
-  const [profile] = await sql`
-    select id, password_hash
-    from ${sql(schema)}.profiles
+  const [draft] = await sql`
+    select *
+    from ${sql(schema)}.signup_drafts
     where login_id = ${input.loginId}
       and phone = ${phone}
-      and withdrawn_at is null
+      and expires_at > now()
+    order by created_at desc
     limit 1
   `
 
-  if (!profile || !verifyPassword(input.password, profile.passwordHash)) {
+  if (!draft || !verifyPassword(input.password, draft.passwordHash)) {
     throw new HttpError('가입 정보를 확인해주세요.', 401)
   }
 
-  const verifiedProfile = await confirmPhoneOtp(String(profile.id), phone, input.code)
+  return { phone, draft }
+}
 
-  const [updated] = await sql`
-    update ${sql(schema)}.profiles
-    set last_login_at = now(),
-        updated_at = now()
-    where id = ${profile.id}
-    returning *
+export async function verifySignupOtp(input: SignupOtpConfirmInput) {
+  const { phone, draft } = await getSignupDraft(input)
+  return verifySignupPhoneOtp(String(draft.id), phone, input.code)
+}
+
+export async function completeSignup(input: SignupOtpRequestInput) {
+  const { phone, draft } = await getSignupDraft(input)
+  const sql = getSql()
+
+  const [verifiedOtp] = await sql`
+    select id
+    from ${sql(schema)}.phone_otps
+    where signup_draft_id = ${draft.id}
+      and phone = ${phone}
+      and verified_at is not null
+    order by verified_at desc
+    limit 1
   `
+  if (!verifiedOtp) throw new HttpError('인증번호 확인을 먼저 완료해주세요.', 400)
 
-  return updated ?? verifiedProfile
+  const user = await sql.begin(async (tx) => {
+    const [existingLogin] = await tx`
+      select id
+      from ${sql(schema)}.users
+      where login_id = ${input.loginId}
+        and withdrawn_at is null
+      limit 1
+    `
+    if (existingLogin) throw new HttpError('이미 사용 중인 아이디입니다.', 409)
+
+    const [phoneOwner] = await tx`
+      select id
+      from ${sql(schema)}.users
+      where phone = ${phone}
+        and withdrawn_at is null
+      limit 1
+    `
+    if (phoneOwner) throw new HttpError('이미 가입된 휴대폰 번호입니다.', 409)
+
+    const [created] = await tx`
+      insert into ${sql(schema)}.users (
+        nickname,
+        display_name,
+        gender,
+        login_id,
+        password_hash,
+        birth_date,
+        phone,
+        phone_verified,
+        phone_verified_at,
+        terms_agreed_at,
+        privacy_agreed_at,
+        marketing_agreed_at,
+        last_login_at
+      )
+      values (
+        ${draft.displayName},
+        ${draft.displayName},
+        ${draft.gender}::manwon_happiness.gender_type,
+        ${draft.loginId},
+        ${draft.passwordHash},
+        ${draft.birthDate}::date,
+        ${phone},
+        true,
+        now(),
+        ${draft.termsAgreedAt},
+        ${draft.privacyAgreedAt},
+        ${draft.marketingAgreedAt},
+        now()
+      )
+      returning *
+    `
+
+    await tx`
+      update ${sql(schema)}.phone_otps
+      set user_id = ${created.id},
+          signup_draft_id = null
+      where signup_draft_id = ${draft.id}
+    `
+
+    await tx`
+      delete from ${sql(schema)}.signup_drafts
+      where id = ${draft.id}
+    `
+
+    return created
+  })
+
+  return user
+}
+
+export async function confirmSignupOtp(input: SignupOtpConfirmInput) {
+  await verifySignupOtp(input)
+  return completeSignup(input)
 }

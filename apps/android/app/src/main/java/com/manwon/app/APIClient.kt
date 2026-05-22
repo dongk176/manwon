@@ -174,6 +174,7 @@ class APIClient(private val context: Context) {
         return TaskPost(
             id = json.optString("id"),
             creatorId = json.optNullableString("creatorId"),
+            creatorProfileId = json.optNullableString("creatorProfileId"),
             postType = json.optNullableString("postType"),
             title = json.optString("title", "부탁"),
             category = json.optNullableString("category"),
@@ -197,7 +198,17 @@ class APIClient(private val context: Context) {
                     sortOrder = it.optNullableInt("sortOrder")
                 )
             },
-            creatorNickname = json.optNullableString("creatorNickname")
+            creatorNickname = json.optNullableString("creatorNickname"),
+            creatorAvatarUrl = json.optNullableString("creatorAvatarUrl"),
+            creatorBio = json.optNullableString("creatorBio"),
+            creatorMainCategories = json.optStringArray("creatorMainCategories"),
+            creatorSubCategories = json.optStringArray("creatorSubCategories"),
+            creatorGender = json.optNullableString("creatorGender"),
+            creatorPhoneVerified = json.optNullableBoolean("creatorPhoneVerified"),
+            creatorIdentityVerified = json.optNullableBoolean("creatorIdentityVerified"),
+            creatorRatingAvg = json.optNullableDouble("creatorRatingAvg"),
+            creatorReviewCount = json.optNullableInt("creatorReviewCount"),
+            creatorCompletedCount = json.optNullableInt("creatorCompletedCount")
         )
     }
 
@@ -214,13 +225,40 @@ class APIClient(private val context: Context) {
             postCategory = json.optNullableString("postCategory"),
             postPrice = json.optNullableInt("postPrice"),
             postStatus = json.optNullableString("postStatus"),
+            postCreatorId = json.optNullableString("postCreatorId"),
+            postType = json.optNullableString("postType"),
             dealStatus = json.optNullableString("dealStatus"),
+            requesterProfileId = json.optNullableString("requesterProfileId"),
+            helperProfileId = json.optNullableString("helperProfileId"),
             applicationId = json.optNullableString("applicationId"),
             applicationStatus = json.optNullableString("applicationStatus"),
+            applicationApplicantId = json.optNullableString("applicationApplicantId"),
             requesterNickname = json.optNullableString("requesterNickname"),
             helperNickname = json.optNullableString("helperNickname"),
+            requesterAvatarUrl = json.optNullableString("requesterAvatarUrl"),
+            helperAvatarUrl = json.optNullableString("helperAvatarUrl"),
+            requesterBio = json.optNullableString("requesterBio"),
+            helperBio = json.optNullableString("helperBio"),
+            requesterMainCategories = json.optStringArray("requesterMainCategories"),
+            helperMainCategories = json.optStringArray("helperMainCategories"),
+            requesterSubCategories = json.optStringArray("requesterSubCategories"),
+            helperSubCategories = json.optStringArray("helperSubCategories"),
             otherUserId = json.optNullableString("otherUserId"),
             otherNickname = json.optNullableString("otherNickname"),
+            otherAvatarUrl = json.optNullableString("otherAvatarUrl"),
+            otherBio = json.optNullableString("otherBio"),
+            otherMainCategories = json.optStringArray("otherMainCategories"),
+            otherSubCategories = json.optStringArray("otherSubCategories"),
+            otherGender = json.optNullableString("otherGender"),
+            otherRatingAvg = json.optNullableDouble("otherRatingAvg"),
+            otherReviewCount = json.optNullableInt("otherReviewCount"),
+            otherCompletedCount = json.optNullableInt("otherCompletedCount"),
+            otherPhoneVerified = json.optNullableBoolean("otherPhoneVerified"),
+            otherIdentityVerified = json.optNullableBoolean("otherIdentityVerified"),
+            otherCareerSummary = json.optNullableString("otherCareerSummary"),
+            otherResponseTime = json.optNullableString("otherResponseTime"),
+            hasChatAfterStarted = json.optNullableBoolean("hasChatAfterStarted"),
+            myReviewId = json.optNullableString("myReviewId"),
             unreadCount = json.optNullableInt("unreadCount")
         )
     }
@@ -261,4 +299,16 @@ private fun JSONObject.optNullableInt(name: String): Int? {
 private fun JSONObject.optNullableDouble(name: String): Double? {
     if (!has(name) || isNull(name)) return null
     return optDouble(name)
+}
+
+private fun JSONObject.optNullableBoolean(name: String): Boolean? {
+    if (!has(name) || isNull(name)) return null
+    return optBoolean(name)
+}
+
+private fun JSONObject.optStringArray(name: String): List<String> {
+    val array = optJSONArray(name) ?: return emptyList()
+    return (0 until array.length()).mapNotNull { index ->
+        array.optString(index).takeIf { it.isNotBlank() }
+    }
 }

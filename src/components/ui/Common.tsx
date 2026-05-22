@@ -13,6 +13,7 @@ import {
   Flag,
   Funnel,
   Home,
+  ListChecks,
   MapPin,
   MessageCircle,
   MoreHorizontal,
@@ -25,7 +26,7 @@ import {
 } from 'lucide-react'
 import { categories, formatPrice, getCategoryIconSrc, type Category, type PostStatus, type RequestPost, type TradeStatus } from '@/data/mockData'
 
-export type TabKey = 'home' | 'chat' | 'register' | 'nearby' | 'my'
+export type TabKey = 'home' | 'chat' | 'register' | 'activity' | 'my'
 
 const postReportReasons = ['부적절한 게시글', '사기 의심', '거래 금지 요청', '개인정보 요구', '위험한 부탁', '기타'] as const
 
@@ -33,7 +34,7 @@ const navItems: Array<{ key: TabKey; label: string; icon: typeof Home; href: str
   { key: 'home', label: '홈', icon: Home, href: '/' },
   { key: 'chat', label: '채팅', icon: MessageCircle, href: '/chat' },
   { key: 'register', label: '등록', icon: Plus, href: '/register' },
-  { key: 'nearby', label: '주변', icon: MapPin, href: '/nearby' },
+  { key: 'activity', label: '내 활동', icon: ListChecks, href: '/activity' },
   { key: 'my', label: '마이', icon: UserRound, href: '/my' },
 ]
 
@@ -83,7 +84,7 @@ export function AppHeader({
         {titleContent ?? (
           <h1 className="app-title">
             {title}
-            {!centered && title === '만원부탁소' && <span className="brand-dot" />}
+            {!centered && title === '뭐든해줌' && <span className="brand-dot" />}
           </h1>
         )}
       </div>
@@ -120,49 +121,25 @@ export function AppHeader({
 
 export function BottomNav() {
   const pathname = usePathname()
-  const [showNearbyNotice, setShowNearbyNotice] = useState(false)
 
   return (
-    <>
-      <nav className="bottom-nav" aria-label="하단 탭">
-        {navItems.map((item) => {
-          const Icon = item.icon
-          const active = isNavItemActive(item.key, pathname)
-          const isRegister = item.key === 'register'
-          const className = `bottom-nav-item ${active ? 'is-active' : ''} ${isRegister ? 'is-register' : ''}`
-          const content = (
-            <>
-              <span className="bottom-nav-icon">
-                <Icon size={isRegister ? 29 : 24} strokeWidth={isRegister ? 2.1 : 1.9} />
-              </span>
-              <span>{item.label}</span>
-            </>
-          )
+    <nav className="bottom-nav" aria-label="하단 탭">
+      {navItems.map((item) => {
+        const Icon = item.icon
+        const active = isNavItemActive(item.key, pathname)
+        const isRegister = item.key === 'register'
+        const className = `bottom-nav-item ${active ? 'is-active' : ''} ${isRegister ? 'is-register' : ''}`
 
-          if (item.key === 'nearby') {
-            return (
-              <button
-                key={item.key}
-                type="button"
-                className={className}
-                aria-current={active ? 'page' : undefined}
-                onClick={() => setShowNearbyNotice(true)}
-              >
-                {content}
-              </button>
-            )
-          }
-
-          return (
-            <Link key={item.key} href={item.href} className={className} aria-current={active ? 'page' : undefined}>
-              {content}
-            </Link>
-          )
-        })}
-      </nav>
-
-      {showNearbyNotice && <MapUnavailableOverlay onClose={() => setShowNearbyNotice(false)} />}
-    </>
+        return (
+          <Link key={item.key} href={item.href} className={className} aria-current={active ? 'page' : undefined}>
+            <span className="bottom-nav-icon">
+              <Icon size={isRegister ? 29 : 24} strokeWidth={isRegister ? 2.1 : 1.9} />
+            </span>
+            <span>{item.label}</span>
+          </Link>
+        )
+      })}
+    </nav>
   )
 }
 
@@ -185,7 +162,7 @@ function isNavItemActive(key: TabKey, pathname: string) {
   if (key === 'home') return pathname === '/' || pathname.startsWith('/posts/')
   if (key === 'chat') return pathname === '/chat' || pathname.startsWith('/chat/')
   if (key === 'register') return pathname === '/register' || pathname.startsWith('/register/')
-  if (key === 'nearby') return pathname === '/nearby' || pathname.startsWith('/nearby/')
+  if (key === 'activity') return pathname === '/activity' || pathname.startsWith('/activity/')
   return pathname === '/my' || pathname.startsWith('/my/')
 }
 

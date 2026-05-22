@@ -319,7 +319,7 @@ struct NativeWebView: UIViewRepresentable {
         }
 
         private func isNativeRoute(_ path: String) -> Bool {
-            path == "/chat" || path.hasPrefix("/chat/") || path == "/nearby" || path.hasPrefix("/nearby/")
+            path == "/chat" || path.hasPrefix("/chat/") || path == "/activity" || path.hasPrefix("/activity/") || path == "/nearby" || path.hasPrefix("/nearby/")
         }
     }
 
@@ -344,7 +344,7 @@ struct NativeWebView: UIViewRepresentable {
       if (window.__manwonNativeBridgeInstalled) return;
       window.__manwonNativeBridgeInstalled = true;
       function shouldNativeRoute(path) {
-        return path === '/chat' || path.indexOf('/chat/') === 0 || path === '/nearby' || path.indexOf('/nearby/') === 0;
+        return path === '/chat' || path.indexOf('/chat/') === 0 || path === '/activity' || path.indexOf('/activity/') === 0 || path === '/nearby' || path.indexOf('/nearby/') === 0;
       }
       function routePathFromUrl(rawUrl) {
         try {

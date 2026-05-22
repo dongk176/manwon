@@ -28,7 +28,9 @@ import {
   fetchMessages,
   createBlock,
   createReport,
+  createReview,
   getCurrentUserId,
+  scheduleReviewReminder,
   sendConversationMessage,
   updateApplicationStatus,
   updateDealStatus,
@@ -62,6 +64,11 @@ interface UiChat {
   applicationStatus: ApiConversation['applicationStatus']
   requesterId: string
   helperId: string
+  postCreatorId: string | null
+  postType: ApiConversation['postType']
+  applicationApplicantId: string | null
+  hasChatAfterStarted: boolean
+  myReviewId: string | null
   status: TradeStatus
   lastMessage: string
   lastTime: string
@@ -231,6 +238,7 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
   const [showProfileSheet, setShowProfileSheet] = useState(false)
   const [showReportSheet, setShowReportSheet] = useState(false)
   const [showBlockConfirm, setShowBlockConfirm] = useState(false)
+  const [showReviewPrompt, setShowReviewPrompt] = useState(false)
   const [messages, setMessages] = useState<UiMessage[]>([])
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [moderationStatus, setModerationStatus] = useState('')
@@ -268,6 +276,16 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
   }, [chat.id])
 
   useEffect(() => {
+    const shouldShow = (() => {
+      if (chat.status !== '거래완료' || !chat.dealId || chat.myReviewId) return false
+      const deferredUntil = getDeferredReviewUntil(chat.dealId)
+      return !deferredUntil || Date.now() >= deferredUntil
+    })()
+
+    queueMicrotask(() => setShowReviewPrompt(shouldShow))
+  }, [chat.dealId, chat.id, chat.myReviewId, chat.status])
+
+  useEffect(() => {
     if (loadState !== 'ready') return
     const lastMessage = messages[messages.length - 1]
     if (!lastMessage) return
@@ -284,6 +302,17 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
       })
     })
   }, [chat.id, loadState, messages])
+
+  function scrollMessagesToBottom(behavior: ScrollBehavior = 'smooth', delay = 0) {
+    window.setTimeout(() => {
+      const list = messageListRef.current
+      if (!list) return
+      list.scrollTo({
+        top: list.scrollHeight,
+        behavior,
+      })
+    }, delay)
+  }
 
   useEffect(() => {
     const currentUserId = getCurrentUserId()
@@ -460,6 +489,13 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
         )}
       </header>
 
+      <TradeActionPanel
+        chat={chat}
+        currentUserId={getCurrentUserId()}
+        onOpenProfile={() => setShowProfileSheet(true)}
+        onRefresh={onRefresh}
+        onReview={() => setShowReviewPrompt(true)}
+      />
       <RequestCard request={chat.request} variant="preview" />
       {moderationStatus && <p className="inline-status moderation-feedback">{moderationStatus}</p>}
       {moderationError && <p className="inline-status is-error moderation-feedback">{moderationError}</p>}
@@ -505,11 +541,11 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
         })}
       </div>
 
-      <TradeActionPanel chat={chat} currentUserId={getCurrentUserId()} onOpenProfile={() => setShowProfileSheet(true)} onRefresh={onRefresh} />
       <MessageComposer
         conversationId={chat.id}
         disabled={chat.status === '거래완료' || chat.status === '취소됨'}
         onFailed={markMessageFailed}
+        onFocus={() => scrollMessagesToBottom('smooth', 250)}
         onOptimistic={addOptimisticMessage}
         onSent={replaceOptimisticMessage}
       />
@@ -530,7 +566,111 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
         />
       )}
       {showProfileSheet && <UserProfileSheet user={chat.user} onClose={() => setShowProfileSheet(false)} />}
+      {showReviewPrompt && chat.dealId && (
+        <ReviewPromptSheet
+          chat={chat}
+          onDeferred={() => {
+            setShowReviewPrompt(false)
+          }}
+          onSubmitted={async () => {
+            if (chat.dealId) clearDeferredReview(chat.dealId)
+            setShowReviewPrompt(false)
+            await onRefresh()
+          }}
+        />
+      )}
     </section>
+  )
+}
+
+function ReviewPromptSheet({
+  chat,
+  onDeferred,
+  onSubmitted,
+}: {
+  chat: UiChat
+  onDeferred: () => void
+  onSubmitted: () => Promise<void>
+}) {
+  const [rating, setRating] = useState(5)
+  const [content, setContent] = useState('')
+  const [busy, setBusy] = useState<'submit' | 'later' | null>(null)
+  const [error, setError] = useState('')
+  const dealId = chat.dealId
+
+  async function submit() {
+    if (!dealId || busy) return
+    setBusy('submit')
+    setError('')
+    try {
+      await createReview({ dealId, rating, content: content.trim() || null })
+      await onSubmitted()
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : '후기를 저장하지 못했습니다.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function remindLater() {
+    if (!dealId || busy) return
+    setBusy('later')
+    setError('')
+    try {
+      await scheduleReviewReminder(dealId)
+      deferReviewPrompt(dealId)
+      onDeferred()
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : '리마인더를 설정하지 못했습니다.')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <div className="sheet-overlay is-centered" role="presentation">
+      <div className="review-prompt-sheet" role="dialog" aria-modal="true" aria-labelledby="review-prompt-title">
+        <button className="sheet-x" type="button" onClick={() => void remindLater()} aria-label="나중에">
+          ×
+        </button>
+        <h2 id="review-prompt-title">거래 후기를 남겨주세요</h2>
+        <p>{chat.user.name}님과의 거래는 어떠셨나요?</p>
+        <div className="review-star-row" role="radiogroup" aria-label="별점">
+          {[1, 2, 3, 4, 5].map((value) => (
+            <button
+              key={value}
+              className={value <= rating ? 'is-active' : ''}
+              type="button"
+              onClick={() => setRating(value)}
+              role="radio"
+              aria-checked={value === rating}
+              aria-label={`${value}점`}
+            >
+              <Star size={28} fill="currentColor" />
+            </button>
+          ))}
+        </div>
+        <label className="review-textarea">
+          <span>후기</span>
+          <textarea
+            maxLength={1000}
+            placeholder="상대방에게 도움이 되는 후기를 적어주세요."
+            value={content}
+            onChange={(event) => setContent(event.target.value)}
+          />
+          <em>{content.length}/1000</em>
+        </label>
+        {error && <p className="inline-status is-error">{error}</p>}
+        <div className="review-prompt-actions">
+          <BrandButton variant="outline" disabled={busy !== null} onClick={() => void remindLater()}>
+            {busy === 'later' ? '설정 중' : '나중에'}
+          </BrandButton>
+          <BrandButton disabled={busy !== null} onClick={() => void submit()}>
+            {busy === 'submit' ? '저장 중' : '후기 남기기'}
+          </BrandButton>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -626,8 +766,8 @@ function ReportSheet({
 }
 
 function UserProfileSheet({ user, onClose }: { user: UserProfile; onClose: () => void }) {
+  const genderLabel = profileGenderLabel(user.gender)
   const verifiedLabels = [
-    user.phoneVerified || user.verified ? '휴대폰 인증' : '',
     user.identityVerified ? '신원 인증' : '',
   ].filter(Boolean)
 
@@ -641,7 +781,10 @@ function UserProfileSheet({ user, onClose }: { user: UserProfile; onClose: () =>
         <div className="profile-sheet-head">
           <Avatar user={user} size="lg" online />
           <div>
-            <h2 id="chat-profile-title">{user.name}</h2>
+            <div className="profile-sheet-name-row">
+              <h2 id="chat-profile-title">{user.name}</h2>
+              {genderLabel && <span className="profile-gender-badge">{genderLabel}</span>}
+            </div>
             <p>{user.intro || '아직 소개가 없습니다.'}</p>
           </div>
         </div>
@@ -691,16 +834,20 @@ function TradeActionPanel({
   currentUserId,
   onOpenProfile,
   onRefresh,
+  onReview,
 }: {
   chat: UiChat
   currentUserId: string | null
   onOpenProfile: () => void
   onRefresh: () => Promise<void>
+  onReview: () => void
 }) {
   const [pendingAction, setPendingAction] = useState<TradeActionId | null>(null)
   const [error, setError] = useState('')
   const busy = pendingAction !== null
-  const isRequester = chat.requesterId === currentUserId
+  const postCreatorId = chat.postCreatorId ?? chat.requesterId
+  const isPostWriter = postCreatorId === currentUserId
+  const isApplicant = Boolean(currentUserId && currentUserId !== postCreatorId)
   const hasPendingApplication = chat.applicationStatus === 'applied' && !chat.dealId
 
   function actionText(actionId: TradeActionId, label: string) {
@@ -732,7 +879,9 @@ function TradeActionPanel({
         <span>거래는 어떠셨나요?</span>
         <RatingStars rating={5} />
         <div className="two-buttons">
-          <BrandButton variant="outline">후기 남기기</BrandButton>
+          <BrandButton variant="outline" disabled={Boolean(chat.myReviewId)} onClick={onReview}>
+            {chat.myReviewId ? '후기 작성 완료' : '후기 남기기'}
+          </BrandButton>
           <BrandButton>다시 부탁하기</BrandButton>
         </div>
       </div>
@@ -749,7 +898,7 @@ function TradeActionPanel({
     )
   }
 
-  if (hasPendingApplication && !isRequester) {
+  if (hasPendingApplication && !isPostWriter) {
     return (
       <div className="request-complete-panel">
         <div>
@@ -762,20 +911,37 @@ function TradeActionPanel({
 
   if (chat.status === '완료요청') {
     const dealId = chat.dealId
+    if (!isPostWriter) {
+      return (
+        <div className="request-complete-panel">
+          <div>
+            <strong>완료 요청을 보냈어요.</strong>
+            <span>게시글 작성자의 완료 승인을 기다리고 있어요.</span>
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div className="request-complete-panel">
         <div>
-          <strong>상대방이 완료 요청을 보냈습니다.</strong>
-          <span>물건을 전달받았거나 작업을 확인했다면 승인해주세요.</span>
+          <strong>지원자가 완료 요청을 보냈습니다.</strong>
+          <span>
+            {chat.hasChatAfterStarted
+              ? '물건을 전달받았거나 작업을 확인했다면 승인해주세요.'
+              : '진행 시작 후 양쪽 대화가 1턴 이상 있어야 승인할 수 있어요.'}
+          </span>
         </div>
-        <div className="two-buttons">
-          <BrandButton className={actionClass('complete')} disabled={busy || !dealId} onClick={() => dealId && run('complete', () => updateDealStatus(dealId, 'completed'))}>
-            {actionText('complete', '완료 승인')}
-          </BrandButton>
-          <BrandButton className={actionClass('dispute')} variant="outline" disabled={busy || !dealId} onClick={() => dealId && run('dispute', () => updateDealStatus(dealId, 'disputed'))}>
-            {actionText('dispute', '문제 신고')}
-          </BrandButton>
-        </div>
+        {chat.hasChatAfterStarted && (
+          <div className="two-buttons">
+            <BrandButton className={actionClass('complete')} disabled={busy || !dealId} onClick={() => dealId && run('complete', () => updateDealStatus(dealId, 'completed'))}>
+              {actionText('complete', '완료 승인')}
+            </BrandButton>
+            <BrandButton className={actionClass('dispute')} variant="outline" disabled={busy || !dealId} onClick={() => dealId && run('dispute', () => updateDealStatus(dealId, 'disputed'))}>
+              {actionText('dispute', '문제 신고')}
+            </BrandButton>
+          </div>
+        )}
         {error && <p className="inline-status is-error">{error}</p>}
       </div>
     )
@@ -783,10 +949,21 @@ function TradeActionPanel({
 
   if (chat.status === '진행중') {
     const dealId = chat.dealId
+    if (!isApplicant) {
+      return (
+        <div className="request-complete-panel">
+          <div>
+            <strong>거래가 진행 중이에요.</strong>
+            <span>지원자가 완료 요청을 보내면 승인할 수 있습니다.</span>
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div className="two-buttons chat-action-bar">
         <BrandButton className={actionClass('requestComplete')} disabled={busy || !dealId} onClick={() => dealId && run('requestComplete', () => updateDealStatus(dealId, 'complete_requested'))}>
-          {actionText('requestComplete', '완료 요청')}
+          {actionText('requestComplete', '완료 요청 보내기')}
         </BrandButton>
         <BrandButton className={actionClass('cancel')} variant="outline" disabled={busy || !dealId} onClick={() => dealId && run('cancel', () => updateDealStatus(dealId, 'cancelled'))}>
           {actionText('cancel', '취소')}
@@ -798,6 +975,17 @@ function TradeActionPanel({
 
   if (chat.status === '수락대기') {
     const dealId = chat.dealId
+    if (!isPostWriter) {
+      return (
+        <div className="request-complete-panel">
+          <div>
+            <strong>작성자의 진행 시작을 기다리고 있어요.</strong>
+            <span>진행 시작 후 완료 요청을 보낼 수 있습니다.</span>
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div className="two-buttons chat-action-bar">
         <BrandButton className={actionClass('start')} disabled={busy || !dealId} onClick={() => dealId && run('start', () => updateDealStatus(dealId, 'in_progress'))}>
@@ -810,6 +998,8 @@ function TradeActionPanel({
       </div>
     )
   }
+
+  if (!hasPendingApplication || !isPostWriter) return null
 
   const applicationId = chat.applicationId
   return (
@@ -835,12 +1025,14 @@ function MessageComposer({
   conversationId,
   disabled = false,
   onFailed,
+  onFocus,
   onOptimistic,
   onSent,
 }: {
   conversationId: string
   disabled?: boolean
   onFailed: (clientMessageId: string) => void
+  onFocus?: () => void
   onOptimistic: (text: string, clientMessageId: string) => void
   onSent: (message: ApiMessage, clientMessageId: string) => Promise<void>
 }) {
@@ -879,6 +1071,7 @@ function MessageComposer({
           placeholder={disabled ? '종료된 거래라 메시지를 보낼 수 없어요.' : '메시지를 입력하세요'}
           value={body}
           onChange={(event) => setBody(event.target.value)}
+          onFocus={onFocus}
           onKeyDown={(event) => {
             if (event.key === 'Enter') void send()
           }}
@@ -905,7 +1098,7 @@ function mapConversationToChat(conversation: ApiConversation, currentUserId: str
   const user: UserProfile = {
     id: otherId,
     name: otherName,
-    intro: conversation.otherCareerSummary ?? '만원부탁소 사용자',
+    intro: conversation.otherBio ?? conversation.otherCareerSummary ?? '뭐든해줌 사용자',
     rating: Number(conversation.otherRatingAvg ?? 0),
     reviewCount: conversation.otherReviewCount ?? undefined,
     completedCount: conversation.otherCompletedCount ?? 0,
@@ -913,6 +1106,7 @@ function mapConversationToChat(conversation: ApiConversation, currentUserId: str
     phoneVerified: Boolean(conversation.otherPhoneVerified),
     identityVerified: Boolean(conversation.otherIdentityVerified),
     responseTime: conversation.otherResponseTime ?? null,
+    gender: conversation.otherGender ?? null,
     avatarTone: otherIsRequester ? 'green' : 'blue',
   }
 
@@ -940,6 +1134,11 @@ function mapConversationToChat(conversation: ApiConversation, currentUserId: str
     applicationStatus: conversation.applicationStatus,
     requesterId: conversation.requesterId,
     helperId: conversation.helperId,
+    postCreatorId: conversation.postCreatorId ?? null,
+    postType: conversation.postType ?? null,
+    applicationApplicantId: conversation.applicationApplicantId ?? null,
+    hasChatAfterStarted: Boolean(conversation.hasChatAfterStarted),
+    myReviewId: conversation.myReviewId ?? null,
     status,
     lastMessage: conversation.lastMessage ?? '새 채팅방이 생성되었어요.',
     lastTime: formatTime(conversation.lastMessageAt),
@@ -958,6 +1157,11 @@ function mapMockChatToChat(thread: ChatThread): UiChat {
     applicationStatus: null,
     requesterId: request.requesterId,
     helperId: thread.userId,
+    postCreatorId: request.requesterId,
+    postType: 'request',
+    applicationApplicantId: thread.userId,
+    hasChatAfterStarted: true,
+    myReviewId: null,
     status: thread.status,
     lastMessage: thread.lastMessage,
     lastTime: thread.lastTime,
@@ -1094,6 +1298,34 @@ function formatTime(value?: string | null) {
     hour: 'numeric',
     minute: '2-digit',
   }).format(date)
+}
+
+function profileGenderLabel(value?: UserProfile['gender']) {
+  if (value === 'male') return '남성'
+  if (value === 'female') return '여성'
+  return null
+}
+
+function reviewPromptStorageKey(dealId: string) {
+  return `manwon_review_prompt_deferred_until:${dealId}`
+}
+
+function getDeferredReviewUntil(dealId: string) {
+  if (typeof window === 'undefined') return null
+  const value = window.localStorage.getItem(reviewPromptStorageKey(dealId))
+  if (!value) return null
+  const timestamp = Number(value)
+  return Number.isFinite(timestamp) ? timestamp : null
+}
+
+function deferReviewPrompt(dealId: string) {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(reviewPromptStorageKey(dealId), String(Date.now() + 24 * 60 * 60 * 1000))
+}
+
+function clearDeferredReview(dealId: string) {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(reviewPromptStorageKey(dealId))
 }
 
 function isUuid(value: string) {

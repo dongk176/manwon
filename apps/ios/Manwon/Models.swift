@@ -57,6 +57,7 @@ struct TaskPostImage: Codable, Identifiable {
 struct TaskPost: Codable, Identifiable {
     let id: String
     let creatorId: String?
+    let creatorProfileId: String?
     let postType: String?
     let title: String
     let category: String?
@@ -74,6 +75,16 @@ struct TaskPost: Codable, Identifiable {
     let distanceMeters: Double?
     let images: [TaskPostImage]?
     let creatorNickname: String?
+    let creatorAvatarUrl: String?
+    let creatorBio: String?
+    let creatorMainCategories: [String]?
+    let creatorSubCategories: [String]?
+    let creatorGender: String?
+    let creatorPhoneVerified: Bool?
+    let creatorIdentityVerified: Bool?
+    let creatorRatingAvg: Double?
+    let creatorReviewCount: Int?
+    let creatorCompletedCount: Int?
 
     var coordinate: CLLocationCoordinate2D? {
         guard let latitude, let longitude else { return nil }
@@ -107,14 +118,31 @@ struct Conversation: Codable, Identifiable, Hashable {
     let postCategory: String?
     let postPrice: Int?
     let postStatus: PostStatus?
+    let postCreatorId: String?
+    let postType: String?
     let dealStatus: DealStatus?
+    let requesterProfileId: String?
+    let helperProfileId: String?
     let applicationId: String?
     let applicationStatus: String?
+    let applicationApplicantId: String?
     let requesterNickname: String?
     let helperNickname: String?
+    let requesterAvatarUrl: String?
+    let helperAvatarUrl: String?
+    let requesterBio: String?
+    let helperBio: String?
+    let requesterMainCategories: [String]?
+    let helperMainCategories: [String]?
+    let requesterSubCategories: [String]?
+    let helperSubCategories: [String]?
     let otherUserId: String?
     let otherNickname: String?
     let otherAvatarUrl: String?
+    let otherBio: String?
+    let otherMainCategories: [String]?
+    let otherSubCategories: [String]?
+    let otherGender: String?
     let otherRatingAvg: Double?
     let otherReviewCount: Int?
     let otherCompletedCount: Int?
@@ -122,6 +150,8 @@ struct Conversation: Codable, Identifiable, Hashable {
     let otherIdentityVerified: Bool?
     let otherCareerSummary: String?
     let otherResponseTime: String?
+    let hasChatAfterStarted: Bool?
+    let myReviewId: String?
     let unreadCount: Int?
 
     var isClosed: Bool {

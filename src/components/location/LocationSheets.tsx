@@ -31,7 +31,7 @@ const promptCopy: Record<LocationPromptContext, { title: string; description: st
   },
   offer: {
     title: '어느 동네에서 활동할 수 있나요?',
-    description: '현재 위치를 사용하거나 직접 활동 가능한 동네를 선택할 수 있어요.',
+    description: '현재 위치로 동네를 찾으려면 위치 권한을 켜주세요. 직접 동네를 검색할 수도 있어요.',
     allow: '현재 위치 사용',
     manual: '동네 직접 선택',
   },
@@ -57,6 +57,9 @@ export function LocationPermissionSheet({
   const copy = promptCopy[context]
   const denied = permissionState === 'denied'
   const primaryLabel = denied ? '설정에서 허용' : copy.allow
+  const deniedDescription = context === 'offer'
+    ? '위치 사용 동의가 꺼져 있어요. 설정에서 위치 권한을 켜거나 동네를 직접 선택해주세요.'
+    : '위치 권한이 꺼져 있어요. 동네를 직접 선택하거나 설정에서 위치 권한을 허용해주세요.'
 
   function handlePrimaryClick() {
     if (denied) {
@@ -77,7 +80,7 @@ export function LocationPermissionSheet({
           <MapPin size={23} />
         </span>
         <h2 id="location-prompt-title">{copy.title}</h2>
-        <p>{denied ? '위치 권한이 꺼져 있어요. 동네를 직접 선택하거나 설정에서 위치 권한을 허용해주세요.' : copy.description}</p>
+        <p>{denied ? deniedDescription : copy.description}</p>
         {error && <p className="location-sheet-error">{error}</p>}
         <div className="location-sheet-actions">
           <button className="is-primary" type="button" onClick={handlePrimaryClick} disabled={busy || permissionState === 'unavailable'}>
@@ -98,6 +101,7 @@ export function NeighborhoodSelectSheet({
   busy,
   error,
   searchMode = 'region',
+  presentation,
   showCurrentLocation,
   promptContext,
   onUseCurrent,
@@ -108,6 +112,7 @@ export function NeighborhoodSelectSheet({
   busy?: boolean
   error?: string
   searchMode?: 'region' | 'address'
+  presentation?: 'sheet' | 'modal'
   showCurrentLocation?: boolean
   promptContext?: LocationPromptContext
   onUseCurrent: () => void | Promise<LocationRegion | void>
@@ -166,6 +171,7 @@ export function NeighborhoodSelectSheet({
   const deniedText = searchMode === 'address'
     ? '위치 권한이 꺼져 있어요. 주소를 검색하거나 설정에서 위치 권한을 허용해주세요.'
     : '위치 권한이 꺼져 있어요. 동네를 직접 선택하거나 설정에서 위치 권한을 허용해주세요.'
+  const isCenteredModal = searchMode === 'address' || presentation === 'modal'
 
   async function handleUseCurrent(skipPrompt = false) {
     if (!skipPrompt && permissionState !== 'granted') {
@@ -199,9 +205,9 @@ export function NeighborhoodSelectSheet({
   }
 
   return (
-    <div className={`sheet-overlay ${searchMode === 'address' ? 'is-centered' : ''}`} role="presentation" onClick={onClose}>
+    <div className={`sheet-overlay ${isCenteredModal ? 'is-centered' : ''}`} role="presentation" onClick={onClose}>
       <div
-        className={`location-sheet neighborhood-sheet ${searchMode === 'address' ? 'is-address-modal' : ''} ${addressMode === 'mapPick' ? 'is-map-pick' : ''}`}
+        className={`location-sheet neighborhood-sheet ${isCenteredModal ? 'is-location-modal' : ''} ${searchMode === 'address' ? 'is-address-modal' : ''} ${addressMode === 'mapPick' ? 'is-map-pick' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="neighborhood-title"

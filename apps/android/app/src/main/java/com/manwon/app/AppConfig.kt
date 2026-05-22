@@ -35,6 +35,6 @@ object AppConfig {
     }
 
     fun isNativeRoute(path: String): Boolean {
-        return path == "/chat" || path.startsWith("/chat/") || path == "/nearby" || path.startsWith("/nearby/")
+        return path == "/chat" || path.startsWith("/chat/") || path == "/activity" || path.startsWith("/activity/") || path == "/nearby" || path.startsWith("/nearby/")
     }
 }

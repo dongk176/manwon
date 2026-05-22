@@ -32,20 +32,29 @@ export function normalizePhone(phone: string) {
   return digits
 }
 
-export async function requestPhoneOtp(userId: string, phoneInput: string, request: Request) {
+async function assertPhoneAvailable(phone: string, excludeUserId?: string | null) {
+  const sql = getSql()
+  const [owner] = await sql`
+    select id
+    from ${sql(schema)}.users
+    where phone = ${phone}
+      and (${excludeUserId ?? null}::uuid is null or id <> ${excludeUserId ?? null})
+      and withdrawn_at is null
+    limit 1
+  `
+  if (owner) throw new HttpError('이미 다른 계정에서 인증한 번호입니다.', 409)
+}
+
+async function createPhoneOtp(
+  owner: { userId?: string | null; signupDraftId?: string | null },
+  phoneInput: string,
+  request: Request,
+) {
   const phone = normalizePhone(phoneInput)
   const sql = getSql()
   const otpEnv = getOtpEnv()
   const ip = getClientIp(request)
   const ipHash = ip ? hashValue(ip) : null
-
-  const [owner] = await sql`
-    select id
-    from ${sql(schema)}.profiles
-    where phone = ${phone} and id <> ${userId}
-    limit 1
-  `
-  if (owner) throw new HttpError('이미 다른 계정에서 인증한 번호입니다.', 409)
 
   const [lastOtp] = await sql`
     select created_at
@@ -80,13 +89,15 @@ export async function requestPhoneOtp(userId: string, phoneInput: string, reques
   const [created] = await sql`
     insert into ${sql(schema)}.phone_otps (
       user_id,
+      signup_draft_id,
       phone,
       code_hash,
       ip_hash,
       expires_at
     )
     values (
-      ${userId},
+      ${owner.userId ?? null},
+      ${owner.signupDraftId ?? null},
       ${phone},
       ${hashOtp(phone, code)},
       ${ipHash},
@@ -96,7 +107,7 @@ export async function requestPhoneOtp(userId: string, phoneInput: string, reques
   `
 
   const ttlMinutes = Math.max(1, Math.ceil(otpEnv.ttlSeconds / 60))
-  await sendSms(phone, `[만원부탁소] 인증번호 ${code} (${ttlMinutes}분 내 입력)`, {
+  await sendSms(phone, `[뭐든해줌] 인증번호 ${code} (${ttlMinutes}분 내 입력)`, {
     purpose: 'phone_otp',
     otpId: String(created.id),
   })
@@ -104,39 +115,32 @@ export async function requestPhoneOtp(userId: string, phoneInput: string, reques
   return { phone, ttlSeconds: otpEnv.ttlSeconds }
 }
 
-async function findOrCreateProfileForPhone(phone: string) {
-  const sql = getSql()
-  const [existing] = await sql`
-    select id
-    from ${sql(schema)}.profiles
-    where phone = ${phone}
-    limit 1
-  `
-  if (existing?.id) return String(existing.id)
+export async function requestPhoneOtp(userId: string, phoneInput: string, request: Request) {
+  const phone = normalizePhone(phoneInput)
+  await assertPhoneAvailable(phone, userId)
+  return createPhoneOtp({ userId }, phone, request)
+}
 
-  try {
-    const [created] = await sql`
-      insert into ${sql(schema)}.profiles (nickname, phone)
-      values ('만부탁이', ${phone})
-      returning id
-    `
-    return String(created.id)
-  } catch {
-    const [createdByOtherRequest] = await sql`
-      select id
-      from ${sql(schema)}.profiles
-      where phone = ${phone}
-      limit 1
-    `
-    if (createdByOtherRequest?.id) return String(createdByOtherRequest.id)
-    throw new HttpError('로그인을 시작하지 못했습니다. 잠시 후 다시 시도해주세요.', 500)
-  }
+export async function requestSignupPhoneOtp(signupDraftId: string, phoneInput: string, request: Request) {
+  const phone = normalizePhone(phoneInput)
+  await assertPhoneAvailable(phone)
+  return createPhoneOtp({ signupDraftId }, phone, request)
 }
 
 export async function requestLoginOtp(phoneInput: string, request: Request) {
   const phone = normalizePhone(phoneInput)
-  const userId = await findOrCreateProfileForPhone(phone)
-  return requestPhoneOtp(userId, phone, request)
+  const sql = getSql()
+  const [user] = await sql`
+    select id
+    from ${sql(schema)}.users
+    where phone = ${phone}
+      and phone_verified = true
+      and withdrawn_at is null
+    limit 1
+  `
+
+  if (!user?.id) throw new HttpError('가입된 계정을 찾을 수 없습니다.', 404)
+  return createPhoneOtp({ userId: String(user.id) }, phone, request)
 }
 
 export async function confirmLoginOtp(phoneInput: string, codeInput: string) {
@@ -146,6 +150,7 @@ export async function confirmLoginOtp(phoneInput: string, codeInput: string) {
     select user_id
     from ${sql(schema)}.phone_otps
     where phone = ${phone}
+      and user_id is not null
       and verified_at is null
     order by created_at desc
     limit 1
@@ -156,23 +161,38 @@ export async function confirmLoginOtp(phoneInput: string, codeInput: string) {
   return confirmPhoneOtp(String(otp.userId), phone, codeInput)
 }
 
-export async function confirmPhoneOtp(userId: string, phoneInput: string, codeInput: string) {
+async function verifyOtpByOwner(
+  owner: { userId?: string | null; signupDraftId?: string | null },
+  phoneInput: string,
+  codeInput: string,
+) {
   const phone = normalizePhone(phoneInput)
   const code = onlyDigits(codeInput)
   if (!/^\d{6}$/.test(code)) throw new HttpError('인증번호 6자리를 입력해주세요.', 400)
 
   const sql = getSql()
   const otpEnv = getOtpEnv()
+  const signupDraftId = owner.signupDraftId ?? null
 
-  const [otp] = await sql`
-    select *
-    from ${sql(schema)}.phone_otps
-    where user_id = ${userId}
-      and phone = ${phone}
-      and verified_at is null
-    order by created_at desc
-    limit 1
-  `
+  const [otp] = owner.userId
+    ? await sql`
+        select *
+        from ${sql(schema)}.phone_otps
+        where user_id = ${owner.userId}
+          and phone = ${phone}
+          and verified_at is null
+        order by created_at desc
+        limit 1
+      `
+    : await sql`
+        select *
+        from ${sql(schema)}.phone_otps
+        where signup_draft_id = ${signupDraftId}
+          and phone = ${phone}
+          and verified_at is null
+        order by created_at desc
+        limit 1
+      `
 
   if (!otp) throw new HttpError('인증번호를 먼저 요청해주세요.', 400)
   if (new Date(otp.expiresAt).getTime() < Date.now()) throw new HttpError('인증번호가 만료되었습니다.', 400)
@@ -187,45 +207,52 @@ export async function confirmPhoneOtp(userId: string, phoneInput: string, codeIn
     throw new HttpError('인증번호가 일치하지 않습니다.', 400)
   }
 
-  return sql.begin(async (tx) => {
-    const [owner] = await tx`
-      select id
-      from ${sql(schema)}.profiles
-      where phone = ${phone} and id <> ${userId}
-      limit 1
-    `
-    if (owner) throw new HttpError('이미 다른 계정에서 인증한 번호입니다.', 409)
+  await sql`
+    update ${sql(schema)}.phone_otps
+    set verified_at = now()
+    where id = ${otp.id}
+  `
 
-    await tx`
-      update ${sql(schema)}.phone_otps
-      set verified_at = now()
-      where id = ${otp.id}
-    `
+  return { phone, verified: true }
+}
 
-    const [profile] = await tx`
-      update ${sql(schema)}.profiles
-      set phone = ${phone},
-          phone_verified = true,
-          phone_verified_at = now(),
-          updated_at = now()
-      where id = ${userId}
-      returning *
-    `
+export async function verifyPhoneOtpCode(userId: string, phoneInput: string, codeInput: string) {
+  return verifyOtpByOwner({ userId }, phoneInput, codeInput)
+}
 
-    return profile
-  })
+export async function verifySignupPhoneOtp(signupDraftId: string, phoneInput: string, codeInput: string) {
+  return verifyOtpByOwner({ signupDraftId }, phoneInput, codeInput)
+}
+
+export async function confirmPhoneOtp(userId: string, phoneInput: string, codeInput: string) {
+  const phone = normalizePhone(phoneInput)
+  await assertPhoneAvailable(phone, userId)
+  await verifyPhoneOtpCode(userId, phone, codeInput)
+  const sql = getSql()
+
+  const [user] = await sql`
+    update ${sql(schema)}.users
+    set phone = ${phone},
+        phone_verified = true,
+        phone_verified_at = now(),
+        updated_at = now()
+    where id = ${userId}
+    returning *
+  `
+
+  return user
 }
 
 export async function assertPhoneVerified(userId: string) {
   const sql = getSql()
-  const [profile] = await sql`
+  const [user] = await sql`
     select phone_verified
-    from ${sql(schema)}.profiles
+    from ${sql(schema)}.users
     where id = ${userId}
     limit 1
   `
 
-  if (!profile?.phoneVerified) {
+  if (!user?.phoneVerified) {
     throw new HttpError('휴대폰 인증 후 이용할 수 있습니다.', 403)
   }
 }

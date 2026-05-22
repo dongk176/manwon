@@ -14,6 +14,7 @@ import {
   ImagePlus,
   Link as LinkIcon,
   MapPin,
+  Plus,
   UsersRound,
   X,
 } from 'lucide-react'
@@ -29,7 +30,16 @@ import {
   type Category,
   type RequestMode,
 } from '@/data/mockData'
-import { createTaskPost, fetchMyPage, saveMyLocationPreference, uploadImageFile } from '@/lib/manwonApi'
+import {
+  createTaskPost,
+  fetchActivityProfiles,
+  fetchMyPage,
+  getDefaultProfileImageByGender,
+  isDefaultActivityProfile,
+  saveMyLocationPreference,
+  uploadImageFile,
+  type ActivityProfile,
+} from '@/lib/manwonApi'
 import {
   getLocationPermissionState,
   requestBrowserLocation,
@@ -165,7 +175,9 @@ export function RegistrationTypeScreen({ onSelect }: { onSelect: (kind: Register
 }
 
 export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () => void; onRegistered?: () => void }) {
+  const router = useRouter()
   const [step, setStep] = useState<RequestStep>(1)
+  const [profileConfirmed, setProfileConfirmed] = useState(false)
   const [sheet, setSheet] = useState<SheetKind>(null)
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false)
   const [errors, setErrors] = useState<StepErrors>({})
@@ -174,6 +186,9 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
   const [locationBusy, setLocationBusy] = useState(false)
   const [locationError, setLocationError] = useState('')
   const [showNeighborhoodSheet, setShowNeighborhoodSheet] = useState(false)
+  const [activityProfiles, setActivityProfiles] = useState<ActivityProfile[]>([])
+  const [selectedProfileId, setSelectedProfileId] = useState('')
+  const [profileLoadState, setProfileLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
 
   const [title, setTitle] = useState('')
   const [categoryId, setCategoryId] = useState('')
@@ -195,6 +210,7 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
   const selectedCategoryDetails = getCategoryDetailOptions(categoryId)
   const price = getPriceValue(priceOption, customPrice)
   const deadlineText = getRequestDeadlineText(deadlineOption, customDeadlineText)
+  const selectedActivityProfile = activityProfiles.find((profile) => profile.id === selectedProfileId) ?? null
   const isDirty = hasRequestInput({ title, categoryId, customCategory, categoryDetail, description, images, mode, customPrice, customDeadlineText })
 
   useImagePreviewCleanup(images)
@@ -203,13 +219,44 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
     getLocationPermissionState().then(setPermissionState).catch(() => setPermissionState('unknown'))
   }, [])
 
+  useEffect(() => {
+    let cancelled = false
+    fetchActivityProfiles()
+      .then((profiles) => {
+        if (cancelled) return
+        setActivityProfiles(profiles)
+        setSelectedProfileId((current) => current || profiles[0]?.id || '')
+        setProfileLoadState('ready')
+      })
+      .catch(() => {
+        if (!cancelled) setProfileLoadState('error')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   function handleBack() {
+    if (!profileConfirmed) {
+      if (isDirty) setShowLeaveConfirm(true)
+      else onExit()
+      return
+    }
     if (step > 1) {
       setStep((current) => (current - 1) as RequestStep)
       return
     }
-    if (isDirty) setShowLeaveConfirm(true)
-    else onExit()
+    setProfileConfirmed(false)
+  }
+
+  function confirmProfileSelection() {
+    if (!selectedProfileId) {
+      setErrors({ selectedProfileId: '활동 프로필을 선택해주세요.' })
+      return
+    }
+    setErrors({})
+    setProfileConfirmed(true)
   }
 
   function goNext() {
@@ -225,6 +272,7 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
       customPrice,
       deadlineOption,
       customDeadlineText,
+      selectedProfileId,
     })
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length > 0) return
@@ -232,6 +280,12 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
   }
 
   async function submitPost() {
+    if (!selectedProfileId) {
+      setErrors({ selectedProfileId: '활동 프로필을 선택해주세요.' })
+      setProfileConfirmed(false)
+      return
+    }
+
     const validation = validateRequestAll({
       title,
       categoryId,
@@ -244,6 +298,7 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
       customPrice,
       deadlineOption,
       customDeadlineText,
+      selectedProfileId,
     })
     if (validation.step) {
       setErrors(validation.errors)
@@ -255,6 +310,7 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
     setErrors({})
     try {
       await createTaskPost({
+        profileId: selectedProfileId,
         postType: 'request',
         title: title.trim(),
         category: getSelectedCategoryLabel(categoryId, customCategory) || getCategoryLabel(categoryId),
@@ -351,9 +407,27 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
 
   return (
     <section className="registration-flow-screen">
-      <StepHeader title="해주세요 등록" progress={`${Math.min(step, 3)}/3`} onBack={handleBack} />
+      <StepHeader title={profileConfirmed ? '해주세요 등록' : '프로필 선택'} progress={profileConfirmed ? `${Math.min(step, 3)}/3` : undefined} onBack={handleBack} />
       <div className="step-content">
-        {step === 1 && (
+        {!profileConfirmed && (
+          <>
+            <div className="profile-picker-copy">
+              <h2>어떤 프로필로 등록할까요?</h2>
+              <p>프로필은 등록한 정보에 따라 다르게 보여요.</p>
+            </div>
+            <ActivityProfilePickerCard
+              profiles={activityProfiles}
+              selectedProfileId={selectedProfileId}
+              loading={profileLoadState === 'loading'}
+              error={errors.selectedProfileId || (profileLoadState === 'error' ? '프로필을 불러오지 못했습니다.' : undefined)}
+              emptyText="사용할 프로필을 준비하고 있어요."
+              onSelect={setSelectedProfileId}
+              onCreate={() => router.push('/my/profiles')}
+            />
+          </>
+        )}
+
+        {profileConfirmed && step === 1 && (
           <>
             <StepPageTitle title="어떤 부탁이 필요한가요?" />
             <InlineTextField label="제목" value={title} onChange={setTitle} placeholder="제목을 짧게 적어주세요" maxLength={30} error={errors.title} />
@@ -388,7 +462,7 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
           </>
         )}
 
-        {step === 2 && (
+        {profileConfirmed && step === 2 && (
           <>
             <StepPageTitle title="어디서 진행할까요?" />
             <SelectionRow
@@ -415,7 +489,7 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
           </>
         )}
 
-        {step === 3 && (
+        {profileConfirmed && step === 3 && (
           <>
             <StepPageTitle title="얼마에, 언제까지 부탁할까요?" />
             <InlineTextField
@@ -439,11 +513,12 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
           </>
         )}
 
-        {step === 4 && (
+        {profileConfirmed && step === 4 && (
           <>
             <StepPageTitle title="내용을 확인하고 등록할까요?" />
             <PreviewCard
               rows={[
+                { label: '활동 프로필', value: selectedActivityProfile?.nickname ?? '-', onEdit: () => setProfileConfirmed(false) },
                 { label: '제목', value: title, onEdit: () => setStep(1) },
                 {
                   label: '카테고리',
@@ -469,11 +544,11 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
       </div>
 
       <StepFooter
-        secondaryLabel={step === 1 ? undefined : step === 4 ? '수정하기' : '이전'}
-        primaryLabel={step === 4 ? (saveState === 'saving' ? '등록 중' : '부탁 등록하기') : '다음'}
+        secondaryLabel={!profileConfirmed || step === 1 ? undefined : step === 4 ? '수정하기' : '이전'}
+        primaryLabel={profileConfirmed && step === 4 ? (saveState === 'saving' ? '등록 중' : '부탁 등록하기') : '다음'}
         onSecondary={step === 4 ? () => setStep(1) : () => setStep((current) => (current - 1) as RequestStep)}
-        onPrimary={step === 4 ? () => void submitPost() : goNext}
-        primaryDisabled={saveState === 'saving'}
+        onPrimary={!profileConfirmed ? confirmProfileSelection : step === 4 ? () => void submitPost() : goNext}
+        primaryDisabled={saveState === 'saving' || (!profileConfirmed && profileLoadState === 'loading')}
       />
 
       {errors.submit && <ToastMessage message={errors.submit} />}
@@ -583,7 +658,9 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
 }
 
 export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => void; onRegistered?: () => void }) {
+  const router = useRouter()
   const [step, setStep] = useState<OfferStep>(1)
+  const [profileConfirmed, setProfileConfirmed] = useState(false)
   const [sheet, setSheet] = useState<SheetKind>(null)
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false)
   const [errors, setErrors] = useState<StepErrors>({})
@@ -592,6 +669,9 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
   const [locationBusy, setLocationBusy] = useState(false)
   const [locationError, setLocationError] = useState('')
   const [showNeighborhoodSheet, setShowNeighborhoodSheet] = useState(false)
+  const [activityProfiles, setActivityProfiles] = useState<ActivityProfile[]>([])
+  const [selectedProfileId, setSelectedProfileId] = useState('')
+  const [profileLoadState, setProfileLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
 
   const [title, setTitle] = useState('')
   const [categoryId, setCategoryId] = useState('')
@@ -621,12 +701,31 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
   const price = getPriceValue(priceOption, customPrice)
   const availableTimeText = getAvailableTimeText(availableTimeOption, customAvailableTime)
   const portfolioLinks = getPortfolioLinks(portfolioTitle, portfolioUrl)
+  const selectedActivityProfile = activityProfiles.find((profile) => profile.id === selectedProfileId) ?? null
   const isDirty = hasOfferInput({ title, categoryId, customCategory, categoryDetail, serviceIntro, mode, customAvailableTime, customPrice, description, careerSummary, portfolioUrl, sampleImages, responseTime })
 
   useImagePreviewCleanup(sampleImages)
 
   useEffect(() => {
     getLocationPermissionState().then(setPermissionState).catch(() => setPermissionState('unknown'))
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    fetchActivityProfiles()
+      .then((profiles) => {
+        if (cancelled) return
+        setActivityProfiles(profiles)
+        setSelectedProfileId((current) => current || profiles[0]?.id || '')
+        setProfileLoadState('ready')
+      })
+      .catch(() => {
+        if (!cancelled) setProfileLoadState('error')
+      })
+
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   useEffect(() => {
@@ -659,12 +758,25 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
   }, [])
 
   function handleBack() {
+    if (!profileConfirmed) {
+      if (isDirty) setShowLeaveConfirm(true)
+      else onExit()
+      return
+    }
     if (step > 1) {
       setStep((current) => (current - 1) as OfferStep)
       return
     }
-    if (isDirty) setShowLeaveConfirm(true)
-    else onExit()
+    setProfileConfirmed(false)
+  }
+
+  function confirmProfileSelection() {
+    if (!selectedProfileId) {
+      setErrors({ selectedProfileId: '활동 프로필을 선택해주세요.' })
+      return
+    }
+    setErrors({})
+    setProfileConfirmed(true)
   }
 
   function goNext() {
@@ -682,6 +794,7 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
       customPrice,
       description,
       portfolioUrl,
+      selectedProfileId,
     })
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length > 0) return
@@ -689,6 +802,12 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
   }
 
   async function submitPost() {
+    if (!selectedProfileId) {
+      setErrors({ selectedProfileId: '활동 프로필을 선택해주세요.' })
+      setProfileConfirmed(false)
+      return
+    }
+
     const validation = validateOfferAll({
       title,
       categoryId,
@@ -703,6 +822,7 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
       customPrice,
       description,
       portfolioUrl,
+      selectedProfileId,
     })
     if (validation.step) {
       setErrors(validation.errors)
@@ -714,6 +834,7 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
     setErrors({})
     try {
       await createTaskPost({
+        profileId: selectedProfileId,
         postType: 'offer',
         title: title.trim(),
         category: getSelectedCategoryLabel(categoryId, customCategory) || getCategoryLabel(categoryId),
@@ -819,9 +940,27 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
 
   return (
     <section className="registration-flow-screen">
-      <StepHeader title="해줄게요 등록" progress={`${Math.min(step, 3)}/3`} onBack={handleBack} />
+      <StepHeader title={profileConfirmed ? '해줄게요 등록' : '프로필 선택'} progress={profileConfirmed ? `${Math.min(step, 3)}/3` : undefined} onBack={handleBack} />
       <div className="step-content">
-        {step === 1 && (
+        {!profileConfirmed && (
+          <>
+            <div className="profile-picker-copy">
+              <h2>어떤 프로필로 등록할까요?</h2>
+              <p>프로필은 등록한 정보에 따라 다르게 보여요.</p>
+            </div>
+            <ActivityProfilePickerCard
+              profiles={activityProfiles}
+              selectedProfileId={selectedProfileId}
+              loading={profileLoadState === 'loading'}
+              error={errors.selectedProfileId || (profileLoadState === 'error' ? '프로필을 불러오지 못했습니다.' : undefined)}
+              emptyText="사용할 프로필을 준비하고 있어요."
+              onSelect={setSelectedProfileId}
+              onCreate={() => router.push('/my/profiles')}
+            />
+          </>
+        )}
+
+        {profileConfirmed && step === 1 && (
           <>
             <StepPageTitle title="어떤 일을 해줄 수 있나요?" />
             <InlineTextField label="제목" value={title} onChange={setTitle} placeholder="제목을 짧게 적어주세요" maxLength={30} error={errors.title} />
@@ -874,7 +1013,7 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
           </>
         )}
 
-        {step === 2 && (
+        {profileConfirmed && step === 2 && (
           <>
             <StepPageTitle title="어떻게 진행할 수 있나요?" />
             <SelectionRow
@@ -908,7 +1047,7 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
           </>
         )}
 
-        {step === 3 && (
+        {profileConfirmed && step === 3 && (
           <>
             <StepPageTitle title="신뢰 정보를 추가해보세요" subtitle="신뢰 정보를 추가하면 더 많은 요청을 받을 수 있어요." optional />
             <StepCard title="경력 한 줄">
@@ -938,11 +1077,12 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
           </>
         )}
 
-        {step === 4 && (
+        {profileConfirmed && step === 4 && (
           <>
             <StepPageTitle title="내용을 확인하고 등록할까요?" />
             <PreviewCard
               rows={[
+                { label: '활동 프로필', value: selectedActivityProfile?.nickname ?? '-', onEdit: () => setProfileConfirmed(false) },
                 { label: '제목', value: title, onEdit: () => setStep(1) },
                 {
                   label: '카테고리',
@@ -971,11 +1111,11 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
       </div>
 
       <StepFooter
-        secondaryLabel={step === 1 ? undefined : step === 3 ? '건너뛰기' : step === 4 ? '수정하기' : '이전'}
-        primaryLabel={step === 4 ? (saveState === 'saving' ? '등록 중' : '해줄게요 등록하기') : '다음'}
+        secondaryLabel={!profileConfirmed || step === 1 ? undefined : step === 3 ? '건너뛰기' : step === 4 ? '수정하기' : '이전'}
+        primaryLabel={profileConfirmed && step === 4 ? (saveState === 'saving' ? '등록 중' : '해줄게요 등록하기') : '다음'}
         onSecondary={step === 3 ? () => setStep(4) : step === 4 ? () => setStep(1) : () => setStep((current) => (current - 1) as OfferStep)}
-        onPrimary={step === 4 ? () => void submitPost() : goNext}
-        primaryDisabled={saveState === 'saving'}
+        onPrimary={!profileConfirmed ? confirmProfileSelection : step === 4 ? () => void submitPost() : goNext}
+        primaryDisabled={saveState === 'saving' || (!profileConfirmed && profileLoadState === 'loading')}
       />
 
       {errors.submit && <ToastMessage message={errors.submit} />}
@@ -1096,7 +1236,97 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
   )
 }
 
-function StepHeader({ title, progress, onBack }: { title: string; progress: string; onBack: () => void }) {
+function ActivityProfilePickerCard({
+  profiles,
+  selectedProfileId,
+  loading,
+  error,
+  emptyText,
+  onSelect,
+  onCreate,
+}: {
+  profiles: ActivityProfile[]
+  selectedProfileId: string
+  loading: boolean
+  error?: string
+  emptyText: string
+  onSelect: (profileId: string) => void
+  onCreate: () => void
+}) {
+  const activeProfiles = profiles.filter((profile) => profile.isActive !== false)
+
+  return (
+    <section className={`activity-profile-picker-card ${error ? 'has-error' : ''}`}>
+      {loading ? (
+        <p className="inline-status">프로필을 불러오는 중입니다.</p>
+      ) : activeProfiles.length === 0 ? (
+        <div className="activity-profile-empty">
+          <p>{emptyText}</p>
+          <button type="button" onClick={onCreate}>
+            새 프로필 만들기
+          </button>
+        </div>
+      ) : (
+        <div className="activity-profile-picker-list">
+          {activeProfiles.map((profile) => (
+            <button
+              key={profile.id}
+              className={selectedProfileId === profile.id ? 'is-selected' : ''}
+              type="button"
+              onClick={() => onSelect(profile.id)}
+            >
+              <ActivityProfileAvatar profile={profile} />
+              <span>
+                <span className="activity-profile-picker-name">
+                  <strong>{profile.nickname}</strong>
+                  {isDefaultActivityProfile(profile) && <b>기본 프로필</b>}
+                </span>
+                <small>{profile.bio}</small>
+                <em>{formatActivityProfileMeta(profile)}</em>
+              </span>
+              {selectedProfileId === profile.id && <CheckCircle2 size={20} fill="currentColor" />}
+            </button>
+          ))}
+          <button className="activity-profile-picker-create" type="button" onClick={onCreate}>
+            <Plus size={15} />
+            새 프로필 만들기
+          </button>
+        </div>
+      )}
+      {error && <p className="field-error">{error}</p>}
+    </section>
+  )
+}
+
+function ActivityProfileAvatar({ profile }: { profile: ActivityProfile }) {
+  if (profile.avatarUrl) {
+    return (
+      <span className="activity-profile-avatar is-image">
+        {/* eslint-disable-next-line @next/next/no-img-element -- Runtime profile URLs may be external; CSS controls the avatar crop. */}
+        <img src={profile.avatarUrl} alt="" aria-hidden="true" />
+      </span>
+    )
+  }
+
+  const fallbackImageUrl = getDefaultProfileImageByGender(profile.gender)
+  if (fallbackImageUrl) {
+    return (
+      <span className="activity-profile-avatar is-image">
+        {/* eslint-disable-next-line @next/next/no-img-element -- Static public profile defaults are rendered through img for consistency with uploaded avatars. */}
+        <img src={fallbackImageUrl} alt="" aria-hidden="true" />
+      </span>
+    )
+  }
+
+  return <span className="activity-profile-avatar">{profile.nickname.trim().slice(0, 1) || '만'}</span>
+}
+
+function formatActivityProfileMeta(profile: ActivityProfile) {
+  const mode = getModeLabel(profile.activityMode)
+  return mode
+}
+
+function StepHeader({ title, progress, onBack }: { title: string; progress?: string; onBack: () => void }) {
   return (
     <header className="step-header">
       <button className="step-back-button" type="button" onClick={onBack} aria-label="뒤로가기">
@@ -2075,6 +2305,7 @@ function validateRequestStep(
     customPrice: string
     deadlineOption: DeadlineOption
     customDeadlineText: string
+    selectedProfileId: string
   },
 ) {
   const errors: StepErrors = {}
@@ -2137,6 +2368,7 @@ function validateOfferStep(
     customPrice: string
     description: string
     portfolioUrl: string
+    selectedProfileId: string
   },
 ) {
   const errors: StepErrors = {}

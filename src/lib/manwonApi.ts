@@ -6,6 +6,7 @@ import type { LocationPermissionState } from '@/lib/location'
 export interface ApiTaskPost {
   id: string
   creatorId: string
+  creatorProfileId?: string | null
   postType: 'request' | 'offer'
   title: string
   category: string
@@ -46,11 +47,17 @@ export interface ApiTaskPost {
   images?: Array<{ id: string; imageUrl: string; storageKey: string; sortOrder: number }>
   creatorNickname?: string | null
   creatorAvatarUrl?: string | null
+  creatorBio?: string | null
+  creatorGender?: 'male' | 'female' | 'unknown' | 'private' | null
+  creatorPhoneVerified?: boolean | null
+  creatorIdentityVerified?: boolean | null
   creatorRatingAvg?: number | string | null
+  creatorReviewCount?: number | null
   creatorCompletedCount?: number | null
 }
 
 export interface CreateTaskPostPayload {
+  profileId: string
   postType: 'request' | 'offer'
   title: string
   category: string
@@ -92,22 +99,31 @@ export interface ApiConversation {
   postId: string | null
   requesterId: string
   helperId: string
+  requesterProfileId?: string | null
+  helperProfileId?: string | null
   lastMessage: string | null
   lastMessageAt: string | null
   postTitle?: string | null
   postCategory?: string | null
   postPrice?: number | null
   postStatus?: ApiTaskPost['status'] | null
+  postCreatorId?: string | null
+  postType?: ApiTaskPost['postType'] | null
   dealStatus?: 'pending' | 'accepted' | 'in_progress' | 'complete_requested' | 'completed' | 'cancelled' | 'disputed' | null
   applicationId?: string | null
   applicationStatus?: 'applied' | 'accepted' | 'rejected' | 'cancelled' | null
+  applicationApplicantId?: string | null
   requesterNickname?: string | null
   helperNickname?: string | null
   requesterAvatarUrl?: string | null
   helperAvatarUrl?: string | null
+  requesterBio?: string | null
+  helperBio?: string | null
   otherUserId?: string | null
   otherNickname?: string | null
   otherAvatarUrl?: string | null
+  otherBio?: string | null
+  otherGender?: 'male' | 'female' | 'unknown' | 'private' | null
   otherRatingAvg?: number | string | null
   otherReviewCount?: number | null
   otherCompletedCount?: number | null
@@ -115,7 +131,76 @@ export interface ApiConversation {
   otherIdentityVerified?: boolean | null
   otherCareerSummary?: string | null
   otherResponseTime?: string | null
+  hasChatAfterStarted?: boolean | null
+  myReviewId?: string | null
   unreadCount?: number | null
+}
+
+export interface ActivityProfile {
+  id: string
+  userId: string
+  avatarUrl: string | null
+  defaultAvatarKey: string | null
+  nickname: string
+  bio: string
+  activityMode: RequestMode
+  addressText: string | null
+  region1depth?: string | null
+  region1Depth?: string | null
+  region2depth?: string | null
+  region2Depth?: string | null
+  region3depth?: string | null
+  region3Depth?: string | null
+  regionCode?: string | null
+  latitude: number | null
+  longitude: number | null
+  careerSummary: string | null
+  careerDescription: string | null
+  portfolioLinks: Array<{ title: string; url: string }>
+  workSampleImages: Array<{ imageUrl: string; storageKey: string; sortOrder: number }>
+  availableTimeText: string | null
+  basePrice: number | null
+  isActive: boolean
+  gender?: 'male' | 'female' | 'unknown' | 'private' | null
+  phoneVerified?: boolean | null
+  identityVerified?: boolean | null
+  ratingAvg?: number | string | null
+  reviewCount?: number | null
+  completedCount?: number | null
+  isDefault?: boolean | null
+  createdAt?: string
+  updatedAt?: string
+}
+
+export function getDefaultProfileImageByGender(gender?: string | null) {
+  if (gender === 'male') return '/profile/man.png'
+  if (gender === 'female') return '/profile/woman.png'
+  return null
+}
+
+export function isDefaultActivityProfile(profile: Pick<ActivityProfile, 'id' | 'userId' | 'isDefault'>) {
+  return profile.isDefault === true || Boolean(profile.id && profile.userId && profile.id === profile.userId)
+}
+
+export type ActivityProfilePayload = {
+  avatarUrl?: string | null
+  defaultAvatarKey?: string | null
+  nickname: string
+  bio: string
+  activityMode: RequestMode
+  addressText?: string | null
+  region1Depth?: string | null
+  region2Depth?: string | null
+  region3Depth?: string | null
+  regionCode?: string | null
+  latitude?: number | null
+  longitude?: number | null
+  careerSummary?: string | null
+  careerDescription?: string | null
+  portfolioLinks?: Array<{ title: string; url: string }>
+  workSampleImages?: Array<{ imageUrl: string; storageKey: string; sortOrder: number }>
+  availableTimeText?: string | null
+  basePrice?: number | null
 }
 
 export interface ApiMessage {
@@ -235,6 +320,36 @@ export async function fetchTaskPost(id: string) {
   return apiFetch<ApiTaskPost>(`/api/task-posts/${id}`)
 }
 
+export async function fetchActivityProfiles() {
+  return apiFetch<ActivityProfile[]>('/api/activity-profiles')
+}
+
+export async function checkActivityProfileNickname(nickname: string, excludeId?: string | null) {
+  const query = new URLSearchParams({ nickname })
+  if (excludeId) query.set('excludeId', excludeId)
+  return apiFetch<{ available: boolean; nickname: string }>(`/api/activity-profiles/nickname?${query.toString()}`)
+}
+
+export async function createActivityProfile(payload: ActivityProfilePayload) {
+  return apiFetch<ActivityProfile>('/api/activity-profiles', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function updateActivityProfile(profileId: string, payload: Partial<ActivityProfilePayload>) {
+  return apiFetch<ActivityProfile>(`/api/activity-profiles/${encodeURIComponent(profileId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function deactivateActivityProfile(profileId: string) {
+  return apiFetch<ActivityProfile>(`/api/activity-profiles/${encodeURIComponent(profileId)}`, {
+    method: 'DELETE',
+  })
+}
+
 export async function createTaskPost(payload: CreateTaskPostPayload) {
   return apiFetch<ApiTaskPost>('/api/task-posts', {
     method: 'POST',
@@ -288,10 +403,10 @@ export async function fetchConversations() {
   return apiFetch<ApiConversation[]>('/api/conversations')
 }
 
-export async function startConversationFromPost(postId: string, message?: string) {
+export async function startConversationFromPost(postId: string, profileId: string, message?: string) {
   return apiFetch<ApiConversation>(`/api/task-posts/${postId}/start-chat`, {
     method: 'POST',
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({ profileId, message }),
   })
 }
 
@@ -317,7 +432,7 @@ export async function sendConversationMessage(conversationId: string, body: stri
 }
 
 export async function fetchRealtimeToken() {
-  return apiFetch<{ token: string; expiresIn: number }>('/api/realtime/token')
+  return apiFetch<{ token: string; expiresIn: number; websocketUrl?: string }>('/api/realtime/token')
 }
 
 export async function updateApplicationStatus(applicationId: string, status: 'accepted' | 'rejected' | 'cancelled') {
@@ -417,6 +532,24 @@ export async function requestSignupOtp(input: SignupOnboardingPayload) {
   })
 }
 
+export async function verifySignupOtp(input: SignupOnboardingPayload & { code: string }) {
+  return apiFetch<{ phone: string; verified: boolean }>('/api/auth/signup/verify', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export async function completeSignup(input: SignupOnboardingPayload) {
+  const profile = await apiFetch<Record<string, unknown>>('/api/auth/signup/complete', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+  if (typeof profile.id === 'string') {
+    setCurrentUserId(profile.id, typeof profile.nickname === 'string' ? profile.nickname : '만부탁이')
+  }
+  return profile
+}
+
 export async function confirmSignupOtp(input: SignupOnboardingPayload & { code: string }) {
   const profile = await apiFetch<Record<string, unknown>>('/api/auth/signup/confirm', {
     method: 'POST',
@@ -508,10 +641,10 @@ export async function fetchSettlementSummary(month?: string) {
   return apiFetch<SettlementSummary>(`/api/me/settlement-summary${query}`)
 }
 
-export async function createApplication(postId: string, message?: string) {
+export async function createApplication(postId: string, profileId: string, message?: string) {
   return apiFetch('/api/applications', {
     method: 'POST',
-    body: JSON.stringify({ postId, message }),
+    body: JSON.stringify({ postId, profileId, message }),
   })
 }
 
@@ -527,6 +660,24 @@ export async function createReport(input: {
     method: 'POST',
     body: JSON.stringify(input),
   })
+}
+
+export async function createReview(input: { dealId: string; rating: number; content?: string | null }) {
+  return apiFetch('/api/reviews', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export async function scheduleReviewReminder(dealId: string) {
+  return apiFetch('/api/review-reminders', {
+    method: 'POST',
+    body: JSON.stringify({ dealId }),
+  })
+}
+
+export async function fetchDueReviewReminder() {
+  return apiFetch<{ dealId: string; conversationId?: string | null; dueAt?: string | null } | null>('/api/review-reminders')
 }
 
 export async function createSupportInquiry(input: {

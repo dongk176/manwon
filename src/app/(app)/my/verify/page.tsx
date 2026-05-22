@@ -1,5 +1,5 @@
-import { MyScreens } from '@/components/MyScreens'
+import { redirect } from 'next/navigation'
 
 export default function MyVerifyPage() {
-  return <MyScreens section="verify" />
+  redirect('/my')
 }
