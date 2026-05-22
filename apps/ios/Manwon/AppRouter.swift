@@ -55,6 +55,15 @@ final class AppRouter: ObservableObject {
         }
     }
 
+    func routeToLogin(next: String? = nil) {
+        if onboardingRequired {
+            onboardingRequired = false
+        }
+        setChatRoute(conversationId: nil, detailActive: false, advanceRevision: false)
+        setWebPath(loginPath(next: next), for: .home)
+        setSelectedTab(.home)
+    }
+
     func completeProfileOnboarding() {
         if onboardingRequired {
             onboardingRequired = false
@@ -212,6 +221,14 @@ final class AppRouter: ObservableObject {
         setChatRoute(conversationId: nil, detailActive: false, advanceRevision: false)
         setWebPath("/profile-onboarding", for: .home)
         setSelectedTab(.home)
+    }
+
+    private func loginPath(next: String?) -> String {
+        guard let next, !next.isEmpty, next != "/" else { return "/login" }
+        var components = URLComponents()
+        components.path = "/login"
+        components.queryItems = [URLQueryItem(name: "next", value: next)]
+        return components.string ?? "/login"
     }
 
     private func setSelectedTab(_ tab: AppTab) {

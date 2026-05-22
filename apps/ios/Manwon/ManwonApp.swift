@@ -25,8 +25,27 @@ struct RootTabView: View {
     @EnvironmentObject private var permissionPrompts: PermissionPromptManager
     @Environment(\.scenePhase) private var scenePhase
     @State private var keyboardVisible = false
+    @State private var initialSessionChecked = false
+    @State private var initialSessionCheckStarted = false
 
     var body: some View {
+        Group {
+            if initialSessionChecked {
+                tabContent
+            } else {
+                InitialSessionGateView()
+            }
+        }
+        .onAppear {
+            guard !initialSessionCheckStarted else { return }
+            initialSessionCheckStarted = true
+            Task {
+                await resolveInitialSessionGate()
+            }
+        }
+    }
+
+    private var tabContent: some View {
         ZStack {
             tabLayer(.home) {
                 WebTabView(tab: .home, title: "뭐든해줌", path: $router.homePath)
@@ -110,8 +129,11 @@ struct RootTabView: View {
         }
         .onAppear {
             Task {
-                await refreshSessionGate()
-                await openDueReviewReminderIfNeeded()
+                guard initialSessionChecked else { return }
+                let session = await refreshSessionGate(routeUnauthenticatedToLogin: true)
+                if session?.authenticated == true {
+                    await openDueReviewReminderIfNeeded()
+                }
             }
         }
         .onChange(of: scenePhase) { phase in
@@ -119,15 +141,35 @@ struct RootTabView: View {
             PushManager.shared.registerForRemoteNotificationsIfAuthorized()
             permissionPrompts.checkUnreadMessagesOnForeground()
             Task {
-                await refreshSessionGate()
-                await openDueReviewReminderIfNeeded()
+                guard initialSessionChecked else { return }
+                let session = await refreshSessionGate(routeUnauthenticatedToLogin: true)
+                if session?.authenticated == true {
+                    await openDueReviewReminderIfNeeded()
+                }
             }
         }
     }
 
-    private func refreshSessionGate() async {
-        guard let session = try? await APIClient.shared.fetchSession() else { return }
+    private func resolveInitialSessionGate() async {
+        let session = await refreshSessionGate(routeUnauthenticatedToLogin: true)
+        if session == nil {
+            router.routeToLogin()
+        }
+        initialSessionChecked = true
+
+        if session?.authenticated == true {
+            await openDueReviewReminderIfNeeded()
+        }
+    }
+
+    @discardableResult
+    private func refreshSessionGate(routeUnauthenticatedToLogin: Bool = false) async -> SessionState? {
+        guard let session = try? await APIClient.shared.fetchSession() else { return nil }
         router.updateSession(session)
+        if routeUnauthenticatedToLogin && !session.authenticated {
+            router.routeToLogin()
+        }
+        return session
     }
 
     private func openDueReviewReminderIfNeeded() async {
@@ -147,6 +189,22 @@ struct RootTabView: View {
             .accessibilityHidden(router.selectedTab != tab)
             .zIndex(router.selectedTab == tab ? 1 : 0)
             .animation(ManwonMotion.fade, value: router.selectedTab)
+    }
+}
+
+private struct InitialSessionGateView: View {
+    var body: some View {
+        VStack(spacing: 14) {
+            Image("LaunchLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 112, height: 112)
+            Text("뭐든해줌")
+                .font(.system(size: 27, weight: .bold))
+                .foregroundStyle(ManwonColor.text)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(ManwonColor.surface)
     }
 }
 
