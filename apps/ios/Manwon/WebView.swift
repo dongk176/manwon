@@ -1,3 +1,4 @@
+import CoreLocation
 import SwiftUI
 import UIKit
 import WebKit
@@ -163,7 +164,7 @@ struct NativeWebView: UIViewRepresentable {
         uiView.configuration.userContentController.removeScriptMessageHandler(forName: "manwonNative")
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler, UIScrollViewDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler, UIScrollViewDelegate, CLLocationManagerDelegate {
         var onNativeRoute: (String) -> Void
         var onProfileOnboardingCompleted: () -> Void
         var onRouteChange: (String) -> Void
@@ -175,6 +176,10 @@ struct NativeWebView: UIViewRepresentable {
         private var currentPath: String?
         private var currentReloadToken: UUID?
         private var lastIsAtTop = true
+        private let locationManager = CLLocationManager()
+        private weak var webView: WKWebView?
+        private var pendingLocationRequestId: String?
+        private var locationTimeoutTask: Task<Void, Never>?
 
         init(
             onNativeRoute: @escaping (String) -> Void,
@@ -194,9 +199,13 @@ struct NativeWebView: UIViewRepresentable {
             self.onStartLoading = onStartLoading
             self.onFinishLoading = onFinishLoading
             self.onError = onError
+            super.init()
+            locationManager.delegate = self
+            locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
         }
 
         func load(path: String, in webView: WKWebView, reloadToken: UUID) {
+            self.webView = webView
             guard currentPath != path || currentReloadToken != reloadToken else { return }
             currentPath = path
             currentReloadToken = reloadToken
@@ -236,6 +245,12 @@ struct NativeWebView: UIViewRepresentable {
                 return
             }
 
+            if type == "requestLocation" {
+                let requestId = payload["requestId"] as? String ?? UUID().uuidString
+                requestCurrentLocation(requestId: requestId)
+                return
+            }
+
             guard let path = payload["path"] as? String else { return }
 
             if type == "route" {
@@ -244,6 +259,7 @@ struct NativeWebView: UIViewRepresentable {
             }
 
             if type == "webRoute" {
+                currentPath = path
                 onRouteChange(path)
                 return
             }
@@ -254,13 +270,88 @@ struct NativeWebView: UIViewRepresentable {
             }
         }
 
+        private func requestCurrentLocation(requestId: String) {
+            pendingLocationRequestId = requestId
+            locationTimeoutTask?.cancel()
+            locationTimeoutTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 9_000_000_000)
+                await MainActor.run {
+                    self?.completeLocationRequest(ok: false, error: "현재 위치를 가져오지 못했습니다.")
+                }
+            }
+
+            switch locationManager.authorizationStatus {
+            case .authorizedAlways, .authorizedWhenInUse:
+                locationManager.requestLocation()
+            case .notDetermined:
+                locationManager.requestWhenInUseAuthorization()
+            case .denied, .restricted:
+                completeLocationRequest(ok: false, error: "위치 권한이 꺼져 있어요. 설정에서 위치 권한을 허용해주세요.")
+            @unknown default:
+                locationManager.requestLocation()
+            }
+        }
+
+        func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+            guard pendingLocationRequestId != nil else { return }
+            switch manager.authorizationStatus {
+            case .authorizedAlways, .authorizedWhenInUse:
+                manager.requestLocation()
+            case .denied, .restricted:
+                completeLocationRequest(ok: false, error: "위치 권한이 꺼져 있어요. 설정에서 위치 권한을 허용해주세요.")
+            default:
+                break
+            }
+        }
+
+        func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+            guard let location = locations.last else {
+                completeLocationRequest(ok: false, error: "현재 위치를 가져오지 못했습니다.")
+                return
+            }
+            completeLocationRequest(ok: true, latitude: location.coordinate.latitude, longitude: location.coordinate.longitude)
+        }
+
+        func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+            completeLocationRequest(ok: false, error: "현재 위치를 가져오지 못했습니다.")
+        }
+
+        private func completeLocationRequest(ok: Bool, latitude: Double? = nil, longitude: Double? = nil, error: String? = nil) {
+            guard let requestId = pendingLocationRequestId else { return }
+            pendingLocationRequestId = nil
+            locationTimeoutTask?.cancel()
+            locationTimeoutTask = nil
+
+            var payload: [String: Any] = [
+                "requestId": requestId,
+                "ok": ok,
+            ]
+            if let latitude, let longitude {
+                payload["latitude"] = latitude
+                payload["longitude"] = longitude
+            }
+            if let error {
+                payload["error"] = error
+            }
+
+            guard
+                let data = try? JSONSerialization.data(withJSONObject: payload),
+                let json = String(data: data, encoding: .utf8)
+            else {
+                return
+            }
+            webView?.evaluateJavaScript("window.dispatchEvent(new CustomEvent('manwonNativeLocation', { detail: \(json) }));")
+        }
+
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             onStartLoading()
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             if let url = webView.url {
-                onRouteChange(AppConfig.pathWithQuery(from: url))
+                let path = AppConfig.pathWithQuery(from: url)
+                currentPath = path
+                onRouteChange(path)
             }
             webView.scrollView.setZoomScale(1, animated: false)
             onFinishLoading()

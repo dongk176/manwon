@@ -51,6 +51,9 @@ export async function getLocationPermissionState(): Promise<LocationPermissionSt
 }
 
 export function requestBrowserLocation(): Promise<{ latitude: number; longitude: number }> {
+  const nativeLocation = requestNativeLocation()
+  if (nativeLocation) return nativeLocation
+
   if (typeof window === 'undefined' || !navigator.geolocation) {
     return Promise.reject(new Error('위치 기능을 사용할 수 없는 환경입니다.'))
   }
@@ -70,6 +73,56 @@ export function requestBrowserLocation(): Promise<{ latitude: number; longitude:
         maximumAge: 1000 * 60 * 5,
       },
     )
+  })
+}
+
+function requestNativeLocation(): Promise<{ latitude: number; longitude: number }> | null {
+  if (typeof window === 'undefined') return null
+  const canRequestIOS = Boolean(window.webkit?.messageHandlers?.manwonNative)
+  const canRequestAndroid = typeof window.ManwonNative?.postMessage === 'function'
+  if (!canRequestIOS && !canRequestAndroid) return null
+
+  const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  return new Promise((resolve, reject) => {
+    let timeout = 0
+    const cleanup = () => {
+      window.clearTimeout(timeout)
+      window.removeEventListener('manwonNativeLocation', handleLocation)
+    }
+
+    const handleLocation = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        requestId?: string
+        ok?: boolean
+        latitude?: number
+        longitude?: number
+        error?: string
+      }>).detail
+      if (detail?.requestId !== requestId) return
+      cleanup()
+      if (detail.ok && typeof detail.latitude === 'number' && typeof detail.longitude === 'number') {
+        resolve({ latitude: detail.latitude, longitude: detail.longitude })
+        return
+      }
+      reject(new Error(detail?.error || '현재 위치를 가져오지 못했습니다.'))
+    }
+
+    window.addEventListener('manwonNativeLocation', handleLocation)
+    timeout = window.setTimeout(() => {
+      cleanup()
+      reject(new Error('현재 위치를 가져오지 못했습니다.'))
+    }, 9500)
+    const payload = { type: 'requestLocation', requestId }
+    try {
+      if (canRequestIOS) {
+        window.webkit?.messageHandlers?.manwonNative?.postMessage(payload)
+      } else {
+        window.ManwonNative?.postMessage?.(JSON.stringify(payload))
+      }
+    } catch {
+      cleanup()
+      reject(new Error('위치 기능을 사용할 수 없는 환경입니다.'))
+    }
   })
 }
 

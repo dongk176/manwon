@@ -43,6 +43,7 @@ private let manwonBottomNavItems = [
 
 struct ManwonBottomNav: View {
     @Binding var selectedTab: AppTab
+    var onSelect: ((AppTab) -> Void)?
     var onUnavailableNearby: () -> Void = {}
 
     var body: some View {
@@ -55,7 +56,11 @@ struct ManwonBottomNav: View {
                 ForEach(manwonBottomNavItems) { item in
                     Button {
                         withAnimation(ManwonMotion.select) {
-                            selectedTab = item.id
+                            if let onSelect {
+                                onSelect(item.id)
+                            } else {
+                                selectedTab = item.id
+                            }
                         }
                     } label: {
                         ManwonBottomNavButton(

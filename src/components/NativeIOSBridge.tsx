@@ -31,6 +31,15 @@ function isManwonIOS() {
   return typeof navigator !== 'undefined' && navigator.userAgent.includes('ManwonIOS')
 }
 
+export function isNativeAppShell() {
+  if (typeof window === 'undefined') return false
+  const userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent
+  return userAgent.includes('ManwonIOS')
+    || userAgent.includes('ManwonAndroid')
+    || Boolean(window.webkit?.messageHandlers?.manwonNative)
+    || Boolean(window.ManwonNative?.postMessage)
+}
+
 function postNativeMessage(payload: {
   type: string
   path?: string

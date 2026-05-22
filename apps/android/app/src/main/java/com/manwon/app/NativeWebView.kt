@@ -26,6 +26,7 @@ class WebTabView(
     context: Context,
     private val title: String,
     private val onNativeRoute: (String) -> Unit,
+    private val onLocationRequest: (((Double, Double, Boolean) -> Unit) -> Unit)? = null,
     private val onProfileOnboardingCompleted: () -> Unit = {},
     private val onRouteChange: (String) -> Unit,
     private val onScrollTopChange: ((Boolean) -> Unit)? = null,
@@ -233,6 +234,7 @@ class WebTabView(
         @JavascriptInterface
         fun routeChanged(path: String) {
             mainHandler.post {
+                currentPath = path
                 onRouteChange(path)
             }
         }
@@ -243,8 +245,27 @@ class WebTabView(
                 val payload = JSONObject(raw)
                 if (payload.optString("type") == "route") route(payload.optString("path"))
                 if (payload.optString("type") == "routeChanged") routeChanged(payload.optString("path"))
+                if (payload.optString("type") == "requestLocation") requestLocation(payload.optString("requestId"))
                 if (payload.optString("type") == "profileOnboardingCompleted") mainHandler.post { onProfileOnboardingCompleted() }
                 if (payload.optString("type") == "homeScrollTop") homeScrollTopChanged(payload.optBoolean("isAtTop", true))
+            }
+        }
+
+        @JavascriptInterface
+        fun requestLocation(requestId: String) {
+            mainHandler.post {
+                val request = onLocationRequest
+                if (request == null) {
+                    postLocationResult(requestId, ok = false, error = "위치 기능을 사용할 수 없는 환경입니다.")
+                    return@post
+                }
+                request { latitude, longitude, denied ->
+                    if (denied) {
+                        postLocationResult(requestId, ok = false, error = "위치 권한이 꺼져 있어요. 설정에서 위치 권한을 허용해주세요.")
+                    } else {
+                        postLocationResult(requestId, ok = true, latitude = latitude, longitude = longitude)
+                    }
+                }
             }
         }
 
@@ -254,6 +275,18 @@ class WebTabView(
                 updateScrollTopState(isAtTop)
             }
         }
+    }
+
+    private fun postLocationResult(requestId: String, ok: Boolean, latitude: Double? = null, longitude: Double? = null, error: String? = null) {
+        val payload = JSONObject()
+            .put("requestId", requestId)
+            .put("ok", ok)
+        if (latitude != null && longitude != null) {
+            payload.put("latitude", latitude)
+            payload.put("longitude", longitude)
+        }
+        if (error != null) payload.put("error", error)
+        webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('manwonNativeLocation', { detail: $payload }));", null)
     }
 
     private fun nativeShellScript(): String = """

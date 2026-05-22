@@ -52,7 +52,20 @@ struct RootTabView: View {
         .overlay(alignment: .bottom) {
             if !router.hidesBottomNav && !keyboardVisible {
                 ZStack(alignment: .bottomTrailing) {
-                    ManwonBottomNav(selectedTab: $router.selectedTab) {
+                    ManwonBottomNav(selectedTab: $router.selectedTab, onSelect: { tab in
+                        switch tab {
+                        case .home:
+                            router.openWebPath("/")
+                        case .chat:
+                            router.openNativeRoute(path: "/chat")
+                        case .register:
+                            router.openWebPath("/register")
+                        case .nearby:
+                            router.openWebPath("/activity")
+                        case .my:
+                            router.openWebPath("/my")
+                        }
+                    }) {
                         router.showMapUnavailableNotice()
                     }
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, MapPin, Navigation, Search, X } from 'lucide-react'
-import { openIOSAppSettings } from '@/components/NativeIOSBridge'
+import { isNativeAppShell, openIOSAppSettings } from '@/components/NativeIOSBridge'
 import { loadKakao, type KakaoMap } from '@/lib/loadKakao'
 import {
   formatRegionFull,
@@ -56,6 +56,8 @@ export function LocationPermissionSheet({
 }) {
   const copy = promptCopy[context]
   const denied = permissionState === 'denied'
+  const shouldUseNativePermissionDirectly = isNativeAppShell() && permissionState !== 'denied' && permissionState !== 'unavailable'
+  const didRequestNativePermission = useRef(false)
   const primaryLabel = denied ? '설정에서 허용' : copy.allow
   const deniedDescription = context === 'offer'
     ? '위치 사용 동의가 꺼져 있어요. 설정에서 위치 권한을 켜거나 동네를 직접 선택해주세요.'
@@ -68,6 +70,14 @@ export function LocationPermissionSheet({
     }
     onAllow()
   }
+
+  useEffect(() => {
+    if (!shouldUseNativePermissionDirectly || didRequestNativePermission.current) return
+    didRequestNativePermission.current = true
+    onAllow()
+  }, [onAllow, shouldUseNativePermissionDirectly])
+
+  if (shouldUseNativePermissionDirectly) return null
 
   return (
     <div className="sheet-overlay" role="presentation" onClick={onClose}>
@@ -174,7 +184,7 @@ export function NeighborhoodSelectSheet({
   const isCenteredModal = searchMode === 'address' || presentation === 'modal'
 
   async function handleUseCurrent(skipPrompt = false) {
-    if (!skipPrompt && permissionState !== 'granted') {
+    if (!skipPrompt && permissionState !== 'granted' && !(isNativeAppShell() && permissionState !== 'denied')) {
       setShowCurrentPrompt(true)
       return
     }

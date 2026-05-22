@@ -121,6 +121,7 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
             this,
             "뭐든해줌",
             onNativeRoute = ::openNativeRoute,
+            onLocationRequest = ::requestCurrentLocation,
             onProfileOnboardingCompleted = ::completeProfileOnboarding,
             onRouteChange = { path -> webRouteDidChange(path, AppTab.HOME) },
             onScrollTopChange = { isAtTop ->
@@ -135,6 +136,7 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
             this,
             "등록",
             onNativeRoute = ::openNativeRoute,
+            onLocationRequest = ::requestCurrentLocation,
             onProfileOnboardingCompleted = ::completeProfileOnboarding,
             onRouteChange = { path -> webRouteDidChange(path, AppTab.REGISTER) },
             onFinished = { PushBridge.submitPendingToken(this, api) }
@@ -143,6 +145,7 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
             this,
             "마이",
             onNativeRoute = ::openNativeRoute,
+            onLocationRequest = ::requestCurrentLocation,
             onProfileOnboardingCompleted = ::completeProfileOnboarding,
             onRouteChange = { path -> webRouteDidChange(path, AppTab.MY) },
             onFinished = { PushBridge.submitPendingToken(this, api) }
@@ -151,6 +154,7 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
             this,
             "내 활동",
             onNativeRoute = ::openNativeRoute,
+            onLocationRequest = ::requestCurrentLocation,
             onProfileOnboardingCompleted = ::completeProfileOnboarding,
             onRouteChange = { path -> webRouteDidChange(path, AppTab.NEARBY) },
             onFinished = { PushBridge.submitPendingToken(this, api) }
