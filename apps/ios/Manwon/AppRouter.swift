@@ -170,47 +170,24 @@ final class AppRouter: ObservableObject {
     }
 
     func openPush(userInfo: [AnyHashable: Any]) {
-        let data = dictionaryValue(userInfo["data"])
-
-        if let conversationId = stringValue(userInfo["conversationId"]) ?? stringValue(data?["conversationId"]) {
+        if let conversationId = PushPayload.conversationId(from: userInfo) {
             setSelectedTab(.chat)
             setChatRoute(conversationId: conversationId, detailActive: true, advanceRevision: true)
             return
         }
 
-        if let postId = stringValue(userInfo["postId"]) ?? stringValue(data?["postId"]) {
+        if let path = PushPayload.path(from: userInfo) {
+            openNativeRoute(path: path)
+            return
+        }
+
+        if let postId = PushPayload.postId(from: userInfo) {
             openWebPath("/posts/\(postId)")
         }
     }
 
     func isViewingConversation(_ conversationId: String) -> Bool {
         selectedTab == .chat && chatDetailActive && chatConversationId == conversationId
-    }
-
-    private func dictionaryValue(_ value: Any?) -> [AnyHashable: Any]? {
-        if let value = value as? [AnyHashable: Any] {
-            return value
-        }
-        if let value = value as? [String: Any] {
-            return Dictionary(uniqueKeysWithValues: value.map { (AnyHashable($0.key), $0.value) })
-        }
-        if let value = value as? String,
-           let data = value.data(using: .utf8),
-           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            return Dictionary(uniqueKeysWithValues: object.map { (AnyHashable($0.key), $0.value) })
-        }
-        return nil
-    }
-
-    private func stringValue(_ value: Any?) -> String? {
-        if let value = value as? String, !value.isEmpty {
-            return value
-        }
-        if let value = value as? CustomStringConvertible {
-            let text = value.description
-            return text.isEmpty ? nil : text
-        }
-        return nil
     }
 
     private func shouldBlockForOnboarding(_ path: String) -> Bool {

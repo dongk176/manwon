@@ -130,7 +130,7 @@ struct RootTabView: View {
         .onAppear {
             Task {
                 guard initialSessionChecked else { return }
-                let session = await refreshSessionGate(routeUnauthenticatedToLogin: true)
+                let session = await refreshSessionGate()
                 if session?.authenticated == true {
                     await openDueReviewReminderIfNeeded()
                 }
@@ -142,7 +142,7 @@ struct RootTabView: View {
             permissionPrompts.checkUnreadMessagesOnForeground()
             Task {
                 guard initialSessionChecked else { return }
-                let session = await refreshSessionGate(routeUnauthenticatedToLogin: true)
+                let session = await refreshSessionGate()
                 if session?.authenticated == true {
                     await openDueReviewReminderIfNeeded()
                 }
@@ -151,9 +151,12 @@ struct RootTabView: View {
     }
 
     private func resolveInitialSessionGate() async {
-        let session = await refreshSessionGate(routeUnauthenticatedToLogin: true)
-        if session == nil {
-            router.routeToLogin()
+        let session = await fetchSessionForInitialGate()
+        if session?.authenticated != true {
+            let hasAuthSessionCookie = await APIClient.shared.hasAuthSessionCookie()
+            if !hasAuthSessionCookie {
+                router.routeToLogin()
+            }
         }
         initialSessionChecked = true
 
@@ -163,13 +166,31 @@ struct RootTabView: View {
     }
 
     @discardableResult
-    private func refreshSessionGate(routeUnauthenticatedToLogin: Bool = false) async -> SessionState? {
+    private func refreshSessionGate() async -> SessionState? {
         guard let session = try? await APIClient.shared.fetchSession() else { return nil }
         router.updateSession(session)
-        if routeUnauthenticatedToLogin && !session.authenticated {
-            router.routeToLogin()
-        }
         return session
+    }
+
+    private func fetchSessionForInitialGate() async -> SessionState? {
+        var latestSession = await refreshSessionGate()
+        if latestSession?.authenticated == true {
+            return latestSession
+        }
+
+        for _ in 0..<2 {
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled else { return latestSession }
+
+            if let session = await refreshSessionGate() {
+                latestSession = session
+                if session.authenticated {
+                    return session
+                }
+            }
+        }
+
+        return latestSession
     }
 
     private func openDueReviewReminderIfNeeded() async {
@@ -214,6 +235,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         PushManager.shared.configure()
+        PushManager.shared.handleLaunchOptions(launchOptions)
         return true
     }
 

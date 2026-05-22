@@ -17,6 +17,12 @@ final class PushManager: NSObject, UNUserNotificationCenterDelegate {
     private var pendingPushUserInfo: [AnyHashable: Any]?
     private var isFirebaseConfigured = false
 
+    func handleLaunchOptions(_ launchOptions: [UIApplication.LaunchOptionsKey: Any]?) {
+        guard let remoteNotification = launchOptions?[.remoteNotification] else { return }
+        guard let userInfo = PushPayload.dictionaryValue(remoteNotification) else { return }
+        openOrDefer(userInfo: userInfo)
+    }
+
     func attach(router: AppRouter) {
         Task { @MainActor in
             self.router = router
@@ -101,7 +107,7 @@ final class PushManager: NSObject, UNUserNotificationCenterDelegate {
     ) {
         let userInfo = notification.request.content.userInfo
         Task { @MainActor in
-            if let conversationId = Self.stringValue(userInfo["conversationId"]) ?? Self.stringValue(Self.dictionaryValue(userInfo["data"])?["conversationId"]),
+            if let conversationId = PushPayload.conversationId(from: userInfo),
                router?.isViewingConversation(conversationId) == true {
                 NotificationCenter.default.post(
                     name: .manwonConversationPushReceived,
@@ -122,6 +128,11 @@ final class PushManager: NSObject, UNUserNotificationCenterDelegate {
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let userInfo = response.notification.request.content.userInfo
+        openOrDefer(userInfo: userInfo)
+        completionHandler()
+    }
+
+    private func openOrDefer(userInfo: [AnyHashable: Any]) {
         Task { @MainActor in
             if let router {
                 router.openPush(userInfo: userInfo)
@@ -129,10 +140,46 @@ final class PushManager: NSObject, UNUserNotificationCenterDelegate {
                 pendingPushUserInfo = userInfo
             }
         }
-        completionHandler()
+    }
+}
+
+enum PushPayload {
+    static func conversationId(from userInfo: [AnyHashable: Any]) -> String? {
+        let data = dictionaryValue(userInfo["data"])
+        return firstString(
+            userInfo["conversationId"],
+            userInfo["conversation_id"],
+            data?["conversationId"],
+            data?["conversation_id"],
+            conversationId(fromPath: path(from: userInfo)),
+            conversationId(fromPath: data.flatMap { path(from: $0) })
+        )
     }
 
-    private static func dictionaryValue(_ value: Any?) -> [AnyHashable: Any]? {
+    static func postId(from userInfo: [AnyHashable: Any]) -> String? {
+        let data = dictionaryValue(userInfo["data"])
+        return firstString(
+            userInfo["postId"],
+            userInfo["post_id"],
+            data?["postId"],
+            data?["post_id"],
+            postId(fromPath: path(from: userInfo)),
+            postId(fromPath: data.flatMap { path(from: $0) })
+        )
+    }
+
+    static func path(from userInfo: [AnyHashable: Any]) -> String? {
+        firstPath(
+            userInfo["path"],
+            userInfo["route"],
+            userInfo["url"],
+            userInfo["link"],
+            userInfo["deepLink"],
+            userInfo["deeplink"]
+        )
+    }
+
+    static func dictionaryValue(_ value: Any?) -> [AnyHashable: Any]? {
         if let value = value as? [AnyHashable: Any] {
             return value
         }
@@ -147,15 +194,63 @@ final class PushManager: NSObject, UNUserNotificationCenterDelegate {
         return nil
     }
 
+    private static func firstString(_ values: Any?...) -> String? {
+        for value in values {
+            if let text = stringValue(value) {
+                return text
+            }
+        }
+        return nil
+    }
+
+    private static func firstPath(_ values: Any?...) -> String? {
+        for value in values {
+            guard let text = stringValue(value) else { continue }
+            if let path = normalizedPath(from: text) {
+                return path
+            }
+        }
+        return nil
+    }
+
     private static func stringValue(_ value: Any?) -> String? {
-        if let value = value as? String, !value.isEmpty {
-            return value
+        if let value = value as? String {
+            let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? nil : text
         }
         if let value = value as? CustomStringConvertible {
-            let text = value.description
+            let text = value.description.trimmingCharacters(in: .whitespacesAndNewlines)
             return text.isEmpty ? nil : text
         }
         return nil
+    }
+
+    private static func normalizedPath(from value: String) -> String? {
+        if let url = URL(string: value), url.scheme != nil {
+            return AppConfig.pathWithQuery(from: url)
+        }
+        if value.hasPrefix("/") {
+            return value
+        }
+        return nil
+    }
+
+    private static func conversationId(fromPath path: String?) -> String? {
+        guard let path else { return nil }
+        let components = path.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+        let pathname = components.first.map(String.init) ?? path
+        guard pathname.hasPrefix("/chat/") else { return nil }
+        let value = String(pathname.dropFirst("/chat/".count))
+        return value.isEmpty ? nil : value.removingPercentEncoding ?? value
+    }
+
+    private static func postId(fromPath path: String?) -> String? {
+        guard let path else { return nil }
+        let components = path.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+        let pathname = components.first.map(String.init) ?? path
+        guard pathname.hasPrefix("/posts/") else { return nil }
+        let value = String(pathname.dropFirst("/posts/".count))
+        return value.isEmpty ? nil : value.removingPercentEncoding ?? value
     }
 }
 

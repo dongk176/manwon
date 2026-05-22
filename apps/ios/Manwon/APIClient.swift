@@ -258,6 +258,7 @@ final class ConversationRealtimeSubscription {
 
 final class APIClient {
     static let shared = APIClient()
+    private static let sessionCookieName = "manwon_session"
 
     private let session: URLSession
     private let decoder = JSONDecoder()
@@ -427,6 +428,18 @@ final class APIClient {
         return request
     }
 
+    @MainActor
+    func hasAuthSessionCookie() async -> Bool {
+        await withCheckedContinuation { continuation in
+            WKWebsiteDataStore.default().httpCookieStore.getAllCookies { cookies in
+                let hasSessionCookie = self.matchingWebCookies(from: cookies).contains { cookie in
+                    cookie.name == Self.sessionCookieName && !cookie.value.isEmpty
+                }
+                continuation.resume(returning: hasSessionCookie)
+            }
+        }
+    }
+
     private func perform<T: Decodable>(_ request: URLRequest) async throws -> T {
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -450,14 +463,18 @@ final class APIClient {
     private func cookieHeader() async -> String? {
         await withCheckedContinuation { continuation in
             WKWebsiteDataStore.default().httpCookieStore.getAllCookies { cookies in
-                let host = AppConfig.webBaseURL.host ?? ""
-                let matchingCookies = cookies.filter { cookie in
-                    let domain = cookie.domain.hasPrefix(".") ? String(cookie.domain.dropFirst()) : cookie.domain
-                    return host == domain || host.hasSuffix(".\(domain)") || domain == "localhost"
-                }
+                let matchingCookies = self.matchingWebCookies(from: cookies)
                 let header = HTTPCookie.requestHeaderFields(with: matchingCookies)["Cookie"]
                 continuation.resume(returning: header?.isEmpty == false ? header : nil)
             }
+        }
+    }
+
+    private func matchingWebCookies(from cookies: [HTTPCookie]) -> [HTTPCookie] {
+        let host = AppConfig.webBaseURL.host ?? ""
+        return cookies.filter { cookie in
+            let domain = cookie.domain.hasPrefix(".") ? String(cookie.domain.dropFirst()) : cookie.domain
+            return host == domain || host.hasSuffix(".\(domain)") || domain == "localhost"
         }
     }
 
