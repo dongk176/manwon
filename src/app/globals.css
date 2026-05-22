@@ -146,7 +146,7 @@ html.native-ios-shell [role="button"] {
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
   }
 }
 
@@ -5564,6 +5564,10 @@ html.native-ios-shell [role="button"] {
   grid-template-columns: 1fr 1fr;
 }
 
+.detail-cta-bar.has-owner-delete.is-owner-actions {
+  grid-template-columns: 46px 1fr 1fr;
+}
+
 .detail-save-button {
   width: 46px;
   height: 46px;
@@ -6013,7 +6017,7 @@ html.native-ios-shell [role="button"] {
 
 .auth-help-links button {
   color: inherit;
-  cursor: default;
+  cursor: pointer;
 }
 
 .auth-help-links i {
@@ -6088,6 +6092,58 @@ html.native-ios-shell [role="button"] {
   color: #77777c;
   font-weight: 700;
   text-decoration: none;
+}
+
+.auth-recovery-sheet {
+  position: relative;
+  display: grid;
+  gap: 14px;
+  width: min(100%, 430px);
+  padding: 22px 20px 20px;
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.auth-recovery-sheet h2 {
+  margin: 0;
+  color: #151517;
+  font-size: 22px;
+  font-weight: 900;
+}
+
+.auth-recovery-sheet > p {
+  margin: -2px 0 0;
+  color: #68686e;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+.auth-recovery-form {
+  display: grid;
+  gap: 12px;
+}
+
+.auth-recovery-result {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 16px;
+  background: #f7f7f8;
+}
+
+.auth-recovery-result span {
+  color: #77777c;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.auth-recovery-result strong {
+  color: #151517;
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
 }
 
 .login-progress {
@@ -6513,6 +6569,34 @@ html.native-ios-shell [role="button"] {
 }
 
 .customer-center svg {
+  color: var(--brand);
+}
+
+.support-link-stack {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.support-link-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  color: #44444a;
+  font-size: 13px;
+  font-weight: 800;
+  box-shadow: var(--shadow-soft);
+}
+
+.support-link-button svg {
   color: var(--brand);
 }
 

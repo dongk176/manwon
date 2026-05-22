@@ -41,7 +41,7 @@ import {
   WalletCards,
   X,
 } from 'lucide-react'
-import { AppHeader, BrandButton, RatingStars } from '@/components/ui/Common'
+import { ActionGuideOverlay, AppHeader, BrandButton, RatingStars } from '@/components/ui/Common'
 import { NeighborhoodSelectSheet } from '@/components/location/LocationSheets'
 import { notifyNativeProfileOnboardingCompleted } from '@/components/NativeIOSBridge'
 import {
@@ -49,6 +49,7 @@ import {
   createActivityProfile,
   deactivateActivityProfile,
   deleteBlock,
+  fetchTaskPost,
   fetchActivityProfiles,
   fetchMyActivity,
   fetchMyPage,
@@ -385,6 +386,16 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
         <Headphones size={18} />
         고객센터
       </button>
+      <div className="support-link-stack" aria-label="약관 바로가기">
+        <button className="support-link-button" type="button" onClick={() => router.push('/terms/service')}>
+          <FileText size={17} />
+          서비스 이용약관
+        </button>
+        <button className="support-link-button" type="button" onClick={() => router.push('/terms/privacy')}>
+          <Shield size={17} />
+          개인정보 처리방침
+        </button>
+      </div>
       <button className="withdraw-cta my-main-withdraw-button" type="button" disabled={withdrawBusy} onClick={openWithdrawConfirm}>
         <UserMinus size={18} />
         {withdrawBusy ? '탈퇴 처리 중' : '탈퇴하기'}
@@ -409,6 +420,7 @@ function MyActivityScreen({
   const [activeTab, setActiveTab] = useState<MyActivityTab>(initialTab)
   const [activeStatus, setActiveStatus] = useState('전체')
   const [selectedItem, setSelectedItem] = useState<TaskItem | null>(null)
+  const [postGuide, setPostGuide] = useState<{ title: string; description: string } | null>(null)
   const router = useRouter()
   const postItems = useMemo(() => posts.map(postToTaskItem), [posts])
   const dealItems = useMemo(() => deals.map(dealToTaskItem), [deals])
@@ -435,12 +447,39 @@ function MyActivityScreen({
           }}
           onOpenPost={() => {
             if (!selectedItem.postId) return
-            router.push(`/posts/${encodeURIComponent(selectedItem.postId)}`)
+            void openTaskPost(selectedItem.postId)
           }}
+        />
+      )}
+      {postGuide && (
+        <ActionGuideOverlay
+          title={postGuide.title}
+          description={postGuide.description}
+          onClose={() => setPostGuide(null)}
         />
       )}
     </section>
   )
+
+  async function openTaskPost(postId: string) {
+    try {
+      await fetchTaskPost(postId)
+      router.push(`/posts/${encodeURIComponent(postId)}`)
+    } catch (error) {
+      if (isRemovedPostError(error)) {
+        setSelectedItem(null)
+        setPostGuide({
+          title: '삭제된 게시물입니다.',
+          description: '더 이상 확인할 수 없는 게시글이에요.',
+        })
+        return
+      }
+      setPostGuide({
+        title: '게시글을 열 수 없습니다.',
+        description: error instanceof Error ? error.message : '잠시 후 다시 시도해주세요.',
+      })
+    }
+  }
 }
 
 function MyFavoritesScreen({ favorites, loading, onBack }: { favorites: ActivityRecord[]; loading: boolean; onBack: () => void }) {
@@ -1524,11 +1563,6 @@ function WithdrawConfirmOverlay({
           탈퇴 전 확인
         </span>
         <h2 id="withdraw-confirm-title">정말 탈퇴하시겠어요?</h2>
-        <p>
-          탈퇴하면 계정은 바로 비활성화됩니다.
-          <br />
-          개인정보는 개인정보 처리방침과 관련 법령에 따라 즉시 전부 삭제되지 않을 수 있습니다.
-        </p>
         <ul className="withdraw-confirm-list">
           <li>탈퇴 후 같은 휴대폰 번호로 30일 동안 회원가입할 수 없습니다.</li>
           <li>신고, 거래, 정산, 분쟁 대응에 필요한 일부 기록은 보관될 수 있습니다.</li>
@@ -2147,6 +2181,11 @@ function favoriteToTaskItem(favorite: ActivityRecord): TaskItem {
     filterStatus: dueSoon ? '마감임박' : toPostFilterStatus(status),
     dueSoon,
   }
+}
+
+function isRemovedPostError(error: unknown) {
+  if (!(error instanceof Error)) return false
+  return error.message === '삭제된 게시물입니다.' || error.message === '게시글을 찾을 수 없습니다.'
 }
 
 function filterTaskItems(items: TaskItem[], active: string) {

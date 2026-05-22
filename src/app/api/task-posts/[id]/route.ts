@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { z } from 'zod'
 import { getRequestUserId, requireUser } from '@/server/auth'
 import { fail, ok, toHttpError } from '@/server/http'
-import { getTaskPost, updateTaskPost } from '@/server/manwonService'
+import { deleteTaskPost, getTaskPost, updateTaskPost } from '@/server/manwonService'
 import { updatePostSchema } from '@/server/validation'
 
 export const dynamic = 'force-dynamic'
@@ -38,8 +38,8 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
   try {
     const userId = await requireUser(request)
     const { id } = paramsSchema.parse(await context.params)
-    const post = await updateTaskPost(userId, id, { status: 'hidden' })
-    if (!post) return fail('숨김 처리할 게시글을 찾을 수 없습니다.', 404)
+    const post = await deleteTaskPost(userId, id)
+    if (!post) return fail('삭제할 게시글을 찾을 수 없습니다.', 404)
     return ok(post)
   } catch (error) {
     return toHttpError(error)

@@ -375,6 +375,12 @@ export async function updateTaskPost(postId: string, payload: Partial<CreateTask
   })
 }
 
+export async function deleteTaskPost(postId: string) {
+  return apiFetch<ApiTaskPost>(`/api/task-posts/${encodeURIComponent(postId)}`, {
+    method: 'DELETE',
+  })
+}
+
 export async function reopenTaskPost(postId: string) {
   return apiFetch<ApiTaskPost>(`/api/task-posts/${encodeURIComponent(postId)}/reopen`, {
     method: 'POST',
@@ -519,6 +525,34 @@ export async function checkSignupLoginId(loginId: string) {
   return apiFetch<{ available: boolean }>('/api/auth/signup/check-id', {
     method: 'POST',
     body: JSON.stringify({ loginId }),
+  })
+}
+
+export async function requestLoginIdRecovery(phone: string) {
+  return apiFetch<{ phone: string; ttlSeconds: number }>('/api/auth/recovery/login-id/request', {
+    method: 'POST',
+    body: JSON.stringify({ phone }),
+  })
+}
+
+export async function confirmLoginIdRecovery(phone: string, code: string) {
+  return apiFetch<{ phone: string; loginId: string }>('/api/auth/recovery/login-id/confirm', {
+    method: 'POST',
+    body: JSON.stringify({ phone, code }),
+  })
+}
+
+export async function requestPasswordRecovery(loginId: string, phone: string) {
+  return apiFetch<{ phone: string; ttlSeconds: number }>('/api/auth/recovery/password/request', {
+    method: 'POST',
+    body: JSON.stringify({ loginId, phone }),
+  })
+}
+
+export async function resetPasswordWithRecovery(input: { loginId: string; phone: string; code: string; password: string }) {
+  return apiFetch<{ success: boolean }>('/api/auth/recovery/password/reset', {
+    method: 'POST',
+    body: JSON.stringify(input),
   })
 }
 

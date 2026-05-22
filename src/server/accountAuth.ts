@@ -1,11 +1,24 @@
 import { getSql } from '@/server/db'
 import { HttpError } from '@/server/http'
 import { hashPassword, verifyPassword } from '@/server/password'
-import { normalizePhone, requestSignupPhoneOtp, verifySignupPhoneOtp } from '@/server/phoneVerification'
-import type { loginCheckSchema, signupLoginIdCheckSchema, signupOtpConfirmSchema, signupOtpRequestSchema } from '@/server/validation'
+import { normalizePhone, requestLoginOtp, requestSignupPhoneOtp, verifyPhoneOtpCode, verifySignupPhoneOtp } from '@/server/phoneVerification'
+import type {
+  accountRecoveryPhoneConfirmSchema,
+  accountRecoveryPhoneSchema,
+  loginCheckSchema,
+  passwordRecoveryRequestSchema,
+  passwordRecoveryResetSchema,
+  signupLoginIdCheckSchema,
+  signupOtpConfirmSchema,
+  signupOtpRequestSchema,
+} from '@/server/validation'
 import type { z } from 'zod'
 
 type LoginCheckInput = z.infer<typeof loginCheckSchema>
+type AccountRecoveryPhoneInput = z.infer<typeof accountRecoveryPhoneSchema>
+type AccountRecoveryPhoneConfirmInput = z.infer<typeof accountRecoveryPhoneConfirmSchema>
+type PasswordRecoveryRequestInput = z.infer<typeof passwordRecoveryRequestSchema>
+type PasswordRecoveryResetInput = z.infer<typeof passwordRecoveryResetSchema>
 type SignupLoginIdCheckInput = z.infer<typeof signupLoginIdCheckSchema>
 type SignupOtpRequestInput = z.infer<typeof signupOtpRequestSchema>
 type SignupOtpConfirmInput = z.infer<typeof signupOtpConfirmSchema>
@@ -76,6 +89,83 @@ export async function checkSignupLoginId(input: SignupLoginIdCheckInput) {
   `
 
   return { available: !user }
+}
+
+export async function requestLoginIdRecovery(input: AccountRecoveryPhoneInput, request: Request) {
+  return requestLoginOtp(input.phone, request)
+}
+
+export async function confirmLoginIdRecovery(input: AccountRecoveryPhoneConfirmInput) {
+  const phone = normalizePhone(input.phone)
+  const sql = getSql()
+  const [user] = await sql`
+    select id, login_id
+    from ${sql(schema)}.users
+    where phone = ${phone}
+      and phone_verified = true
+      and withdrawn_at is null
+    limit 1
+  `
+
+  if (!user?.id || !user.loginId) {
+    throw new HttpError('가입된 계정을 찾을 수 없습니다.', 404)
+  }
+
+  await verifyPhoneOtpCode(String(user.id), phone, input.code)
+
+  return {
+    phone,
+    loginId: String(user.loginId),
+  }
+}
+
+export async function requestPasswordRecovery(input: PasswordRecoveryRequestInput, request: Request) {
+  const phone = normalizePhone(input.phone)
+  const sql = getSql()
+  const [user] = await sql`
+    select id
+    from ${sql(schema)}.users
+    where login_id = ${input.loginId}
+      and phone = ${phone}
+      and phone_verified = true
+      and withdrawn_at is null
+    limit 1
+  `
+
+  if (!user?.id) {
+    throw new HttpError('아이디와 휴대폰 번호가 일치하는 계정을 찾을 수 없습니다.', 404)
+  }
+
+  return requestLoginOtp(phone, request)
+}
+
+export async function resetPasswordWithRecovery(input: PasswordRecoveryResetInput) {
+  const phone = normalizePhone(input.phone)
+  const sql = getSql()
+  const [user] = await sql`
+    select id
+    from ${sql(schema)}.users
+    where login_id = ${input.loginId}
+      and phone = ${phone}
+      and phone_verified = true
+      and withdrawn_at is null
+    limit 1
+  `
+
+  if (!user?.id) {
+    throw new HttpError('아이디와 휴대폰 번호가 일치하는 계정을 찾을 수 없습니다.', 404)
+  }
+
+  await verifyPhoneOtpCode(String(user.id), phone, input.code)
+
+  await sql`
+    update ${sql(schema)}.users
+    set password_hash = ${hashPassword(input.password)},
+        updated_at = now()
+    where id = ${user.id}
+  `
+
+  return { success: true }
 }
 
 export async function requestSignupOtp(input: SignupOtpRequestInput, request: Request) {

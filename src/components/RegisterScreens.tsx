@@ -144,7 +144,7 @@ export function RegisterScreens({
 export function RegistrationTypeScreen({ onSelect }: { onSelect: (kind: RegisterKind) => void }) {
   return (
     <section className="screen register-screen">
-      <AppHeader title="등록" subtitle="어떤 글을 올릴까요?" showBell showSearch />
+      <AppHeader title="등록" subtitle="어떤 글을 올릴까요?" />
       <div className="register-type-stack">
         <button className="register-type-card" type="button" onClick={() => onSelect('request')}>
           <div>

@@ -142,6 +142,24 @@ export const signupOtpConfirmSchema = signupOtpRequestSchema.extend({
   code: z.string().min(4).max(12),
 })
 
+export const accountRecoveryPhoneSchema = z.object({
+  phone: z.string().min(10).max(20),
+})
+
+export const accountRecoveryPhoneConfirmSchema = accountRecoveryPhoneSchema.extend({
+  code: z.string().min(4).max(12),
+})
+
+export const passwordRecoveryRequestSchema = z.object({
+  loginId: loginIdSchema,
+  phone: z.string().min(10).max(20),
+})
+
+export const passwordRecoveryResetSchema = passwordRecoveryRequestSchema.extend({
+  code: z.string().min(4).max(12),
+  password: passwordSchema,
+})
+
 export const createApplicationSchema = z.object({
   postId: z.string().uuid(),
   profileId: z.string().uuid(),

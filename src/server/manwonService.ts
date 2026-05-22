@@ -448,6 +448,9 @@ export async function getTaskPost(postId: string, viewerId?: string | null) {
   `
 
   if (!rows[0]) return null
+  if (rows[0].status === 'hidden' && String(rows[0].creatorId) !== currentUserId) {
+    throw new HttpError('삭제된 게시물입니다.', 404)
+  }
 
   if (currentUserId) {
     const creatorId = rows[0].creatorId
@@ -785,6 +788,21 @@ export async function updateTaskPost(userId: string, postId: string, input: Upda
   }
 
   return application
+}
+
+export async function deleteTaskPost(userId: string, postId: string) {
+  const sql = getSql()
+  const rows = await sql`
+    update manwon_happiness.task_posts
+    set status = 'hidden',
+        updated_at = now()
+    where id = ${postId}
+      and creator_id = ${userId}
+      and status <> 'hidden'
+    returning *
+  `
+
+  return rows[0] ?? null
 }
 
 export async function reopenTaskPost(userId: string, postId: string) {
@@ -1958,6 +1976,7 @@ export async function getMyActivity(userId: string) {
       left join manwon_happiness.favorites f on f.post_id = p.id
       left join manwon_happiness.applications a on a.post_id = p.id
       where p.creator_id = ${userId}
+        and p.status <> 'hidden'
       group by p.id
       order by p.created_at desc
       limit 50
@@ -2003,6 +2022,7 @@ export async function getMyActivity(userId: string) {
       from manwon_happiness.favorites f
       join manwon_happiness.task_posts p on p.id = f.post_id
       where f.user_id = ${userId}
+        and p.status <> 'hidden'
       order by f.created_at desc
       limit 50
     `,
@@ -2066,11 +2086,17 @@ export async function getMyPage(userId: string) {
   const rows = await sql`
     select
       p.*,
-      (select count(*)::integer from manwon_happiness.task_posts where creator_id = ${userId}) as posts_count,
+      (select count(*)::integer from manwon_happiness.task_posts where creator_id = ${userId} and status <> 'hidden') as posts_count,
       (select count(*)::integer from manwon_happiness.deals where helper_id = ${userId}) as helping_count,
       (select count(*)::integer from manwon_happiness.task_posts where creator_id = ${userId} and status in ('open', 'pending', 'in_progress')) as active_posts_count,
       (select count(*)::integer from manwon_happiness.deals where helper_id = ${userId} and status in ('accepted', 'in_progress', 'complete_requested')) as active_helping_count,
-      (select count(*)::integer from manwon_happiness.favorites where user_id = ${userId}) as favorite_count,
+      (
+        select count(*)::integer
+        from manwon_happiness.favorites f
+        join manwon_happiness.task_posts tp on tp.id = f.post_id
+        where f.user_id = ${userId}
+          and tp.status <> 'hidden'
+      ) as favorite_count,
       (select count(*)::integer from manwon_happiness.reviews where reviewee_id = ${userId}) as received_review_count
     from manwon_happiness.users p
     where p.id = ${userId}

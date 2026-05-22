@@ -171,6 +171,20 @@ final class AppRouter: ObservableObject {
             return
         }
 
+        if matchesPath(normalized, "/register") {
+            setWebPath(normalized, for: .register)
+            if tab != .register {
+                setSelectedTab(.register)
+            }
+            return
+        }
+
+        if normalized == "/" || matchesPath(normalized, "/login") || matchesPath(normalized, "/signup") {
+            setWebPath(normalized, for: .home)
+            setSelectedTab(.home)
+            return
+        }
+
         setWebPath(normalized, for: tab)
     }
 

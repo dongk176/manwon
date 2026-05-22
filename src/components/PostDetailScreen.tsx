@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
-import { Check, CheckCircle2, ChevronLeft, ChevronRight, Clock, Clock3, Globe2, Heart, MapPin, MoreHorizontal, Navigation, Share2, ShieldCheck, UsersRound, X } from 'lucide-react'
+import { Check, CheckCircle2, ChevronLeft, ChevronRight, Clock, Clock3, Globe2, Heart, MapPin, MoreHorizontal, Navigation, Share2, ShieldCheck, Trash2, UsersRound, X } from 'lucide-react'
 import { ActionGuideOverlay, BrandButton, CategoryImageFrame, MoreMenu, RatingStars, ReportConfirmSheet } from '@/components/ui/Common'
 import { UserProfileSheet } from '@/components/UserProfileSheet'
 import { Avatar } from '@/components/ui/Illustration'
@@ -26,6 +26,7 @@ import {
   addFavorite,
   createBlock,
   createReport,
+  deleteTaskPost,
   fetchActivityProfiles,
   fetchAuthSession,
   fetchTaskPost,
@@ -160,6 +161,8 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
   const [showLocationPrompt, setShowLocationPrompt] = useState(false)
   const [showNeighborhoodSheet, setShowNeighborhoodSheet] = useState(false)
   const [showReopenNotice, setShowReopenNotice] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [showRemovedPostNotice, setShowRemovedPostNotice] = useState(false)
   const [activityProfiles, setActivityProfiles] = useState<ActivityProfile[]>([])
   const [profileLoadState, setProfileLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [showProfileSelect, setShowProfileSelect] = useState(false)
@@ -188,8 +191,11 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
         setFavorite(Boolean(data.isFavorited))
         setLoadState('ready')
       })
-      .catch(() => {
+      .catch((error) => {
         if (cancelled) return
+        if (isRemovedPostError(error)) {
+          setShowRemovedPostNotice(true)
+        }
         setLoadState(fallbackPost ? 'fallback' : 'error')
       })
 
@@ -280,7 +286,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
   const isOwner = Boolean(post && currentUserId && post.creatorId === currentUserId)
   const postStatus = getRawPostStatus(post, displayPost)
   const showOwnerReopenActions = Boolean(isOwner && postStatus === 'cancelled' && !editMode)
-  const primaryActionDisabled = !canUsePost || actionState === 'saving' || (!isOwner && postStatus !== 'open')
+  const primaryActionDisabled = !canUsePost || actionState === 'saving' || (!isOwner && postStatus !== 'open') || (isOwner && postStatus === 'hidden')
   const primaryActionLabel = getPrimaryActionLabel({
     saving: actionState === 'saving',
     isOwner,
@@ -290,7 +296,8 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
   })
   const ctaClassName = [
     'fixed-bottom-button detail-cta-bar',
-    editMode || (isOwner && !showOwnerReopenActions) ? 'is-single' : '',
+    editMode ? 'is-single' : '',
+    isOwner && !editMode ? 'has-owner-delete' : '',
     showOwnerReopenActions ? 'is-owner-actions' : '',
   ].filter(Boolean).join(' ')
   const floatingActionsClassName = [
@@ -416,6 +423,21 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
     }
   }
 
+  async function handleDeletePost() {
+    if (!post) return
+    setActionState('saving')
+    setMessage('')
+    try {
+      await deleteTaskPost(post.id)
+      setShowDeleteConfirm(false)
+      router.replace('/my/activity')
+      router.refresh()
+    } catch (error) {
+      setActionState('error')
+      setMessage(error instanceof Error ? error.message : '게시글을 삭제하지 못했습니다.')
+    }
+  }
+
   async function handleReport(input: { reason: string; description: string }) {
     if (!displayPost) return
     setActionState('saving')
@@ -522,6 +544,14 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
       return
     }
     router.back()
+  }
+
+  function handleRemovedPostClose() {
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      router.back()
+      return
+    }
+    router.replace('/activity')
   }
 
   function startEditMode() {
@@ -647,6 +677,13 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
       {loadState === 'loading' && <p className="inline-status">게시글을 불러오는 중입니다.</p>}
       {loadState === 'error' && <p className="inline-status is-error">게시글을 불러오지 못했습니다.</p>}
       {loadState === 'fallback' && <p className="inline-status">개발용 데이터를 기준으로 상세를 표시합니다.</p>}
+      {showRemovedPostNotice && (
+        <ActionGuideOverlay
+          title="삭제된 게시물입니다."
+          description="더 이상 확인할 수 없는 게시글이에요."
+          onClose={handleRemovedPostClose}
+        />
+      )}
 
       {displayPost && (
         <>
@@ -762,9 +799,15 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
           {message && <p className={`inline-status ${actionState === 'error' ? 'is-error' : ''}`}>{message}</p>}
 
           <div className={ctaClassName}>
-            {!editMode && !isOwner && (
-              <button type="button" className={`favorite-button detail-save-button ${favorite ? 'is-active' : ''}`} onClick={handleFavorite} aria-label="저장">
-                <Heart size={20} fill={favorite ? 'currentColor' : 'none'} />
+            {!editMode && (
+              <button
+                type="button"
+                className={`favorite-button detail-save-button ${!isOwner && favorite ? 'is-active' : ''}`}
+                disabled={actionState === 'saving' || (isOwner && postStatus === 'hidden')}
+                onClick={isOwner ? () => setShowDeleteConfirm(true) : handleFavorite}
+                aria-label={isOwner ? '삭제' : '저장'}
+              >
+                {isOwner ? <Trash2 size={20} /> : <Heart size={20} fill={favorite ? 'currentColor' : 'none'} />}
               </button>
             )}
             {showOwnerReopenActions && (
@@ -772,15 +815,29 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
                 수정하기
               </BrandButton>
             )}
-            <BrandButton full={!showOwnerReopenActions} size="lg" onClick={handlePrimaryAction} disabled={primaryActionDisabled}>
-              {primaryActionLabel}
-            </BrandButton>
+            {!editMode && isOwner && !showOwnerReopenActions && (
+              <BrandButton size="lg" onClick={handlePrimaryAction} disabled={primaryActionDisabled}>
+                {primaryActionLabel}
+              </BrandButton>
+            )}
+            {(!isOwner || showOwnerReopenActions || editMode) && (
+              <BrandButton full={!showOwnerReopenActions} size="lg" onClick={handlePrimaryAction} disabled={primaryActionDisabled}>
+                {primaryActionLabel}
+              </BrandButton>
+            )}
           </div>
           {showReopenNotice && (
             <ReopenNoticeDialog
               busy={actionState === 'saving'}
               onClose={() => setShowReopenNotice(false)}
               onReopen={() => void handleReopenPost()}
+            />
+          )}
+          {showDeleteConfirm && (
+            <DeletePostDialog
+              busy={actionState === 'saving'}
+              onClose={() => setShowDeleteConfirm(false)}
+              onDelete={() => void handleDeletePost()}
             />
           )}
           {showReportSheet && (
@@ -984,6 +1041,33 @@ function ReopenNoticeDialog({
   )
 }
 
+function DeletePostDialog({
+  busy,
+  onClose,
+  onDelete,
+}: {
+  busy: boolean
+  onClose: () => void
+  onDelete: () => void
+}) {
+  return (
+    <div className="modal-overlay" role="presentation" onClick={busy ? undefined : onClose}>
+      <div className="confirm-dialog delete-post-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-post-title" onClick={(event) => event.stopPropagation()}>
+        <h2 id="delete-post-title">이 게시글을 삭제할까요?</h2>
+        <p>삭제 후에는 목록에서 바로 사라지고 다시 노출되지 않습니다.</p>
+        <div className="dialog-actions">
+          <button type="button" onClick={onClose} disabled={busy}>
+            취소
+          </button>
+          <button type="button" onClick={onDelete} disabled={busy}>
+            {busy ? '삭제 중' : '삭제하기'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function getRawPostStatus(post: ApiTaskPost | null, displayPost: RequestPost | undefined): PostStatus {
   if (post?.status) return post.status
   if (displayPost?.postStatus) return displayPost.postStatus
@@ -1009,6 +1093,7 @@ function getPrimaryActionLabel({
   if (saving) return '처리 중'
   if (isOwner) {
     if (editMode) return '저장하기'
+    if (postStatus === 'hidden') return '삭제된 게시글입니다'
     if (postStatus === 'cancelled') return '다시 모집하기'
     return '수정하기'
   }
@@ -1024,6 +1109,11 @@ function getDefaultStartMessage(postType?: 'request' | 'offer') {
 
 function getReopenNoticeStorageKey(postId: string, dealId: string) {
   return `manwon_reopen_notice:${postId}:${dealId}`
+}
+
+function isRemovedPostError(error: unknown) {
+  if (!(error instanceof Error)) return false
+  return error.message === '삭제된 게시물입니다.' || error.message === '게시글을 찾을 수 없습니다.'
 }
 
 function getDetailImageUrls(post: ApiTaskPost | null, displayPost: RequestPost | undefined) {

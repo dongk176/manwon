@@ -7,8 +7,12 @@ import { ArrowLeft, Check, ChevronRight, X } from 'lucide-react'
 import { BrandButton } from '@/components/ui/Common'
 import {
   checkLoginCredential,
+  confirmLoginIdRecovery,
   checkSignupLoginId,
   completeSignup,
+  requestLoginIdRecovery,
+  requestPasswordRecovery,
+  resetPasswordWithRecovery,
   requestSignupOtp,
   verifySignupOtp,
   type SignupOnboardingPayload,
@@ -16,6 +20,7 @@ import {
 
 type SignupStep = 'credentials' | 'profile'
 type SignupGender = 'male' | 'female' | ''
+type RecoverySheetMode = 'findId' | 'resetPassword'
 
 const agreementItems = [
   {
@@ -88,6 +93,7 @@ export function LoginScreen() {
   const [loginId, setLoginId] = useState('')
   const [loginIdInputHint, setLoginIdInputHint] = useState('')
   const [password, setPassword] = useState('')
+  const [recoverySheet, setRecoverySheet] = useState<RecoverySheetMode | null>(null)
   const [status, setStatus] = useState<'idle' | 'checking' | 'error'>('idle')
   const [message, setMessage] = useState('')
 
@@ -193,48 +199,36 @@ export function LoginScreen() {
         </div>
 
         <div className="auth-help-links" aria-label="계정 찾기">
-          <button type="button" aria-disabled="true">
+          <button type="button" onClick={() => setRecoverySheet('findId')}>
             아이디 찾기
           </button>
           <i />
-          <button type="button" aria-disabled="true">
+          <button type="button" onClick={() => setRecoverySheet('resetPassword')}>
             비밀번호 찾기
           </button>
         </div>
-        <footer className="auth-business-footer">
-          <details>
-            <summary>사업자 정보</summary>
-            <dl>
-              <div>
-                <dt>상호</dt>
-                <dd>아티룸</dd>
-              </div>
-              <div>
-                <dt>대표</dt>
-                <dd>김동민</dd>
-              </div>
-              <div>
-                <dt>사업자등록번호</dt>
-                <dd>638-04-03590</dd>
-              </div>
-              <div>
-                <dt>통신판매업 신고번호</dt>
-                <dd>2025-서울마포-2971</dd>
-              </div>
-              <div>
-                <dt>주소</dt>
-                <dd>서울특별시 마포구 성산로8길 40</dd>
-              </div>
-              <div>
-                <dt>문의</dt>
-                <dd>
-                  <a href="mailto:artiroom176@gmail.com">artiroom176@gmail.com</a>
-                </dd>
-              </div>
-            </dl>
-          </details>
-        </footer>
       </div>
+      {recoverySheet && (
+        <AccountRecoverySheet
+          mode={recoverySheet}
+          initialLoginId={loginId}
+          onClose={() => setRecoverySheet(null)}
+          onSelectLoginId={(recoveredLoginId) => {
+            updateLoginId(recoveredLoginId)
+            setPassword('')
+            setStatus('idle')
+            setMessage('아이디를 찾았어요. 비밀번호를 입력한 뒤 로그인해주세요.')
+            setRecoverySheet(null)
+          }}
+          onPasswordReset={(recoveredLoginId) => {
+            updateLoginId(recoveredLoginId)
+            setPassword('')
+            setStatus('idle')
+            setMessage('새 비밀번호가 저장되었습니다. 다시 로그인해주세요.')
+            setRecoverySheet(null)
+          }}
+        />
+      )}
     </section>
   )
 }
@@ -623,6 +617,226 @@ function AgreementSheet({
           </BrandButton>
         </div>
       </div>
+    </div>
+  )
+}
+
+function AccountRecoverySheet({
+  mode,
+  initialLoginId,
+  onClose,
+  onSelectLoginId,
+  onPasswordReset,
+}: {
+  mode: RecoverySheetMode
+  initialLoginId: string
+  onClose: () => void
+  onSelectLoginId: (loginId: string) => void
+  onPasswordReset: (loginId: string) => void
+}) {
+  const isPasswordMode = mode === 'resetPassword'
+  const [loginId, setLoginId] = useState(initialLoginId)
+  const [phone, setPhone] = useState('')
+  const [code, setCode] = useState('')
+  const [nextPassword, setNextPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [requestedPhone, setRequestedPhone] = useState('')
+  const [cooldown, setCooldown] = useState(0)
+  const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'verifying' | 'done' | 'error'>('idle')
+  const [message, setMessage] = useState('')
+  const [recoveredLoginId, setRecoveredLoginId] = useState('')
+
+  const loginIdHint = isPasswordMode && loginId.length > 0 && loginId.length < LOGIN_ID_MIN_LENGTH ? `${LOGIN_ID_MIN_LENGTH}자 이상` : ''
+  const nextPasswordHint = nextPassword.length > 0 && nextPassword.length < PASSWORD_MIN_LENGTH ? `${PASSWORD_MIN_LENGTH}자 이상` : ''
+  const confirmPasswordHint = confirmPassword.length > 0 && confirmPassword !== nextPassword ? '비밀번호가 달라요' : ''
+  const busy = status === 'sending' || status === 'verifying'
+  const canRequest = isPasswordMode
+    ? loginId.length >= LOGIN_ID_MIN_LENGTH && phone.length >= 10 && !busy && (!requestedPhone || cooldown === 0)
+    : phone.length >= 10 && !busy && (!requestedPhone || cooldown === 0)
+  const canConfirm = isPasswordMode
+    ? loginId.length >= LOGIN_ID_MIN_LENGTH
+      && phone.length >= 10
+      && code.length === 6
+      && nextPassword.length >= PASSWORD_MIN_LENGTH
+      && nextPassword === confirmPassword
+      && !busy
+    : phone.length >= 10 && code.length === 6 && !busy
+
+  useEffect(() => {
+    if (cooldown <= 0) return
+    const timer = window.setInterval(() => {
+      setCooldown((current) => Math.max(0, current - 1))
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [cooldown])
+
+  function resetVerificationState() {
+    setRequestedPhone('')
+    setCode('')
+    setCooldown(0)
+    setRecoveredLoginId('')
+    setStatus('idle')
+    setMessage('')
+  }
+
+  async function handleRequestCode() {
+    if (!canRequest) return
+    setStatus('sending')
+    setMessage('')
+    try {
+      const result = isPasswordMode
+        ? await requestPasswordRecovery(loginId, phone)
+        : await requestLoginIdRecovery(phone)
+      setRequestedPhone(result.phone)
+      setCode('')
+      setRecoveredLoginId('')
+      setCooldown(30)
+      setStatus('sent')
+      setMessage(`인증번호를 보냈습니다. ${Math.ceil(result.ttlSeconds / 60)}분 안에 입력해주세요.`)
+    } catch (error) {
+      setStatus('error')
+      setMessage(error instanceof Error ? error.message : '인증번호를 보내지 못했습니다.')
+    }
+  }
+
+  async function handleConfirm() {
+    if (!canConfirm) return
+    if (isPasswordMode && nextPassword !== confirmPassword) {
+      setStatus('error')
+      setMessage('새 비밀번호를 다시 확인해주세요.')
+      return
+    }
+
+    setStatus('verifying')
+    setMessage('')
+    try {
+      if (isPasswordMode) {
+        await resetPasswordWithRecovery({
+          loginId,
+          phone,
+          code,
+          password: nextPassword,
+        })
+        onPasswordReset(loginId)
+        return
+      }
+
+      const result = await confirmLoginIdRecovery(phone, code)
+      setRecoveredLoginId(result.loginId)
+      setStatus('done')
+      setMessage('가입된 아이디를 찾았어요.')
+    } catch (error) {
+      setStatus('error')
+      setMessage(error instanceof Error ? error.message : '인증번호를 확인하지 못했습니다.')
+    }
+  }
+
+  return (
+    <div className="sheet-overlay is-centered" role="presentation" onClick={busy ? undefined : onClose}>
+      <section className="auth-recovery-sheet" role="dialog" aria-modal="true" aria-labelledby="auth-recovery-title" onClick={(event) => event.stopPropagation()}>
+        <button className="sheet-x" type="button" onClick={onClose} disabled={busy} aria-label="닫기">
+          <X size={20} />
+        </button>
+        <h2 id="auth-recovery-title">{isPasswordMode ? '비밀번호 재설정' : '아이디 찾기'}</h2>
+        <p>{isPasswordMode ? '아이디와 휴대폰 번호를 확인한 뒤 새 비밀번호를 설정해주세요.' : '가입에 사용한 휴대폰 번호로 아이디를 확인할 수 있어요.'}</p>
+
+        <div className="auth-recovery-form">
+          {isPasswordMode && (
+            <label className={`auth-field ${loginIdHint ? 'has-hint' : ''}`}>
+              <span className="sr-only">아이디</span>
+              <input
+                value={loginId}
+                autoComplete="username"
+                placeholder="아이디"
+                disabled={busy}
+                onChange={(event) => {
+                  setLoginId(normalizeLoginIdInput(event.target.value))
+                  resetVerificationState()
+                }}
+              />
+              {loginIdHint && <span className="auth-field-hint">{loginIdHint}</span>}
+            </label>
+          )}
+
+          <label className="auth-field">
+            <span className="sr-only">휴대폰 번호</span>
+            <input
+              value={formatPhoneNumber(phone)}
+              inputMode="numeric"
+              autoComplete="tel"
+              placeholder="휴대폰 번호"
+              disabled={busy}
+              onChange={(event) => {
+                setPhone(normalizeDigitsInput(event.target.value, 11))
+                resetVerificationState()
+              }}
+            />
+          </label>
+
+          <button className="auth-main-button" type="button" disabled={!canRequest} onClick={() => void handleRequestCode()}>
+            {status === 'sending' ? '전송 중' : requestedPhone && cooldown > 0 ? `재전송 ${cooldown}초` : requestedPhone ? '인증번호 재전송' : '인증번호 전송'}
+          </button>
+
+          {(requestedPhone || code.length > 0 || status === 'done') && (
+            <label className="auth-field">
+              <span className="sr-only">인증번호</span>
+              <input
+                value={code}
+                inputMode="numeric"
+                placeholder="인증번호 6자리"
+                disabled={busy || Boolean(recoveredLoginId)}
+                onChange={(event) => setCode(normalizeDigitsInput(event.target.value, 6))}
+              />
+            </label>
+          )}
+
+          {isPasswordMode && (
+            <>
+              <label className={`auth-field ${nextPasswordHint ? 'has-hint' : ''}`}>
+                <span className="sr-only">새 비밀번호</span>
+                <input
+                  value={nextPassword}
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder="새 비밀번호"
+                  disabled={busy}
+                  onChange={(event) => setNextPassword(event.target.value.slice(0, PASSWORD_MAX_LENGTH))}
+                />
+                {nextPasswordHint && <span className="auth-field-hint">{nextPasswordHint}</span>}
+              </label>
+
+              <label className={`auth-field ${confirmPasswordHint ? 'has-hint' : ''}`}>
+                <span className="sr-only">새 비밀번호 확인</span>
+                <input
+                  value={confirmPassword}
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder="새 비밀번호 확인"
+                  disabled={busy}
+                  onChange={(event) => setConfirmPassword(event.target.value.slice(0, PASSWORD_MAX_LENGTH))}
+                />
+                {confirmPasswordHint && <span className="auth-field-hint">{confirmPasswordHint}</span>}
+              </label>
+            </>
+          )}
+
+          {message && <p className={`inline-status ${status === 'error' ? 'is-error' : ''}`}>{message}</p>}
+
+          {recoveredLoginId ? (
+            <div className="auth-recovery-result">
+              <span>가입된 아이디</span>
+              <strong>{recoveredLoginId}</strong>
+              <button className="auth-main-button" type="button" onClick={() => onSelectLoginId(recoveredLoginId)}>
+                이 아이디로 로그인
+              </button>
+            </div>
+          ) : (
+            <button className="auth-sub-button" type="button" disabled={!canConfirm} onClick={() => void handleConfirm()}>
+              {status === 'verifying' ? '확인 중' : isPasswordMode ? '새 비밀번호 저장' : '아이디 확인'}
+            </button>
+          )}
+        </div>
+      </section>
     </div>
   )
 }

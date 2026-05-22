@@ -467,6 +467,28 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
             return
         }
 
+        if (normalized == "/register" || normalized.startsWith("/register/")) {
+            registerPath = normalized
+            displayedWebPaths[AppTab.REGISTER] = normalized
+            if (tab != AppTab.REGISTER) {
+                registerWeb.loadPath(registerPath)
+                selectTab(AppTab.REGISTER)
+            }
+            updateBottomNavVisibility()
+            return
+        }
+
+        if (normalized == "/" || normalized == "/login" || normalized.startsWith("/login?") || normalized == "/signup" || normalized.startsWith("/signup?")) {
+            homePath = normalized
+            displayedWebPaths[AppTab.HOME] = normalized
+            if (tab != AppTab.HOME) {
+                homeWeb.loadPath(homePath)
+            }
+            selectTab(AppTab.HOME)
+            updateBottomNavVisibility()
+            return
+        }
+
         displayedWebPaths[tab] = normalized
         when (tab) {
             AppTab.HOME -> homePath = normalized
