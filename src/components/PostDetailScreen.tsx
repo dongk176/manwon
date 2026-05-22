@@ -675,7 +675,6 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
 
   return (
     <section className="screen post-detail-screen">
-      {loadState === 'loading' && <p className="inline-status">게시글을 불러오는 중입니다.</p>}
       {loadState === 'error' && <p className="inline-status is-error">게시글을 불러오지 못했습니다.</p>}
       {loadState === 'fallback' && <p className="inline-status">개발용 데이터를 기준으로 상세를 표시합니다.</p>}
       {showRemovedPostNotice && (
@@ -687,7 +686,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
       )}
 
       {displayPost && (
-        <>
+        <div className="post-detail-content">
           <div className="post-detail-visual">
             <div className={floatingActionsClassName}>
               <button type="button" className="post-detail-floating-icon" onClick={handleBack} aria-label="뒤로가기">
@@ -902,7 +901,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
               onClose={() => setShowNeighborhoodSheet(false)}
             />
           )}
-        </>
+        </div>
       )}
     </section>
   )
