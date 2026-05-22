@@ -68,10 +68,10 @@ export default function SupportPage() {
           <section>
             <h3>정책 문서</h3>
             <p>
-              <Link href="/terms/service">서비스 이용약관</Link>
+              <Link href="/terms/service?returnTo=/support">서비스 이용약관</Link>
             </p>
             <p>
-              <Link href="/terms/privacy">개인정보 처리방침</Link>
+              <Link href="/terms/privacy?returnTo=/support">개인정보 처리방침</Link>
             </p>
           </section>
         </div>

@@ -387,11 +387,11 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
         고객센터
       </button>
       <div className="support-link-stack" aria-label="약관 바로가기">
-        <button className="support-link-button" type="button" onClick={() => router.push('/terms/service')}>
+        <button className="support-link-button" type="button" onClick={() => router.push('/terms/service?returnTo=/my')}>
           <FileText size={17} />
           서비스 이용약관
         </button>
-        <button className="support-link-button" type="button" onClick={() => router.push('/terms/privacy')}>
+        <button className="support-link-button" type="button" onClick={() => router.push('/terms/privacy?returnTo=/my')}>
           <Shield size={17} />
           개인정보 처리방침
         </button>
@@ -1528,8 +1528,8 @@ function AccountScreen({
         <SettingsRow icon={<UserRound />} title="개인정보 관리" subtitle="내 정보 확인 및 수정을 할 수 있습니다." />
       </div>
       <div className="settings-card">
-        <SettingsRow icon={<FileText />} title="서비스 이용약관" subtitle="뭐든해줌 서비스 이용약관을 확인하세요." href="/terms/service" />
-        <SettingsRow icon={<Shield />} title="개인정보 처리방침" subtitle="개인정보 처리방침을 확인하세요." href="/terms/privacy" />
+        <SettingsRow icon={<FileText />} title="서비스 이용약관" subtitle="뭐든해줌 서비스 이용약관을 확인하세요." href="/terms/service?returnTo=/my" />
+        <SettingsRow icon={<Shield />} title="개인정보 처리방침" subtitle="개인정보 처리방침을 확인하세요." href="/terms/privacy?returnTo=/my" />
         <SettingsRow icon={<Headphones />} title="문의하기" subtitle="자주 묻는 질문과 1:1 문의를 이용하세요." href="/my/support" />
       </div>
       <div className="settings-card danger">

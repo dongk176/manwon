@@ -1024,40 +1024,44 @@ struct ChatDetailView: View {
                         guard focused else { return }
                         scrollToBottom(proxy, animated: true, delays: [0.05, 0.22, 0.42])
                     }
-                    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+                    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { _ in
                         scrollToBottom(proxy, animated: true, delays: [0.05, 0.22, 0.42])
                     }
-                    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
-                        scrollToBottom(proxy, animated: true)
-                    }
                 }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                bottomComposerInset
+            }
+        }
+    }
 
-                if !viewModel.quickMessageSuggestions.isEmpty {
-                    QuickMessageCTABar(suggestions: viewModel.quickMessageSuggestions) { suggestion in
-                        dismissComposerKeyboard()
-                        pendingQuickMessage = suggestion
-                    }
+    private var bottomComposerInset: some View {
+        VStack(spacing: 0) {
+            if !viewModel.quickMessageSuggestions.isEmpty {
+                QuickMessageCTABar(suggestions: viewModel.quickMessageSuggestions) { suggestion in
+                    dismissComposerKeyboard()
+                    pendingQuickMessage = suggestion
                 }
+            }
 
-                ComposerBar(
-                    draft: $viewModel.draft,
-                    blockedReason: viewModel.composerBlockedReason,
-                    isSending: viewModel.isSending,
-                    selectedPhoto: $selectedPhoto,
-                    focused: $composerFocused
-                ) {
-                    Task {
-                        await viewModel.sendText()
-                        await MainActor.run {
-                            if viewModel.canSendMessages {
-                                composerFocused = true
-                            }
+            ComposerBar(
+                draft: $viewModel.draft,
+                blockedReason: viewModel.composerBlockedReason,
+                isSending: viewModel.isSending,
+                selectedPhoto: $selectedPhoto,
+                focused: $composerFocused
+            ) {
+                Task {
+                    await viewModel.sendText()
+                    await MainActor.run {
+                        if viewModel.canSendMessages {
+                            composerFocused = true
                         }
                     }
                 }
-                .onChange(of: viewModel.draft) { value in
-                    viewModel.draftDidChange(value)
-                }
+            }
+            .onChange(of: viewModel.draft) { value in
+                viewModel.draftDidChange(value)
             }
         }
     }

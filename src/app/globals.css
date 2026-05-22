@@ -6321,6 +6321,67 @@ html.native-ios-shell [role="button"] {
   background: #f4f4f5;
 }
 
+.agreement-sheet.is-legal-detail {
+  gap: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-top: 10px;
+}
+
+.agreement-detail-topbar {
+  position: sticky;
+  z-index: 1;
+  top: -10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 50px;
+  margin: -10px -20px 0;
+  padding: 10px 56px 0;
+  background: #fff;
+}
+
+.agreement-detail-topbar h2 {
+  overflow: hidden;
+  max-width: 100%;
+  font-size: 16px;
+  font-weight: 750;
+  line-height: 1.3;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agreement-detail-back {
+  position: absolute;
+  left: 14px;
+  top: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  color: #111113;
+}
+
+.agreement-detail-back:active {
+  background: #f4f4f5;
+}
+
+.agreement-sheet.is-legal-detail .legal-title-block {
+  padding: 14px 0 18px;
+}
+
+.agreement-sheet.is-legal-detail .legal-title-block h2 {
+  font-size: 22px;
+}
+
+.agreement-sheet.is-legal-detail .legal-content {
+  gap: 12px;
+  padding-bottom: 8px;
+}
+
 .agreement-note {
   margin: -2px 2px 0;
   color: #77777c;

@@ -1,10 +1,10 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { ArrowLeft, Check, ChevronRight, X } from 'lucide-react'
 import { BrandButton } from '@/components/ui/Common'
+import { documentMeta, legalPages } from '@/lib/legalDocuments'
 import {
   checkLoginCredential,
   confirmLoginIdRecovery,
@@ -28,25 +28,26 @@ const agreementItems = [
     title: '서비스 이용약관 동의',
     description: '뭐든해줌 이용을 위한 기본 약관이에요.',
     required: true,
-    href: '/terms/service',
+    slug: 'service',
   },
   {
     key: 'privacy',
     title: '개인정보 수집·이용 및 본인 확인 동의',
     description: '회원 식별, 휴대폰 인증, 거래 안전을 위해 필요해요.',
     required: true,
-    href: '/terms/privacy',
+    slug: 'privacy',
   },
   {
     key: 'marketing',
     title: '마케팅 정보 수신 동의',
     description: '혜택과 이벤트 소식을 받을 수 있어요.',
     required: false,
-    href: '/terms/marketing',
+    slug: 'marketing',
   },
 ] as const
 
 type AgreementKey = (typeof agreementItems)[number]['key']
+type AgreementSlug = (typeof agreementItems)[number]['slug']
 type Agreements = Record<AgreementKey, boolean>
 
 const initialAgreements: Agreements = {
@@ -573,6 +574,52 @@ function AgreementSheet({
   onToggle: (key: AgreementKey) => void
   onToggleAll: () => void
 }) {
+  const [activeLegalSlug, setActiveLegalSlug] = useState<AgreementSlug | null>(null)
+  const activeLegalPage = activeLegalSlug ? legalPages[activeLegalSlug] : null
+
+  if (activeLegalPage) {
+    return (
+      <div className="sheet-overlay" role="presentation" onClick={() => setActiveLegalSlug(null)}>
+        <div className="agreement-sheet is-legal-detail" role="dialog" aria-modal="true" aria-labelledby="agreement-legal-title" onClick={(event) => event.stopPropagation()}>
+          <header className="agreement-detail-topbar">
+            <button className="agreement-detail-back" type="button" onClick={() => setActiveLegalSlug(null)} aria-label="동의 목록으로 돌아가기">
+              <ArrowLeft size={22} />
+            </button>
+            <h2 id="agreement-legal-title">{activeLegalPage.title}</h2>
+          </header>
+
+          <div className="legal-title-block">
+            <span className={activeLegalPage.badge === '필수' ? 'is-required' : 'is-optional'}>[{activeLegalPage.badge}]</span>
+            <h2>{activeLegalPage.title}</h2>
+            <p>{activeLegalPage.summary}</p>
+            <div className="legal-meta-list">
+              {documentMeta.map((item) => (
+                <small key={item}>{item}</small>
+              ))}
+            </div>
+          </div>
+
+          <div className="legal-content">
+            {activeLegalPage.sections.map((section) => (
+              <section key={section.heading}>
+                <h3>{section.heading}</h3>
+                {section.body.map((paragraph) => (
+                  <p key={paragraph}>{paragraph}</p>
+                ))}
+              </section>
+            ))}
+          </div>
+
+          <div className="agreement-cta">
+            <BrandButton full size="lg" onClick={() => setActiveLegalSlug(null)}>
+              확인
+            </BrandButton>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="sheet-overlay" role="presentation" onClick={onClose}>
       <div className="agreement-sheet" role="dialog" aria-modal="true" aria-labelledby="agreement-title" onClick={(event) => event.stopPropagation()}>
@@ -603,9 +650,9 @@ function AgreementSheet({
                 </strong>
                 <small>{item.description}</small>
               </button>
-              <Link className="agreement-detail-link" href={item.href} target="_blank" rel="noopener noreferrer" aria-label={`${item.title} 보기`}>
+              <button className="agreement-detail-link" type="button" onClick={() => setActiveLegalSlug(item.slug)} aria-label={`${item.title} 보기`}>
                 <ChevronRight size={19} />
-              </Link>
+              </button>
             </div>
           ))}
         </div>
