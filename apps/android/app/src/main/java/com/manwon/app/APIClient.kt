@@ -163,6 +163,7 @@ class APIClient(private val context: Context) {
                     displayName = it.optNullableString("displayName"),
                     avatarUrl = it.optNullableString("avatarUrl"),
                     phoneVerified = if (it.has("phoneVerified")) it.optBoolean("phoneVerified") else null,
+                    profileOnboardingCompleted = if (it.has("profileOnboardingCompleted")) it.optBoolean("profileOnboardingCompleted") else null,
                     completedCount = it.optNullableInt("completedCount")
                 )
             }

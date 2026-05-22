@@ -5,6 +5,10 @@ import { usePathname, useRouter } from 'next/navigation'
 import { BottomNav } from '@/components/ui/Common'
 import { fetchAuthSession, fetchDueReviewReminder } from '@/lib/manwonApi'
 
+function isProfileOnboardingCompleted(profile: Record<string, unknown> | null | undefined) {
+  return profile?.profileOnboardingCompleted === true
+}
+
 function useOverlayScrollLock() {
   useEffect(() => {
     const root = document.documentElement
@@ -81,12 +85,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           return
         }
 
-        const profile = session.profile
-        const hasOnboardingFlag =
-          profile != null && Object.prototype.hasOwnProperty.call(profile, 'profileOnboardingCompleted')
-        const onboardingCompleted = hasOnboardingFlag
-          ? Boolean((profile as Record<string, unknown>).profileOnboardingCompleted)
-          : true
+        const onboardingCompleted = isProfileOnboardingCompleted(session.profile)
 
         if (!onboardingCompleted && pathname !== '/profile-onboarding') {
           router.replace('/profile-onboarding')
@@ -110,7 +109,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (pathname.startsWith('/login') || pathname.startsWith('/signup') || pathname.startsWith('/chat/') || pathname === '/profile-onboarding') return
 
     let cancelled = false
-    void fetchDueReviewReminder()
+    void fetchAuthSession()
+      .then((session) => {
+        if (cancelled || !session.authenticated || !isProfileOnboardingCompleted(session.profile)) return null
+        return fetchDueReviewReminder()
+      })
       .then((reminder) => {
         if (cancelled || !reminder?.conversationId) return
         router.push(`/chat/${encodeURIComponent(reminder.conversationId)}`)

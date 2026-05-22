@@ -38,6 +38,7 @@ struct Profile: Codable, Identifiable {
     let displayName: String?
     let avatarUrl: String?
     let phoneVerified: Bool?
+    let profileOnboardingCompleted: Bool?
     let completedCount: Int?
 }
 

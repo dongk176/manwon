@@ -20,6 +20,7 @@ data class Profile(
     val displayName: String?,
     val avatarUrl: String?,
     val phoneVerified: Boolean?,
+    val profileOnboardingCompleted: Boolean?,
     val completedCount: Int?
 )
 

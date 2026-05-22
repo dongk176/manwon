@@ -43,6 +43,7 @@ import {
 } from 'lucide-react'
 import { AppHeader, BrandButton, RatingStars } from '@/components/ui/Common'
 import { NeighborhoodSelectSheet } from '@/components/location/LocationSheets'
+import { notifyNativeProfileOnboardingCompleted } from '@/components/NativeIOSBridge'
 import {
   createSupportInquiry,
   createActivityProfile,
@@ -494,6 +495,7 @@ function ActivityProfilesScreen({
         ? saved
         : { ...saved, gender: nextForm.gender ?? userGender ?? null }
       if (onboarding) {
+        notifyNativeProfileOnboardingCompleted()
         setSaveState('idle')
         onComplete?.()
         return

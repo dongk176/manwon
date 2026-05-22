@@ -21,6 +21,7 @@ final class AppRouter: ObservableObject {
     @Published var nearbySheetCoversBottomNav = false
     @Published var homeIsAtTop = true
     @Published var mapUnavailableNoticeVisible = false
+    @Published var onboardingRequired = false
     @Published private var displayedWebPaths: [AppTab: String] = [
         .home: "/",
         .register: "/register",
@@ -29,6 +30,7 @@ final class AppRouter: ObservableObject {
     ]
 
     var hidesBottomNav: Bool {
+        if onboardingRequired { return true }
         if selectedTab == .chat && chatDetailActive { return true }
         if selectedTab == .nearby && nearbySheetCoversBottomNav { return true }
 
@@ -37,13 +39,29 @@ final class AppRouter: ObservableObject {
             || path.hasPrefix("/login?")
             || path == "/signup"
             || path.hasPrefix("/signup?")
+            || path == "/profile-onboarding"
             || path.hasPrefix("/posts/")
             || path == "/register/request"
             || path == "/register/offer"
     }
 
+    func updateSession(_ session: SessionState) {
+        onboardingRequired = session.authenticated && session.profile?.profileOnboardingCompleted != true
+        if onboardingRequired {
+            routeToProfileOnboarding()
+        }
+    }
+
+    func completeProfileOnboarding() {
+        onboardingRequired = false
+    }
+
     func openNativeRoute(path: String) {
         let normalized = path.isEmpty ? "/" : path
+        if shouldBlockForOnboarding(normalized) {
+            routeToProfileOnboarding()
+            return
+        }
 
         if normalized == "/chat" {
             selectedTab = .chat
@@ -71,6 +89,11 @@ final class AppRouter: ObservableObject {
 
     func openWebPath(_ path: String) {
         let normalized = path.isEmpty ? "/" : path
+        if shouldBlockForOnboarding(normalized) {
+            routeToProfileOnboarding()
+            return
+        }
+
         if normalized == "/activity" || normalized.hasPrefix("/activity/") {
             activityPath = normalized
             webRouteDidChange(normalized, for: .nearby)
@@ -104,6 +127,11 @@ final class AppRouter: ObservableObject {
 
     func webRouteDidChange(_ path: String, for tab: AppTab) {
         let normalized = path.isEmpty ? "/" : path
+        if onboardingRequired {
+            routeToProfileOnboarding()
+            return
+        }
+
         var nextDisplayedWebPaths = displayedWebPaths
         if normalized == "/activity" || normalized.hasPrefix("/activity/") {
             nextDisplayedWebPaths[.nearby] = normalized
@@ -181,5 +209,17 @@ final class AppRouter: ObservableObject {
             return text.isEmpty ? nil : text
         }
         return nil
+    }
+
+    private func shouldBlockForOnboarding(_ path: String) -> Bool {
+        onboardingRequired && path != "/profile-onboarding"
+    }
+
+    private func routeToProfileOnboarding() {
+        chatDetailActive = false
+        chatConversationId = nil
+        homePath = "/profile-onboarding"
+        displayedWebPaths[.home] = "/profile-onboarding"
+        selectedTab = .home
     }
 }

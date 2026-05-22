@@ -26,6 +26,7 @@ class WebTabView(
     context: Context,
     private val title: String,
     private val onNativeRoute: (String) -> Unit,
+    private val onProfileOnboardingCompleted: () -> Unit = {},
     private val onRouteChange: (String) -> Unit,
     private val onScrollTopChange: ((Boolean) -> Unit)? = null,
     private val onFinished: () -> Unit
@@ -242,6 +243,7 @@ class WebTabView(
                 val payload = JSONObject(raw)
                 if (payload.optString("type") == "route") route(payload.optString("path"))
                 if (payload.optString("type") == "routeChanged") routeChanged(payload.optString("path"))
+                if (payload.optString("type") == "profileOnboardingCompleted") mainHandler.post { onProfileOnboardingCompleted() }
                 if (payload.optString("type") == "homeScrollTop") homeScrollTopChanged(payload.optBoolean("isAtTop", true))
             }
         }

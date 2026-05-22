@@ -19,6 +19,9 @@ declare global {
         }
       }
     }
+    ManwonNative?: {
+      postMessage?: (payload: string) => void
+    }
   }
 }
 
@@ -57,6 +60,18 @@ export function openIOSAppSettings() {
     type: 'openSettings',
     path: routePathFromUrl(),
   })
+}
+
+export function notifyNativeProfileOnboardingCompleted() {
+  if (typeof window === 'undefined') return false
+  const payload = { type: 'profileOnboardingCompleted', path: routePathFromUrl() }
+  const postedIOS = postNativeMessage(payload)
+  const androidBridge = window.ManwonNative?.postMessage
+  if (typeof androidBridge === 'function') {
+    androidBridge(JSON.stringify(payload))
+    return true
+  }
+  return postedIOS
 }
 
 function isNativeRoute(path: string) {

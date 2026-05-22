@@ -96,26 +96,34 @@ struct RootTabView: View {
             keyboardVisible = false
         }
         .onAppear {
-            openDueReviewReminderIfNeeded()
+            Task {
+                await refreshSessionGate()
+                await openDueReviewReminderIfNeeded()
+            }
         }
         .onChange(of: scenePhase) { phase in
             guard phase == .active else { return }
             PushManager.shared.registerForRemoteNotificationsIfAuthorized()
             permissionPrompts.checkUnreadMessagesOnForeground()
-            openDueReviewReminderIfNeeded()
+            Task {
+                await refreshSessionGate()
+                await openDueReviewReminderIfNeeded()
+            }
         }
     }
 
-    private func openDueReviewReminderIfNeeded() {
+    private func refreshSessionGate() async {
+        guard let session = try? await APIClient.shared.fetchSession() else { return }
+        router.updateSession(session)
+    }
+
+    private func openDueReviewReminderIfNeeded() async {
+        guard !router.onboardingRequired else { return }
         guard !(router.selectedTab == .chat && router.chatDetailActive) else { return }
-        Task {
-            guard let reminder = try? await APIClient.shared.fetchDueReviewReminder(), let conversationId = reminder.conversationId else {
-                return
-            }
-            await MainActor.run {
-                router.openNativeRoute(path: "/chat/\(conversationId)")
-            }
+        guard let reminder = try? await APIClient.shared.fetchDueReviewReminder(), let conversationId = reminder.conversationId else {
+            return
         }
+        router.openNativeRoute(path: "/chat/\(conversationId)")
     }
 
     private func tabLayer<Content: View>(_ tab: AppTab, @ViewBuilder content: () -> Content) -> some View {

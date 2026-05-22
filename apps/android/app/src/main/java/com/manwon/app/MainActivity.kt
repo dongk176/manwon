@@ -54,6 +54,7 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
     private var nearbySheetCoversBottomNav = false
     private var keyboardVisible = false
     private var homeIsAtTop = true
+    private var onboardingRequired = false
     private var writeButtonExpanded: Boolean? = null
     private var writeButtonWidthAnimator: ValueAnimator? = null
     private var mapUnavailableDialog: AlertDialog? = null
@@ -82,6 +83,7 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
         registerWeb.loadPath(registerPath)
         activityWeb.loadPath(activityPath)
         myWeb.loadPath(myPath)
+        refreshSessionGate()
         handleIntent(intent)
     }
 
@@ -119,6 +121,7 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
             this,
             "뭐든해줌",
             onNativeRoute = ::openNativeRoute,
+            onProfileOnboardingCompleted = ::completeProfileOnboarding,
             onRouteChange = { path -> webRouteDidChange(path, AppTab.HOME) },
             onScrollTopChange = { isAtTop ->
                 if (homeIsAtTop != isAtTop) {
@@ -132,6 +135,7 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
             this,
             "등록",
             onNativeRoute = ::openNativeRoute,
+            onProfileOnboardingCompleted = ::completeProfileOnboarding,
             onRouteChange = { path -> webRouteDidChange(path, AppTab.REGISTER) },
             onFinished = { PushBridge.submitPendingToken(this, api) }
         )
@@ -139,6 +143,7 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
             this,
             "마이",
             onNativeRoute = ::openNativeRoute,
+            onProfileOnboardingCompleted = ::completeProfileOnboarding,
             onRouteChange = { path -> webRouteDidChange(path, AppTab.MY) },
             onFinished = { PushBridge.submitPendingToken(this, api) }
         )
@@ -146,6 +151,7 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
             this,
             "내 활동",
             onNativeRoute = ::openNativeRoute,
+            onProfileOnboardingCompleted = ::completeProfileOnboarding,
             onRouteChange = { path -> webRouteDidChange(path, AppTab.NEARBY) },
             onFinished = { PushBridge.submitPendingToken(this, api) }
         )
@@ -329,6 +335,11 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
 
     private fun openNativeRoute(path: String) {
         val normalized = path.ifBlank { "/" }
+        if (shouldBlockForOnboarding(normalized)) {
+            routeToProfileOnboarding()
+            return
+        }
+
         when {
             normalized == "/chat" -> {
                 showChatList()
@@ -358,6 +369,11 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
 
     override fun openWebPath(path: String) {
         val normalized = path.ifBlank { "/" }
+        if (shouldBlockForOnboarding(normalized)) {
+            routeToProfileOnboarding()
+            return
+        }
+
         when {
             normalized == "/register" || normalized.startsWith("/register/") -> {
                 registerPath = normalized
@@ -384,6 +400,11 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
 
     private fun webRouteDidChange(path: String, tab: AppTab) {
         val normalized = path.ifBlank { "/" }
+        if (onboardingRequired) {
+            routeToProfileOnboarding()
+            return
+        }
+
         if (normalized == "/activity" || normalized.startsWith("/activity/")) {
             displayedWebPaths[AppTab.NEARBY] = normalized
             if (tab != AppTab.NEARBY) {
@@ -431,6 +452,7 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
     }
 
     private fun hidesBottomNav(): Boolean {
+        if (onboardingRequired) return true
         if (keyboardVisible) return true
         if (selectedTab == AppTab.CHAT && chatDetailActive) return true
         if (selectedTab == AppTab.NEARBY && nearbySheetCoversBottomNav) return true
@@ -439,9 +461,36 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
             || path.startsWith("/login?")
             || path == "/signup"
             || path.startsWith("/signup?")
+            || path == "/profile-onboarding"
             || path.startsWith("/posts/")
             || path == "/register/request"
             || path == "/register/offer"
+    }
+
+    private fun refreshSessionGate() {
+        runAsync({ api.fetchSession() }) { result ->
+            result.onSuccess { session ->
+                onboardingRequired = session.authenticated && session.profile?.profileOnboardingCompleted != true
+                if (onboardingRequired) routeToProfileOnboarding() else updateBottomNavVisibility()
+            }
+        }
+    }
+
+    private fun shouldBlockForOnboarding(path: String): Boolean {
+        return onboardingRequired && path != "/profile-onboarding"
+    }
+
+    private fun routeToProfileOnboarding() {
+        chatDetailActive = false
+        homePath = "/profile-onboarding"
+        displayedWebPaths[AppTab.HOME] = "/profile-onboarding"
+        homeWeb.loadPath(homePath)
+        selectTab(AppTab.HOME)
+    }
+
+    private fun completeProfileOnboarding() {
+        onboardingRequired = false
+        updateBottomNavVisibility()
     }
 
     private fun updateBottomNavVisibility() {

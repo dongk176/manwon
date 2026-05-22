@@ -20,6 +20,9 @@ struct WebTabView: View {
                 onNativeRoute: { routePath in
                     router.openNativeRoute(path: routePath)
                 },
+                onProfileOnboardingCompleted: {
+                    router.completeProfileOnboarding()
+                },
                 onRouteChange: { routePath in
                     router.webRouteDidChange(routePath, for: tab)
                 },
@@ -96,6 +99,7 @@ struct NativeWebView: UIViewRepresentable {
     let path: String
     let reloadToken: UUID
     let onNativeRoute: (String) -> Void
+    let onProfileOnboardingCompleted: () -> Void
     let onRouteChange: (String) -> Void
     let onPermissionPrompt: (String, String?, Int?) -> Void
     let onScrollTopChange: (Bool) -> Void
@@ -106,6 +110,7 @@ struct NativeWebView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator(
             onNativeRoute: onNativeRoute,
+            onProfileOnboardingCompleted: onProfileOnboardingCompleted,
             onRouteChange: onRouteChange,
             onPermissionPrompt: onPermissionPrompt,
             onScrollTopChange: onScrollTopChange,
@@ -143,6 +148,7 @@ struct NativeWebView: UIViewRepresentable {
 
     func updateUIView(_ webView: WKWebView, context: Context) {
         context.coordinator.onNativeRoute = onNativeRoute
+        context.coordinator.onProfileOnboardingCompleted = onProfileOnboardingCompleted
         context.coordinator.onRouteChange = onRouteChange
         context.coordinator.onPermissionPrompt = onPermissionPrompt
         context.coordinator.onScrollTopChange = onScrollTopChange
@@ -159,6 +165,7 @@ struct NativeWebView: UIViewRepresentable {
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler, UIScrollViewDelegate {
         var onNativeRoute: (String) -> Void
+        var onProfileOnboardingCompleted: () -> Void
         var onRouteChange: (String) -> Void
         var onPermissionPrompt: (String, String?, Int?) -> Void
         var onScrollTopChange: (Bool) -> Void
@@ -171,6 +178,7 @@ struct NativeWebView: UIViewRepresentable {
 
         init(
             onNativeRoute: @escaping (String) -> Void,
+            onProfileOnboardingCompleted: @escaping () -> Void,
             onRouteChange: @escaping (String) -> Void,
             onPermissionPrompt: @escaping (String, String?, Int?) -> Void,
             onScrollTopChange: @escaping (Bool) -> Void,
@@ -179,6 +187,7 @@ struct NativeWebView: UIViewRepresentable {
             onError: @escaping () -> Void
         ) {
             self.onNativeRoute = onNativeRoute
+            self.onProfileOnboardingCompleted = onProfileOnboardingCompleted
             self.onRouteChange = onRouteChange
             self.onPermissionPrompt = onPermissionPrompt
             self.onScrollTopChange = onScrollTopChange
@@ -219,6 +228,11 @@ struct NativeWebView: UIViewRepresentable {
                 if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
                     UIApplication.shared.open(settingsURL)
                 }
+                return
+            }
+
+            if type == "profileOnboardingCompleted" {
+                onProfileOnboardingCompleted()
                 return
             }
 
