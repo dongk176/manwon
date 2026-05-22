@@ -133,7 +133,7 @@ class WebTabView(
         }
 
         val path = AppConfig.pathWithQuery(uri)
-        if (AppConfig.isNativeRoute(uri.path.orEmpty())) {
+        if (AppConfig.isNativeRoute(uri.path.orEmpty()) && path != currentPath) {
             onNativeRoute(path)
             return true
         }
@@ -286,6 +286,7 @@ class WebTabView(
           function postNativeRoute(rawUrl) {
             try {
               var target = new URL(rawUrl, window.location.origin);
+              if (target.pathname + target.search === window.location.pathname + window.location.search) return false;
               if (!shouldNativeRoute(target.pathname)) return false;
               ManwonNative.route(target.pathname + target.search);
               return true;

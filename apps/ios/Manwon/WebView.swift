@@ -309,7 +309,7 @@ struct NativeWebView: UIViewRepresentable {
             }
 
             let routePath = AppConfig.pathWithQuery(from: targetURL)
-            if isNativeRoute(targetURL.path) {
+            if isNativeRoute(targetURL.path) && routePath != currentPath {
                 onNativeRoute(routePath)
                 decisionHandler(.cancel)
                 return
@@ -424,6 +424,7 @@ struct NativeWebView: UIViewRepresentable {
       function postNativeRoute(rawUrl) {
         try {
           var target = new URL(rawUrl, window.location.origin);
+          if (target.pathname + target.search === window.location.pathname + window.location.search) return false;
           if (!shouldNativeRoute(target.pathname)) return false;
           window.webkit.messageHandlers.manwonNative.postMessage({ type: 'route', path: target.pathname + target.search });
           return true;

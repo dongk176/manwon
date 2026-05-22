@@ -81,6 +81,7 @@ function isNativeRoute(path: string) {
 function postNativeRoute(rawUrl: string) {
   try {
     const target = new URL(rawUrl, window.location.origin)
+    if (`${target.pathname}${target.search}` === routePathFromUrl()) return false
     if (!isNativeRoute(target.pathname)) return false
     postNativeMessage({
       type: 'route',
