@@ -391,6 +391,7 @@ export async function getTaskPost(postId: string, viewerId?: string | null) {
       p.creator_profile_id as creator_profile_id,
       coalesce(creator_profile.nickname, creator.nickname) as creator_nickname,
       coalesce(creator_profile.avatar_url, creator.avatar_url) as creator_avatar_url,
+      creator_profile.default_avatar_key as creator_default_avatar_key,
       creator_profile.bio as creator_bio,
       creator.gender as creator_gender,
       creator.phone_verified as creator_phone_verified,
@@ -442,7 +443,7 @@ export async function getTaskPost(postId: string, viewerId?: string | null) {
       limit 1
     ) latest_deal on true
     where p.id = ${postId}
-    group by p.id, creator.nickname, creator.avatar_url, creator.gender, creator.phone_verified, creator.identity_verified, creator.rating_avg, creator.review_count, creator.completed_count, creator.trust_career_summary, creator.trust_portfolio_links, creator.trust_work_sample_images, creator.trust_response_time, creator.trust_response_time_text, creator_profile.id, creator_profile.nickname, creator_profile.avatar_url, creator_profile.bio, creator_profile.career_summary, creator_profile.career_description, creator_profile.portfolio_links, creator_profile.work_sample_images, creator_profile.available_time_text, latest_deal.id, latest_deal.status, latest_deal.cancelled_by
+    group by p.id, creator.nickname, creator.avatar_url, creator.gender, creator.phone_verified, creator.identity_verified, creator.rating_avg, creator.review_count, creator.completed_count, creator.trust_career_summary, creator.trust_portfolio_links, creator.trust_work_sample_images, creator.trust_response_time, creator.trust_response_time_text, creator_profile.id, creator_profile.nickname, creator_profile.avatar_url, creator_profile.default_avatar_key, creator_profile.bio, creator_profile.career_summary, creator_profile.career_description, creator_profile.portfolio_links, creator_profile.work_sample_images, creator_profile.available_time_text, latest_deal.id, latest_deal.status, latest_deal.cancelled_by
     limit 1
   `
 
@@ -1258,6 +1259,7 @@ export async function listConversations(userId: string) {
       case when c.requester_id = ${userId} then c.helper_id else c.requester_id end as other_user_id,
       case when c.requester_id = ${userId} then coalesce(helper_activity.nickname, helper.nickname) else coalesce(requester_activity.nickname, requester.nickname) end as other_nickname,
       case when c.requester_id = ${userId} then coalesce(helper_activity.avatar_url, helper.avatar_url) else coalesce(requester_activity.avatar_url, requester.avatar_url) end as other_avatar_url,
+      case when c.requester_id = ${userId} then helper_activity.default_avatar_key else requester_activity.default_avatar_key end as other_default_avatar_key,
       case when c.requester_id = ${userId} then helper_activity.bio else requester_activity.bio end as other_bio,
       case when c.requester_id = ${userId} then helper.gender else requester.gender end as other_gender,
       case when c.requester_id = ${userId} then helper.rating_avg::float8 else requester.rating_avg::float8 end as other_rating_avg,

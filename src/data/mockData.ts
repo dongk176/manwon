@@ -41,6 +41,7 @@ export interface UserProfile {
   name: string
   intro: string
   avatarUrl?: string | null
+  defaultAvatarKey?: string | null
   rating: number
   reviewCount?: number
   completedCount: number

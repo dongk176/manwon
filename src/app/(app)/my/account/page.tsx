@@ -1,5 +1,5 @@
-import { MyScreens } from '@/components/MyScreens'
+import { redirect } from 'next/navigation'
 
 export default function MyAccountPage() {
-  return <MyScreens section="account" />
+  redirect('/my')
 }

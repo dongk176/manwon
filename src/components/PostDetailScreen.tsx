@@ -4,8 +4,9 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { Check, CheckCircle2, ChevronLeft, ChevronRight, Clock, Clock3, Globe2, Heart, MapPin, MoreHorizontal, Navigation, Share2, ShieldCheck, UsersRound, X } from 'lucide-react'
-import { BrandButton, CategoryImageFrame, MoreMenu, RatingStars, ReportConfirmSheet } from '@/components/ui/Common'
+import { ActionGuideOverlay, BrandButton, CategoryImageFrame, MoreMenu, RatingStars, ReportConfirmSheet } from '@/components/ui/Common'
 import { UserProfileSheet } from '@/components/UserProfileSheet'
+import { Avatar } from '@/components/ui/Illustration'
 import {
   categoryDetailOptions,
   customCategoryDetailMaxLength,
@@ -162,6 +163,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
   const [activityProfiles, setActivityProfiles] = useState<ActivityProfile[]>([])
   const [profileLoadState, setProfileLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [showProfileSelect, setShowProfileSelect] = useState(false)
+  const [guideOverlay, setGuideOverlay] = useState<{ title: string; description: string; note: string } | null>(null)
   const detailScrollYRef = useRef(0)
   const detailScrollFrameRef = useRef<number | null>(null)
 
@@ -257,6 +259,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
       name: creatorName,
       intro: post ? post.creatorBio ?? '' : requester.intro ?? '',
       avatarUrl: post ? post.creatorAvatarUrl ?? null : requester.avatarUrl ?? null,
+      defaultAvatarKey: post ? post.creatorDefaultAvatarKey ?? null : requester.defaultAvatarKey ?? null,
       rating: Number.isFinite(creatorRating) ? creatorRating : 0,
       reviewCount: creatorReviewCount,
       completedCount: Number.isFinite(creatorCompleted) ? creatorCompleted : 0,
@@ -416,6 +419,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
   async function handleReport(input: { reason: string; description: string }) {
     if (!displayPost) return
     setActionState('saving')
+    setMessage('')
     setReportSheetError('')
     try {
       const details = [
@@ -431,7 +435,11 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
       setShowMore(false)
       setShowReportSheet(false)
       setActionState('done')
-      setMessage('신고가 접수되었습니다.')
+      setGuideOverlay({
+        title: '신고가 접수되었습니다.',
+        description: '운영팀이 신고 내용을 확인한 뒤 필요한 조치를 진행합니다.',
+        note: '신고 내역은 마이페이지 차단/신고 관리에서 확인할 수 있습니다.',
+      })
     } catch (error) {
       setActionState('error')
       setReportSheetError(error instanceof Error ? error.message : '신고에 실패했습니다.')
@@ -441,11 +449,16 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
   async function handleBlock() {
     if (!post?.creatorId) return
     setActionState('saving')
+    setMessage('')
     try {
       await createBlock(post.creatorId)
       setShowMore(false)
       setActionState('done')
-      setMessage('사용자를 차단했습니다. 홈 목록에서 더 이상 보이지 않습니다.')
+      setGuideOverlay({
+        title: '차단이 완료되었습니다.',
+        description: '이 사용자의 게시글과 대화는 더 이상 보이지 않습니다.',
+        note: '차단한 사용자는 마이페이지 차단/신고 관리에서 언제든 관리할 수 있습니다.',
+      })
     } catch (error) {
       setActionState('error')
       setMessage(error instanceof Error ? error.message : '차단에 실패했습니다.')
@@ -721,9 +734,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
               <section className="detail-section-card requester-card">
                 <h3>작성자 정보</h3>
                 <button type="button" className="requester-card-button" onClick={() => setShowCreatorProfileSheet(true)} disabled={!creatorProfile} aria-label={`${creatorName} 프로필 보기`}>
-                  {creatorProfile?.avatarUrl ? (
-                    <span className="avatar avatar-md avatar-green is-image-avatar" style={{ backgroundImage: `url("${creatorProfile.avatarUrl}")` }} />
-                  ) : (
+                  {creatorProfile ? <Avatar user={creatorProfile} size="md" /> : (
                     <span className="avatar avatar-md avatar-green">
                       <span>{creatorName.slice(0, 1)}</span>
                     </span>
@@ -786,6 +797,14 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
             />
           )}
           {showCreatorProfileSheet && creatorProfile && <UserProfileSheet user={creatorProfile} onClose={() => setShowCreatorProfileSheet(false)} />}
+          {guideOverlay && (
+            <ActionGuideOverlay
+              title={guideOverlay.title}
+              description={guideOverlay.description}
+              note={guideOverlay.note}
+              onClose={() => setGuideOverlay(null)}
+            />
+          )}
           {showProfileSelect && (
             <ActivityProfileSelectSheet
               postType={displayPost.postType}
@@ -913,6 +932,11 @@ function DetailActivityProfileAvatar({ profile }: { profile: ActivityProfile }) 
         <img src={profile.avatarUrl} alt="" aria-hidden="true" />
       </span>
     )
+  }
+
+  const avatarIndex = Number(String(profile.defaultAvatarKey ?? 'default-1').replace(/[^0-9]/g, '')) || 1
+  if (profile.defaultAvatarKey) {
+    return <span className={`activity-profile-avatar is-default default-${avatarIndex}`}>{profile.nickname.trim().slice(0, 1) || '만'}</span>
   }
 
   const fallbackImageUrl = getDefaultProfileImageByGender(profile.gender)

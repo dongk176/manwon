@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type TouchEvent as ReactTouchEven
 import { ChevronDown } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { setNativeOverlayState } from '@/components/NativeIOSBridge'
-import { AppHeader, CategoryScroller, MapUnavailableOverlay, ReportConfirmSheet, RequestCard, SegmentedControl } from '@/components/ui/Common'
+import { ActionGuideOverlay, AppHeader, CategoryScroller, MapUnavailableOverlay, ReportConfirmSheet, RequestCard, SegmentedControl } from '@/components/ui/Common'
 import { categoryDetailOptions, customCategoryDetailOption, getCategoryLabel, requests, type RequestPost } from '@/data/mockData'
 import { createReport, fetchMyPage, fetchTaskPosts, mapApiPostToRequestPost } from '@/lib/manwonApi'
 import {
@@ -41,6 +41,7 @@ export function HomeScreen() {
   const [reportSheetError, setReportSheetError] = useState('')
   const [reportMessage, setReportMessage] = useState('')
   const [reportError, setReportError] = useState(false)
+  const [guideOverlay, setGuideOverlay] = useState<{ title: string; description: string; note: string } | null>(null)
   const regionMenuRef = useRef<HTMLDivElement | null>(null)
   const feedScrollRef = useRef<HTMLDivElement | null>(null)
   const loadRunRef = useRef(0)
@@ -130,11 +131,11 @@ export function HomeScreen() {
   }, [showRegionMenu])
 
   useEffect(() => {
-    setNativeOverlayState(Boolean(reportTarget))
+    setNativeOverlayState(Boolean(reportTarget || guideOverlay))
     return () => {
       setNativeOverlayState(false)
     }
-  }, [reportTarget])
+  }, [guideOverlay, reportTarget])
 
   async function refreshHomePosts() {
     if (isRefreshing || loadState === 'loading') return
@@ -250,7 +251,11 @@ export function HomeScreen() {
         description: details,
       })
       setReportTarget(null)
-      setReportMessage('신고가 접수되었습니다.')
+      setGuideOverlay({
+        title: '신고가 접수되었습니다.',
+        description: '운영팀이 신고 내용을 확인한 뒤 필요한 조치를 진행합니다.',
+        note: '신고 내역은 마이페이지 차단/신고 관리에서 확인할 수 있습니다.',
+      })
     } catch (error) {
       setReportError(true)
       setReportSheetError(error instanceof Error ? error.message : '신고에 실패했습니다.')
@@ -373,6 +378,14 @@ export function HomeScreen() {
             setReportSheetError('')
           }}
           onSubmit={(input) => void reportPost(input)}
+        />
+      )}
+      {guideOverlay && (
+        <ActionGuideOverlay
+          title={guideOverlay.title}
+          description={guideOverlay.description}
+          note={guideOverlay.note}
+          onClose={() => setGuideOverlay(null)}
         />
       )}
     </section>

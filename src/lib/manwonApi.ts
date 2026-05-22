@@ -47,6 +47,7 @@ export interface ApiTaskPost {
   images?: Array<{ id: string; imageUrl: string; storageKey: string; sortOrder: number }>
   creatorNickname?: string | null
   creatorAvatarUrl?: string | null
+  creatorDefaultAvatarKey?: string | null
   creatorBio?: string | null
   creatorGender?: 'male' | 'female' | 'unknown' | 'private' | null
   creatorPhoneVerified?: boolean | null
@@ -128,6 +129,7 @@ export interface ApiConversation {
   otherUserId?: string | null
   otherNickname?: string | null
   otherAvatarUrl?: string | null
+  otherDefaultAvatarKey?: string | null
   otherBio?: string | null
   otherGender?: 'male' | 'female' | 'unknown' | 'private' | null
   otherRatingAvg?: number | string | null

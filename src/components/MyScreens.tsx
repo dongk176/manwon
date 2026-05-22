@@ -270,7 +270,7 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
   }
 
   if (section === 'support') {
-    return withWithdrawOverlay(<SupportScreen onBack={() => router.push('/my/account')} />)
+    return withWithdrawOverlay(<SupportScreen onBack={() => router.push('/my')} />)
   }
 
   if (section === 'profiles') {
@@ -333,7 +333,7 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
   if (loadState === 'loading') {
     return withWithdrawOverlay(
       <section className="screen my-screen my-page-loading">
-        <AppHeader title="마이" showSettings onSettings={() => router.push('/my/account')} />
+        <AppHeader title="마이" />
         <div className="my-page-loading-indicator" role="status" aria-label="마이페이지 로딩 중">
           <span className="loading-spinner" />
         </div>
@@ -343,7 +343,7 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
 
   return withWithdrawOverlay(
     <section className="screen my-screen my-page-ready">
-      <AppHeader title="마이" showSettings onSettings={() => router.push('/my/account')} />
+      <AppHeader title="마이" />
       {loadState === 'error' && <p className="inline-status is-error">마이페이지 정보를 불러오지 못했습니다.</p>}
       <div className="profile-card">
         <InitialAvatar name={nickname} size="lg" imageUrl={avatarUrl || fallbackAvatarUrl || undefined} />
@@ -1411,7 +1411,6 @@ function SettlementScreen({
 }
 
 function ReviewsScreen({ reviews, loading, onBack }: { reviews: ActivityRecord[]; loading: boolean; onBack: () => void }) {
-  const [active, setActive] = useState('전체')
   const ratingAverage = reviews.length ? reviews.reduce((sum, review) => sum + getNumber(review, 'rating'), 0) / reviews.length : 0
   const distribution = [5, 4, 3, 2, 1].map((rating) => {
     if (reviews.length === 0) return 0
@@ -1421,7 +1420,6 @@ function ReviewsScreen({ reviews, loading, onBack }: { reviews: ActivityRecord[]
   return (
     <section className="screen my-sub-screen reviews-page">
       <AppHeader title="받은 후기" onBack={onBack} />
-      <UnderlineTabs tabs={['전체', '도움이 된 후기', '거래 후기']} active={active} onChange={setActive} />
       <div className="review-summary-card">
         <div>
           <span>전체 평점</span>
@@ -1464,7 +1462,6 @@ function ReviewsScreen({ reviews, loading, onBack }: { reviews: ActivityRecord[]
           ))}
         </div>
       )}
-      {reviews.length > 0 && <button className="more-review-button" type="button">후기 더 보기 <ChevronRight size={16} /></button>}
     </section>
   )
 }
@@ -1963,18 +1960,6 @@ function ChipTabs({ tabs, active, onChange }: { tabs: string[]; active: string; 
   )
 }
 
-function UnderlineTabs({ tabs, active, onChange }: { tabs: string[]; active: string; onChange: (tab: string) => void }) {
-  return (
-    <div className="my-underline-tabs">
-      {tabs.map((tab) => (
-        <button className={tab === active ? 'is-active' : ''} type="button" key={tab} onClick={() => onChange(tab)}>
-          {tab}
-        </button>
-      ))}
-    </div>
-  )
-}
-
 function MetricCard({ label, value, note, accent = false }: { label: string; value: string; note: string; accent?: boolean }) {
   return (
     <div className="metric-card">
@@ -2323,6 +2308,10 @@ function ProfileImage({ profile }: { profile: Pick<ActivityProfile, 'avatarUrl' 
       </span>
     )
   }
+  const avatarIndex = Number(String(profile.defaultAvatarKey ?? 'default-1').replace(/[^0-9]/g, '')) || 1
+  if (profile.defaultAvatarKey) {
+    return <span className={`activity-profile-image is-default default-${avatarIndex}`}>{profile.nickname.trim().slice(0, 1) || '만'}</span>
+  }
   const fallbackImageUrl = getDefaultProfileImageByGender(profile.gender)
   if (fallbackImageUrl) {
     return (
@@ -2332,7 +2321,6 @@ function ProfileImage({ profile }: { profile: Pick<ActivityProfile, 'avatarUrl' 
       </span>
     )
   }
-  const avatarIndex = Number(String(profile.defaultAvatarKey ?? 'default-1').replace(/[^0-9]/g, '')) || 1
   return <span className={`activity-profile-image is-default default-${avatarIndex}`}>{profile.nickname.trim().slice(0, 1) || '만'}</span>
 }
 

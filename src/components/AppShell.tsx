@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { BottomNav } from '@/components/ui/Common'
 import { fetchAuthSession, fetchDueReviewReminder } from '@/lib/manwonApi'
@@ -10,6 +10,8 @@ function isProfileOnboardingCompleted(profile: Record<string, unknown> | null | 
 }
 
 function useOverlayScrollLock() {
+  const [overlayVisible, setOverlayVisible] = useState(false)
+
   useEffect(() => {
     const root = document.documentElement
     const body = document.body
@@ -40,7 +42,10 @@ function useOverlayScrollLock() {
     }
 
     const sync = () => {
-      if (document.querySelector('.sheet-overlay, .modal-overlay')) {
+      const hasOverlay = Boolean(document.querySelector('.sheet-overlay, .modal-overlay'))
+      setOverlayVisible(hasOverlay)
+
+      if (hasOverlay) {
         lock()
         return
       }
@@ -56,12 +61,16 @@ function useOverlayScrollLock() {
       unlock()
     }
   }, [])
+
+  return overlayVisible
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
+  const overlayVisible = useOverlayScrollLock()
   const hideBottomNav =
+    overlayVisible ||
     pathname.startsWith('/chat/') ||
     pathname.startsWith('/posts/') ||
     pathname.startsWith('/nearby/') ||
@@ -69,8 +78,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     pathname === '/profile-onboarding' ||
     pathname === '/register/request' ||
     pathname === '/register/offer'
-
-  useOverlayScrollLock()
 
   useEffect(() => {
     let cancelled = false

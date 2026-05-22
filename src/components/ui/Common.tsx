@@ -211,6 +211,36 @@ export function MapUnavailableOverlay({ onClose }: { onClose: () => void }) {
   )
 }
 
+export function ActionGuideOverlay({
+  title,
+  description,
+  note,
+  onClose,
+}: {
+  title: string
+  description: string
+  note?: string
+  onClose: () => void
+}) {
+  return (
+    <div className="modal-overlay" role="presentation" onClick={onClose}>
+      <div className="confirm-dialog action-guide-dialog" role="dialog" aria-modal="true" aria-labelledby="action-guide-title" onClick={(event) => event.stopPropagation()}>
+        <span className="action-guide-icon" aria-hidden="true">
+          <CheckCircle2 size={18} />
+        </span>
+        <h2 id="action-guide-title">{title}</h2>
+        <p>{description}</p>
+        {note && <p className="action-guide-note">{note}</p>}
+        <div className="dialog-actions">
+          <button type="button" onClick={onClose}>
+            확인
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function isNavItemActive(key: TabKey, pathname: string) {
   if (key === 'home') return pathname === '/' || pathname.startsWith('/posts/')
   if (key === 'chat') return pathname === '/chat' || pathname.startsWith('/chat/')

@@ -47,6 +47,21 @@ final class AppRouter: ObservableObject {
             || matchesPath(path, "/register/offer")
     }
 
+    var hidesHomeFloatingWriteButton: Bool {
+        if selectedTab != .home { return true }
+        if onboardingRequired { return true }
+        if mapUnavailableNoticeVisible { return true }
+        if webOverlayCoversBottomNav[.home] == true { return true }
+
+        guard let path = displayedWebPaths[.home] else { return false }
+        return matchesPath(path, "/login")
+            || matchesPath(path, "/signup")
+            || matchesPath(path, "/profile-onboarding")
+            || matchesPath(path, "/posts")
+            || matchesPath(path, "/register")
+            || matchesPath(path, "/my")
+    }
+
     func updateSession(_ session: SessionState) {
         let requiresOnboarding = session.authenticated && session.profile?.profileOnboardingCompleted != true
         if onboardingRequired != requiresOnboarding {

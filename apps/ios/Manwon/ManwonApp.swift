@@ -88,7 +88,7 @@ struct RootTabView: View {
                         router.showMapUnavailableNotice()
                     }
 
-                    if router.selectedTab == .home {
+                    if router.selectedTab == .home && !router.hidesHomeFloatingWriteButton {
                         ManwonFloatingWriteButton(expanded: router.homeIsAtTop) {
                             router.openWebPath("/register")
                         }

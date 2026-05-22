@@ -20,6 +20,7 @@ import {
   WalletCards,
 } from 'lucide-react'
 import type { IllustrationType, UserProfile } from '@/data/mockData'
+import { getDefaultProfileImageByGender } from '@/lib/manwonApi'
 
 const iconMap = {
   all: Grid2X2,
@@ -67,13 +68,23 @@ interface AvatarProps {
 
 export function Avatar({ user, size = 'md', online = false }: AvatarProps) {
   const initial = user.name.slice(0, 1)
-  const imageUrl = user.avatarUrl?.trim()
+  const imageUrl = user.avatarUrl?.trim() || ''
+  const defaultAvatarKey = user.defaultAvatarKey?.trim() || ''
+  const fallbackImageUrl = !imageUrl && !defaultAvatarKey ? getDefaultProfileImageByGender(user.gender) ?? '' : ''
+  const displayImageUrl = imageUrl || fallbackImageUrl
+  const avatarIndex = Number(defaultAvatarKey.replace(/[^0-9]/g, '')) || 1
 
   return (
-    <span className={`avatar avatar-${size} avatar-${user.avatarTone} ${imageUrl ? 'is-image-avatar' : ''}`}>
-      {imageUrl ? (
+    <span
+      className={[
+        `avatar avatar-${size} avatar-${user.avatarTone}`,
+        displayImageUrl ? 'is-image-avatar' : '',
+        !displayImageUrl && defaultAvatarKey ? `is-default-avatar avatar-default-${avatarIndex}` : '',
+      ].filter(Boolean).join(' ')}
+    >
+      {displayImageUrl ? (
         // eslint-disable-next-line @next/next/no-img-element -- Runtime profile avatar URLs may be external; CSS handles cropping.
-        <img src={imageUrl} alt="" aria-hidden="true" />
+        <img src={displayImageUrl} alt="" aria-hidden="true" />
       ) : (
         <span>{initial}</span>
       )}

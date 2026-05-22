@@ -1381,6 +1381,24 @@ html.native-ios-shell [role="button"] {
   background: linear-gradient(145deg, #bfc2ca, #7b7f89);
 }
 
+.avatar.is-default-avatar span {
+  border: 1px solid var(--line);
+  background: #f7f7f8;
+  color: #151517;
+}
+
+.avatar.is-default-avatar.avatar-default-2 span {
+  background: #e9f6ef;
+}
+
+.avatar.is-default-avatar.avatar-default-3 span {
+  background: #f7eef1;
+}
+
+.avatar.is-default-avatar.avatar-default-4 span {
+  background: #edf1fa;
+}
+
 .more-menu {
   position: absolute;
   z-index: 5;
@@ -3598,6 +3616,35 @@ html.native-ios-shell [role="button"] {
 
 .confirm-dialog .dialog-actions {
   grid-template-columns: 1fr;
+}
+
+.action-guide-dialog {
+  display: grid;
+  gap: 12px;
+}
+
+.action-guide-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+
+.action-guide-dialog h2,
+.action-guide-dialog p {
+  margin: 0;
+}
+
+.action-guide-note {
+  padding: 11px 12px;
+  border-radius: 14px;
+  background: #faf7f4;
+  color: #5f554d;
+  font-size: 13px;
 }
 
 .withdraw-confirm-dialog {
@@ -7681,6 +7728,18 @@ button.my-activity-card:focus-visible {
 .activity-profile-avatar.is-image {
   background-position: center;
   background-size: cover;
+}
+
+.activity-profile-avatar.is-default.default-2 {
+  background: #e9f6ef;
+}
+
+.activity-profile-avatar.is-default.default-3 {
+  background: #f7eef1;
+}
+
+.activity-profile-avatar.is-default.default-4 {
+  background: #edf1fa;
 }
 
 .activity-profile-select-sheet {
