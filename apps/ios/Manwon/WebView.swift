@@ -67,6 +67,10 @@ struct WebTabView: View {
         }
         .animation(.easeInOut(duration: 0.18), value: isShowingSplash)
         .animation(.easeInOut(duration: 0.18), value: errorMessage)
+        .onChange(of: router.selectedTab) { selectedTab in
+            guard tab == .nearby, selectedTab == .nearby else { return }
+            reloadToken = UUID()
+        }
     }
 }
 

@@ -72,7 +72,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     let cancelled = false
     void fetchAuthSession()
       .then((session) => {
-        if (cancelled || !session.authenticated) return
+        if (cancelled) return
+
+        if (!session.authenticated) {
+          const queryString = typeof window === 'undefined' ? '' : window.location.search.replace(/^\?/, '')
+          const nextPath = queryString ? `${pathname}?${queryString}` : pathname
+          router.replace(`/login?next=${encodeURIComponent(nextPath)}`)
+          return
+        }
+
         const profile = session.profile
         const hasOnboardingFlag =
           profile != null && Object.prototype.hasOwnProperty.call(profile, 'profileOnboardingCompleted')
