@@ -378,8 +378,9 @@ export async function listTaskPosts(input: ListPostsInput, viewerId?: string | n
   `
 }
 
-export async function getTaskPost(postId: string) {
+export async function getTaskPost(postId: string, viewerId?: string | null) {
   const sql = getSql()
+  const currentUserId = viewerId ?? null
   const cancelledByColumn = (await hasDealsCancelledByColumn(sql))
     ? sql`d.cancelled_by`
     : sql`null::uuid`
@@ -396,6 +397,23 @@ export async function getTaskPost(postId: string) {
       creator.rating_avg as creator_rating_avg,
       creator.review_count as creator_review_count,
       creator.completed_count as creator_completed_count,
+      coalesce(creator_profile.career_summary, creator.trust_career_summary) as creator_career_summary,
+      creator_profile.career_description as creator_career_description,
+      case
+        when jsonb_array_length(coalesce(creator_profile.portfolio_links, '[]'::jsonb)) > 0 then creator_profile.portfolio_links
+        else coalesce(creator.trust_portfolio_links, '[]'::jsonb)
+      end as creator_portfolio_links,
+      case
+        when jsonb_array_length(coalesce(creator_profile.work_sample_images, '[]'::jsonb)) > 0 then creator_profile.work_sample_images
+        else coalesce(creator.trust_work_sample_images, '[]'::jsonb)
+      end as creator_work_sample_images,
+      coalesce(creator_profile.available_time_text, creator.trust_response_time, creator.trust_response_time_text) as creator_response_time,
+      exists (
+        select 1
+        from manwon_happiness.favorites favorite
+        where favorite.post_id = p.id
+          and favorite.user_id = ${currentUserId}::uuid
+      ) as is_favorited,
       latest_deal.id as latest_deal_id,
       latest_deal.status as latest_deal_status,
       latest_deal.cancelled_by as latest_deal_cancelled_by,
@@ -423,7 +441,7 @@ export async function getTaskPost(postId: string) {
       limit 1
     ) latest_deal on true
     where p.id = ${postId}
-    group by p.id, creator.nickname, creator.avatar_url, creator.gender, creator.phone_verified, creator.identity_verified, creator.rating_avg, creator.review_count, creator.completed_count, creator_profile.id, creator_profile.nickname, creator_profile.avatar_url, creator_profile.bio, latest_deal.id, latest_deal.status, latest_deal.cancelled_by
+    group by p.id, creator.nickname, creator.avatar_url, creator.gender, creator.phone_verified, creator.identity_verified, creator.rating_avg, creator.review_count, creator.completed_count, creator.trust_career_summary, creator.trust_portfolio_links, creator.trust_work_sample_images, creator.trust_response_time, creator.trust_response_time_text, creator_profile.id, creator_profile.nickname, creator_profile.avatar_url, creator_profile.bio, creator_profile.career_summary, creator_profile.career_description, creator_profile.portfolio_links, creator_profile.work_sample_images, creator_profile.available_time_text, latest_deal.id, latest_deal.status, latest_deal.cancelled_by
     limit 1
   `
 

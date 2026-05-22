@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Bell, LockKeyhole, MoreVertical, Plus, Send, ShieldCheck, Smile, Star, X } from 'lucide-react'
+import { ArrowLeft, Bell, LockKeyhole, MoreVertical, Plus, Send, Smile, Star } from 'lucide-react'
 import {
   AppHeader,
   BrandButton,
@@ -13,6 +13,7 @@ import {
   StatusBadge,
 } from '@/components/ui/Common'
 import { Avatar } from '@/components/ui/Illustration'
+import { UserProfileSheet } from '@/components/UserProfileSheet'
 import {
   chats as mockChats,
   getRequest,
@@ -227,10 +228,6 @@ function ChatCard({ chat, onOpen }: { chat: UiChat; onOpen: () => void }) {
 
 function formatUnreadCount(count: number) {
   return count >= 10 ? '10+' : String(count)
-}
-
-function formatRating(value: number) {
-  return Number.isFinite(value) && value > 0 ? value.toFixed(1) : '신규'
 }
 
 function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => void; onRefresh: () => Promise<void> }) {
@@ -765,89 +762,6 @@ function ReportSheet({
   )
 }
 
-function UserProfileSheet({ user, onClose }: { user: UserProfile; onClose: () => void }) {
-  const genderLabel = profileGenderLabel(user.gender)
-  const careerSummary = user.careerSummary?.trim() ?? ''
-  const careerDescription = user.careerDescription?.trim() ?? ''
-  const portfolioLinks = normalizeProfileLinks(user.portfolioLinks)
-  const workSampleImages = normalizeProfileImages(user.workSampleImages)
-  const hasProfileDetails = Boolean(careerSummary || careerDescription || portfolioLinks.length > 0 || workSampleImages.length > 0)
-
-  return (
-    <div className="sheet-overlay" role="presentation" onClick={onClose}>
-      <div className="profile-sheet" role="dialog" aria-modal="true" aria-labelledby="chat-profile-title" onClick={(event) => event.stopPropagation()}>
-        <div className="drag-handle" />
-        <button className="sheet-x" type="button" onClick={onClose} aria-label="닫기">
-          <X size={18} />
-        </button>
-        <div className="profile-sheet-head">
-          <Avatar user={user} size="lg" online />
-          <div>
-            <div className="profile-sheet-name-row">
-              <h2 id="chat-profile-title">{user.name}</h2>
-              {genderLabel && <span className="profile-gender-badge">{genderLabel}</span>}
-            </div>
-            <p>{user.intro || '아직 소개가 없습니다.'}</p>
-          </div>
-        </div>
-        <div className="profile-sheet-stats">
-          <span>
-            <Star size={16} fill="currentColor" />
-            {formatRating(user.rating)}
-            {typeof user.reviewCount === 'number' && <small>후기 {user.reviewCount}개</small>}
-          </span>
-          <span>
-            <ShieldCheck size={16} />
-            거래 완료 {user.completedCount}회
-          </span>
-        </div>
-        {hasProfileDetails && (
-          <div className="profile-sheet-details">
-            {(careerSummary || careerDescription) && (
-              <section className="profile-sheet-detail">
-                <strong>경력</strong>
-                {careerSummary && <p>{careerSummary}</p>}
-                {careerDescription && <span>{careerDescription}</span>}
-              </section>
-            )}
-            {portfolioLinks.length > 0 && (
-              <section className="profile-sheet-detail">
-                <strong>링크</strong>
-                <div className="profile-sheet-links">
-                  {portfolioLinks.map((link, index) => (
-                    <a key={`${link.url}-${index}`} href={link.url} target="_blank" rel="noreferrer">
-                      {link.title || getLinkDisplayName(link.url)}
-                    </a>
-                  ))}
-                </div>
-              </section>
-            )}
-            {workSampleImages.length > 0 && (
-              <section className="profile-sheet-detail">
-                <strong>사진</strong>
-                <div className="profile-sheet-photo-grid">
-                  {workSampleImages.map((image, index) => (
-                    <a key={`${image.imageUrl}-${index}`} href={image.imageUrl} target="_blank" rel="noreferrer" aria-label={`사진 ${index + 1} 크게 보기`}>
-                      {/* eslint-disable-next-line @next/next/no-img-element -- Runtime profile sample URLs may be external; thumbnails need object-fit cropping. */}
-                      <img src={image.imageUrl} alt="" aria-hidden="true" />
-                    </a>
-                  ))}
-                </div>
-              </section>
-            )}
-          </div>
-        )}
-        {user.responseTime && (
-          <div className="profile-sheet-note">
-            <strong>응답</strong>
-            <span>{user.responseTime}</span>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
 type TradeActionId = 'accept' | 'reject' | 'complete' | 'dispute' | 'requestComplete' | 'cancel' | 'start'
 
 const tradeActionPendingLabels: Record<TradeActionId, string> = {
@@ -1368,20 +1282,6 @@ function isHttpUrl(value: string) {
   } catch {
     return false
   }
-}
-
-function getLinkDisplayName(url: string) {
-  try {
-    return new URL(url).hostname.replace(/^www\./, '')
-  } catch {
-    return url
-  }
-}
-
-function profileGenderLabel(value?: UserProfile['gender']) {
-  if (value === 'male') return '남성'
-  if (value === 'female') return '여성'
-  return null
 }
 
 function reviewPromptStorageKey(dealId: string) {

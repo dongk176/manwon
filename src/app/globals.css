@@ -2259,13 +2259,28 @@ html.native-ios-shell [role="button"] {
 }
 
 .profile-sheet-links a {
-  display: block;
+  display: grid;
+  gap: 3px;
   overflow: hidden;
-  width: fit-content;
+  width: 100%;
   max-width: 100%;
   color: var(--brand);
   font-size: 13px;
   font-weight: 760;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.profile-sheet-links a span {
+  color: #2f2f33;
+  text-decoration: none;
+}
+
+.profile-sheet-links a em {
+  overflow: hidden;
+  color: var(--brand);
+  font-style: normal;
+  font-weight: 700;
   text-decoration: underline;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -4855,14 +4870,31 @@ html.native-ios-shell [role="button"] {
   line-height: 1.65;
 }
 
-.requester-card > div {
+.requester-card > div,
+.requester-card-button {
   display: grid;
   grid-template-columns: 62px 1fr 24px;
   gap: 12px;
   align-items: center;
 }
 
-.requester-card > div > span:not(.avatar) {
+.requester-card-button {
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.requester-card-button:disabled {
+  cursor: default;
+}
+
+.requester-card > div > span:not(.avatar),
+.requester-card-button > span:not(.avatar) {
   display: grid;
   gap: 3px;
   min-width: 0;
@@ -4882,7 +4914,7 @@ html.native-ios-shell [role="button"] {
 .post-detail-screen {
   animation: none;
   padding-top: 0;
-  padding-bottom: 126px;
+  padding-bottom: calc(168px + env(safe-area-inset-bottom));
 }
 
 .post-detail-main-card {
@@ -5209,12 +5241,13 @@ html.native-ios-shell [role="button"] {
   margin-bottom: 12px;
 }
 
-.post-detail-screen .requester-card > div {
+.post-detail-screen .requester-card > div,
+.post-detail-screen .requester-card-button {
   grid-template-columns: 44px minmax(0, 1fr) 24px;
 }
 
 .detail-platform-note {
-  margin: 16px 0 0;
+  margin: 16px 0 26px;
   color: #99999f;
   font-size: 11px;
   font-weight: 500;

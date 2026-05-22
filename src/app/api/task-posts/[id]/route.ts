@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { z } from 'zod'
-import { requireUser } from '@/server/auth'
+import { getRequestUserId, requireUser } from '@/server/auth'
 import { fail, ok, toHttpError } from '@/server/http'
 import { getTaskPost, updateTaskPost } from '@/server/manwonService'
 import { updatePostSchema } from '@/server/validation'
@@ -9,10 +9,11 @@ export const dynamic = 'force-dynamic'
 
 const paramsSchema = z.object({ id: z.string().uuid() })
 
-export async function GET(_: NextRequest, context: { params: Promise<{ id: string }> }) {
+export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
+    const viewerId = getRequestUserId(request)
     const { id } = paramsSchema.parse(await context.params)
-    const post = await getTaskPost(id)
+    const post = await getTaskPost(id, viewerId)
     if (!post) return fail('게시글을 찾을 수 없습니다.', 404)
     return ok(post)
   } catch (error) {

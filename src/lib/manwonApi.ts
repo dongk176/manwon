@@ -54,6 +54,12 @@ export interface ApiTaskPost {
   creatorRatingAvg?: number | string | null
   creatorReviewCount?: number | null
   creatorCompletedCount?: number | null
+  creatorCareerSummary?: string | null
+  creatorCareerDescription?: string | null
+  creatorPortfolioLinks?: Array<{ title: string; url: string }> | null
+  creatorWorkSampleImages?: Array<{ imageUrl: string; storageKey?: string; sortOrder?: number }> | null
+  creatorResponseTime?: string | null
+  isFavorited?: boolean | null
 }
 
 export interface CreateTaskPostPayload {

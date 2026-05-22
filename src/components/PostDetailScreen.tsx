@@ -5,6 +5,7 @@ import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { Check, CheckCircle2, ChevronLeft, ChevronRight, Clock, Clock3, Globe2, Heart, MapPin, MoreHorizontal, Navigation, Share2, ShieldCheck, UsersRound, X } from 'lucide-react'
 import { BrandButton, CategoryImageFrame, MoreMenu, RatingStars, ReportConfirmSheet } from '@/components/ui/Common'
+import { UserProfileSheet } from '@/components/UserProfileSheet'
 import {
   categoryDetailOptions,
   customCategoryDetailMaxLength,
@@ -16,6 +17,7 @@ import {
   type PostStatus,
   type RequestMode,
   type RequestPost,
+  type UserProfile,
 } from '@/data/mockData'
 import { LocationPermissionSheet, NeighborhoodSelectSheet } from '@/components/location/LocationSheets'
 import { requestIOSPushPermission } from '@/components/NativeIOSBridge'
@@ -144,6 +146,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
   const [actionState, setActionState] = useState<'idle' | 'saving' | 'done' | 'error'>('idle')
   const [message, setMessage] = useState('')
   const [showReportSheet, setShowReportSheet] = useState(false)
+  const [showCreatorProfileSheet, setShowCreatorProfileSheet] = useState(false)
   const [reportSheetError, setReportSheetError] = useState('')
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [editMode, setEditMode] = useState(false)
@@ -180,6 +183,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
       .then((data) => {
         if (cancelled) return
         setPost(data)
+        setFavorite(Boolean(data.isFavorited))
         setLoadState('ready')
       })
       .catch(() => {
@@ -239,10 +243,35 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
 
   const displayPost = useMemo(() => (post ? mapApiPostToRequestPost(post) : fallbackPost), [fallbackPost, post])
   const requester = getUser(displayPost?.requesterId ?? 'minji')
-  const creatorName = post?.creatorNickname ?? displayPost?.requesterName ?? requester.name
-  const creatorGenderLabel = genderText(post?.creatorGender)
-  const creatorRating = Number(post?.creatorRatingAvg ?? displayPost?.requesterRating ?? requester.rating)
-  const creatorCompleted = Number(post?.creatorCompletedCount ?? displayPost?.requesterCompletedCount ?? requester.completedCount)
+  const creatorName = post ? post.creatorNickname ?? '작성자' : displayPost?.requesterName ?? requester.name
+  const creatorGender = post ? post.creatorGender ?? null : requester.gender ?? null
+  const creatorGenderLabel = genderText(creatorGender)
+  const creatorRating = Number(post ? post.creatorRatingAvg ?? 0 : displayPost?.requesterRating ?? requester.rating)
+  const creatorReviewCount = Number(post ? post.creatorReviewCount ?? 0 : requester.reviewCount ?? 0)
+  const creatorCompleted = Number(post ? post.creatorCompletedCount ?? 0 : displayPost?.requesterCompletedCount ?? requester.completedCount)
+  const creatorProfile = useMemo<UserProfile | null>(() => {
+    if (!post && !displayPost) return null
+
+    return {
+      id: post?.creatorId ?? displayPost?.requesterId ?? requester.id,
+      name: creatorName,
+      intro: post ? post.creatorBio ?? '' : requester.intro ?? '',
+      avatarUrl: post ? post.creatorAvatarUrl ?? null : requester.avatarUrl ?? null,
+      rating: Number.isFinite(creatorRating) ? creatorRating : 0,
+      reviewCount: creatorReviewCount,
+      completedCount: Number.isFinite(creatorCompleted) ? creatorCompleted : 0,
+      verified: post ? Boolean(post.creatorPhoneVerified || post.creatorIdentityVerified) : Boolean(requester.verified),
+      phoneVerified: post ? Boolean(post.creatorPhoneVerified) : Boolean(requester.phoneVerified),
+      identityVerified: post ? Boolean(post.creatorIdentityVerified) : Boolean(requester.identityVerified),
+      responseTime: post ? post.creatorResponseTime ?? null : requester.responseTime ?? null,
+      gender: creatorGender,
+      careerSummary: post ? post.creatorCareerSummary ?? null : requester.careerSummary ?? null,
+      careerDescription: post ? post.creatorCareerDescription ?? null : requester.careerDescription ?? null,
+      portfolioLinks: post ? post.creatorPortfolioLinks ?? [] : requester.portfolioLinks ?? [],
+      workSampleImages: post ? post.creatorWorkSampleImages ?? [] : requester.workSampleImages ?? [],
+      avatarTone: requester.avatarTone,
+    }
+  }, [creatorCompleted, creatorGender, creatorName, creatorRating, creatorReviewCount, displayPost, post, requester])
   const detailImageUrls = getDetailImageUrls(post, displayPost)
   const canUsePost = Boolean(displayPost)
   const isOwner = Boolean(post && currentUserId && post.creatorId === currentUserId)
@@ -691,9 +720,9 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
 
               <section className="detail-section-card requester-card">
                 <h3>작성자 정보</h3>
-                <div>
-                  {post?.creatorAvatarUrl ? (
-                    <span className="avatar avatar-md avatar-green is-image-avatar" style={{ backgroundImage: `url("${post.creatorAvatarUrl}")` }} />
+                <button type="button" className="requester-card-button" onClick={() => setShowCreatorProfileSheet(true)} disabled={!creatorProfile} aria-label={`${creatorName} 프로필 보기`}>
+                  {creatorProfile?.avatarUrl ? (
+                    <span className="avatar avatar-md avatar-green is-image-avatar" style={{ backgroundImage: `url("${creatorProfile.avatarUrl}")` }} />
                   ) : (
                     <span className="avatar avatar-md avatar-green">
                       <span>{creatorName.slice(0, 1)}</span>
@@ -701,16 +730,16 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
                   )}
                   <span>
                     <strong>{creatorName}{creatorGenderLabel ? ` · ${creatorGenderLabel}` : ''}</strong>
-                    {post?.creatorBio && <small>{post.creatorBio}</small>}
+                    {creatorProfile?.intro && <small>{creatorProfile.intro}</small>}
                     <em>
                       <RatingStars rating={creatorRating || 0} />
                     </em>
                     <small>
-                      후기 {post?.creatorReviewCount ?? 0}개 · 거래 완료 {creatorCompleted}회
+                      후기 {creatorReviewCount}개 · 거래 완료 {creatorCompleted}회
                     </small>
                   </span>
                   <ShieldCheck size={20} />
-                </div>
+                </button>
               </section>
 
               {!isOwner && (
@@ -756,6 +785,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
               onSubmit={(input) => void handleReport(input)}
             />
           )}
+          {showCreatorProfileSheet && creatorProfile && <UserProfileSheet user={creatorProfile} onClose={() => setShowCreatorProfileSheet(false)} />}
           {showProfileSelect && (
             <ActivityProfileSelectSheet
               postType={displayPost.postType}
