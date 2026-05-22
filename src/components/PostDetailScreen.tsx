@@ -5,8 +5,20 @@ import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { Check, CheckCircle2, ChevronLeft, ChevronRight, Clock, Clock3, Globe2, Heart, MapPin, MoreHorizontal, Navigation, Share2, ShieldCheck, UsersRound, X } from 'lucide-react'
 import { BrandButton, CategoryImageFrame, MoreMenu, RatingStars, ReportConfirmSheet } from '@/components/ui/Common'
-import { categoryDetailOptions, formatPrice, getCategoryLabel, getUser, postCategories, type PostStatus, type RequestMode, type RequestPost } from '@/data/mockData'
+import {
+  categoryDetailOptions,
+  customCategoryDetailMaxLength,
+  customCategoryDetailOption,
+  formatPrice,
+  getCategoryLabel,
+  getUser,
+  postCategories,
+  type PostStatus,
+  type RequestMode,
+  type RequestPost,
+} from '@/data/mockData'
 import { LocationPermissionSheet, NeighborhoodSelectSheet } from '@/components/location/LocationSheets'
+import { requestIOSPushPermission } from '@/components/NativeIOSBridge'
 import {
   addFavorite,
   createBlock,
@@ -296,6 +308,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
       const conversation = await startConversationFromPost(displayPost.id, '안녕하세요. 이 부탁 도와드릴 수 있어요.')
       setActionState('done')
       setMessage('채팅방으로 이동합니다.')
+      requestIOSPushPermission('conversation_started')
       router.push(`/chat/${encodeURIComponent(conversation.id)}`)
     } catch (error) {
       setActionState('error')
@@ -702,6 +715,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
           {showNeighborhoodSheet && (
             <NeighborhoodSelectSheet
               searchMode={post?.postType === 'request' ? 'address' : 'region'}
+              promptContext={post?.postType === 'offer' ? 'offer' : 'request'}
               permissionState={permissionState}
               busy={locationBusy}
               error={locationError}
@@ -1158,36 +1172,41 @@ function PostDetailEditForm({
       {sheet === 'categoryDetail' && (
         <DetailBottomSheet title="세부 카테고리를 선택해주세요" onClose={() => onSheetChange(null)}>
           <div className="mode-sheet-list compact">
-            {categoryDetails.map((item) => (
-              <button
-                key={item}
-                className={draft.categoryDetail === item ? 'is-selected' : ''}
-                type="button"
-                onClick={() => {
-                  if (item === '기타') {
-                    update({ categoryDetail: '' })
-                    onSheetChange('categoryDetailCustom')
-                    return
-                  }
-                  update({ categoryDetail: item })
-                  onSheetChange(null)
-                }}
-              >
-                <span>
-                  <CheckCircle2 size={22} />
-                </span>
-                <strong>{item}</strong>
-                <i>{draft.categoryDetail === item && <Check size={16} />}</i>
-              </button>
-            ))}
+            {categoryDetails.map((item) => {
+              const selected = draft.categoryDetail === item || (item === customCategoryDetailOption && isCustomCategoryDetail(draft.categoryId, draft.categoryDetail))
+              return (
+                <button
+                  key={item}
+                  className={selected ? 'is-selected' : ''}
+                  type="button"
+                  onClick={() => {
+                    if (item === customCategoryDetailOption) {
+                      update({ categoryDetail: '' })
+                      onSheetChange('categoryDetailCustom')
+                      return
+                    }
+                    update({ categoryDetail: item })
+                    onSheetChange(null)
+                  }}
+                >
+                  <span>
+                    <CheckCircle2 size={22} />
+                  </span>
+                  <strong>{item}</strong>
+                  <i>{selected && <Check size={16} />}</i>
+                </button>
+              )
+            })}
           </div>
         </DetailBottomSheet>
       )}
       {sheet === 'categoryDetailCustom' && (
         <DetailCustomTextSheet
-          title="기타 세부 카테고리 입력"
+          title="세부 카테고리 직접 입력"
           value={isCustomCategoryDetail(draft.categoryId, draft.categoryDetail) ? draft.categoryDetail : ''}
           placeholder="예: 동행"
+          maxLength={customCategoryDetailMaxLength}
+          helperText={`${customCategoryDetailMaxLength}자 이내로 입력해주세요.`}
           onClose={() => onSheetChange(null)}
           onSave={(categoryDetail) => {
             update({ categoryDetail })
@@ -1501,9 +1520,9 @@ function validateEditDraft(draft: DetailEditDraft, postType: 'request' | 'offer'
   }
   if ((categoryDetailOptions[draft.categoryId] ?? []).length > 0) {
     if (!draft.categoryDetail) errors.categoryDetail = requiredFieldMessage
-    else if (draft.categoryDetail === '기타') errors.categoryDetail = requiredFieldMessage
+    else if (draft.categoryDetail === customCategoryDetailOption) errors.categoryDetail = requiredFieldMessage
     else if (isCustomCategoryDetail(draft.categoryId, draft.categoryDetail)) {
-      const detailError = getCustomTextError(draft.categoryDetail, '세부 카테고리')
+      const detailError = getCustomCategoryDetailError(draft.categoryDetail)
       if (detailError) errors.categoryDetail = detailError
     }
   }
@@ -1548,7 +1567,22 @@ function mergeUpdatedPost(current: ApiTaskPost | null, updated: ApiTaskPost): Ap
 }
 
 function categoryIdFromLabel(label: string) {
-  return postCategories.find((category) => category.label === label)?.id ?? 'etc'
+  const legacyMap: Record<string, string> = {
+    '동네 심부름': 'proxy',
+    '집안 도움': 'proxy',
+    '문서·자료': 'work',
+    '문서 · 자료': 'work',
+    '디자인·콘텐츠': 'work',
+    디자인: 'work',
+    '영상·사진': 'work',
+    '사진·영상': 'work',
+    '개발 · IT': 'work',
+    레슨: 'advice',
+    '대신 찾아줘': 'choose',
+    반려동물: 'play',
+    기타: 'work',
+  }
+  return postCategories.find((category) => category.label === label)?.id ?? legacyMap[label] ?? 'work'
 }
 
 function getSelectedCategoryLabel(categoryId: string, customCategory: string) {
@@ -1566,6 +1600,13 @@ function getCustomTextError(value: string, label: string) {
   const trimmed = value.trim()
   if (!trimmed) return requiredFieldMessage
   if (trimmed.length >= 10) return `${label}는 10자 미만으로 입력해주세요.`
+  return ''
+}
+
+function getCustomCategoryDetailError(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed) return requiredFieldMessage
+  if (trimmed.length > customCategoryDetailMaxLength) return `세부 카테고리는 ${customCategoryDetailMaxLength}자 이내로 입력해주세요.`
   return ''
 }
 

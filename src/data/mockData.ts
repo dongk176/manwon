@@ -41,8 +41,12 @@ export interface UserProfile {
   name: string
   intro: string
   rating: number
+  reviewCount?: number
   completedCount: number
   verified: boolean
+  phoneVerified?: boolean
+  identityVerified?: boolean
+  responseTime?: string | null
   avatarTone: 'coral' | 'green' | 'blue' | 'violet' | 'gray'
 }
 
@@ -100,21 +104,19 @@ export interface Review {
 
 export const categories: Category[] = [
   { id: 'all', label: '전체', icon: 'all', iconSrc: '/home%20icon/all.png' },
-  { id: 'errand', label: '동네 심부름', icon: 'basket', iconSrc: '/home%20icon/1.png' },
-  { id: 'home', label: '집안 도움', icon: 'home', iconSrc: '/home%20icon/2.png' },
-  { id: 'document', label: '문서 · 자료', icon: 'document', iconSrc: '/home%20icon/3.png' },
-  { id: 'design', label: '디자인', icon: 'design', iconSrc: '/home%20icon/4.png' },
-  { id: 'media', label: '사진·영상', icon: 'camera', iconSrc: '/home%20icon/5.png' },
-  { id: 'dev_it', label: '개발 · IT', icon: 'document', iconSrc: '/home%20icon/6.png' },
-  { id: 'lesson', label: '레슨', icon: 'book', iconSrc: '/home%20icon/7.png' },
-  { id: 'find', label: '대신 찾아줘', icon: 'find', iconSrc: '/home%20icon/8.png' },
-  { id: 'pet', label: '반려동물', icon: 'pet', iconSrc: '/home%20icon/9.png' },
-  { id: 'etc', label: '기타', icon: 'etc', iconSrc: '/home%20icon/10.png' },
+  { id: 'wake', label: '깨워줘', icon: 'shield', iconSrc: '/home%20icon/1.png' },
+  { id: 'proxy', label: '대신해줘', icon: 'store', iconSrc: '/home%20icon/2.png' },
+  { id: 'work', label: '일해줘', icon: 'document', iconSrc: '/home%20icon/3.png' },
+  { id: 'listen', label: '들어줘', icon: 'review', iconSrc: '/home%20icon/4.png' },
+  { id: 'call', label: '불러줘', icon: 'music', iconSrc: '/home%20icon/5.png' },
+  { id: 'choose', label: '골라줘', icon: 'find', iconSrc: '/home%20icon/6.png' },
+  { id: 'play', label: '놀아줘', icon: 'review', iconSrc: '/home%20icon/7.png' },
+  { id: 'advice', label: '조언해줘', icon: 'book', iconSrc: '/home%20icon/8.png' },
 ]
 
 export const postCategories = categories.filter((category) => category.id !== 'all')
 
-const defaultCategoryIconSrc = categories.find((category) => category.id === 'etc')?.iconSrc ?? '/home%20icon/10.png'
+const defaultCategoryIconSrc = categories.find((category) => category.id === 'work')?.iconSrc ?? '/home%20icon/8.png'
 const categoryIconSrcCache = new Map(categories.map((category) => [category.id, category.iconSrc]))
 
 export function getCategoryIconSrc(categoryId: string | null | undefined) {
@@ -122,21 +124,22 @@ export function getCategoryIconSrc(categoryId: string | null | undefined) {
   return categoryIconSrcCache.get(categoryId) ?? defaultCategoryIconSrc
 }
 
+export const customCategoryDetailOption = '직접 입력'
+export const customCategoryDetailMaxLength = 7
+
 export const categoryDetailOptions: Record<string, string[]> = {
-  errand: ['장보기', '물건 전달', '편의점 구매', '줄서기', '택배 보내기', '물건 찾아오기', '근처 사진 찍기', '기타'],
-  home: ['벌레 잡기', '청소', '정리정돈', '가구 옮기기', '분리수거', '전구 교체', '설치 보조', '짐 정리', '기타'],
-  document: ['타이핑', '엑셀 정리', 'PPT 정리', '자료 조사', '맞춤법 검토', 'PDF 정리', '문서 요약', '기타'],
-  design: ['썸네일', '카드뉴스', '배너', '포스터', '간단 로고', '메뉴판', '상세페이지 일부', '기타'],
-  media: ['사진 보정', '누끼 따기', '배경 제거', '숏폼 자막', '릴스 편집', '컷 편집', '썸네일 캡처', '기타'],
-  dev_it: ['웹사이트 제작', '랜딩페이지', '오류 수정', '배포 도움', '도메인 연결', '워드프레스', '간단 자동화', '기타'],
-  lesson: ['음악', '골프', '배드민턴', '영어', '수학', '코딩', '미술', '서예', '댄스', '보컬', '기타'],
-  find: ['맛집 찾기', '선물 추천', '여행 코스', '숙소 비교', '제품 비교', '데이트 코스', '병원/업체 찾기', '기타'],
-  pet: ['산책', '밥 주기', '방문 돌봄', '병원 동행', '사진 보내기', '목욕 보조', '배변 정리', '기타'],
-  etc: ['간단 부탁', '급한 부탁', '반복 작업', '상담/조언', '대신 연락', '기타'],
+  wake: [],
+  listen: ['하소연', '연애 얘기', '고민 들어주기', '화풀이', '비밀 이야기', '감정 정리', customCategoryDetailOption],
+  advice: ['연애', '인생', '커리어', '사업 아이디어', '카톡 답장', '면접/발표', customCategoryDetailOption],
+  call: ['생일축하', '자장가', '짧은 커버곡', '응원송', customCategoryDetailOption],
+  play: ['랜덤 대화', '같이 게임', '산책', '밥친구', '카페 수다', '전화 수다', customCategoryDetailOption],
+  choose: ['옷', '식사 메뉴', '선물', '답장 선택', '데이트 코스', '기타', customCategoryDetailOption],
+  proxy: ['티켓팅', '예약하기', '줄서기', '오픈런', '물건수령', '현장확인', '자리맡기', customCategoryDetailOption],
+  work: ['디자인', '사진 보정', '영상 편집', '개발·IT', '글쓰기', '자료조사', '기타', customCategoryDetailOption],
 }
 
 export function getCategoryLabel(id: string) {
-  return categories.find((category) => category.id === id)?.label ?? '기타'
+  return categories.find((category) => category.id === id)?.label ?? '일해줘'
 }
 
 export const users: UserProfile[] = [
@@ -199,9 +202,10 @@ export const users: UserProfile[] = [
 export const requests: RequestPost[] = [
   {
     id: 'r7',
-    categoryId: 'lesson',
-    category: '레슨 · 음악',
-    title: '피아노 기초 1:1 레슨 (성인 초보 환영)',
+    categoryId: 'call',
+    category: '불러줘',
+    categoryDetail: '생일축하',
+    title: '친구 생일에 짧게 축하 노래 불러주실 분',
     location: '서울 강남구 역삼동',
     detailLocation: '역삼동',
     deadline: '오늘 19:00~20:00',
@@ -210,79 +214,82 @@ export const requests: RequestPost[] = [
     distance: '410m',
     image: 'music',
     status: '문의중',
-    description: '음악 레슨으로 피아노 기초 자세와 쉬운 코드 진행을 알려드려요.',
+    description: '케이크 전달할 때 1분 정도 밝게 생일 축하 노래를 불러주시면 됩니다.',
     requesterId: 'jihun',
   },
   {
     id: 'r8',
-    categoryId: 'lesson',
-    category: '레슨 · 음악',
-    title: '기타 코드 잡는 법부터 차근차근!',
+    categoryId: 'listen',
+    category: '들어줘',
+    categoryDetail: '연애 얘기',
+    title: '연애 고민 30분만 들어주실 분',
     location: '서울 마포구 연남동',
     detailLocation: '연남동',
     deadline: '내일 15:00~16:00',
     price: 12000,
-    mode: 'nearby',
-    distance: '1.4km',
-    image: 'music',
+    mode: 'online',
+    distance: '온라인',
+    image: 'review',
     status: '수락대기',
-    description: '음악 레슨으로 기타 기본 코드와 손가락 위치를 쉽게 알려드립니다.',
+    description: '답을 정해주기보다 상황을 차분히 들어주고 생각 정리만 도와주시면 좋아요.',
     requesterId: 'minsu',
   },
   {
     id: 'r9',
-    categoryId: 'lesson',
-    category: '레슨 · 음악',
-    title: '보컬 발성 및 고음 뚫기 코칭',
+    categoryId: 'advice',
+    category: '조언해줘',
+    categoryDetail: '면접/발표',
+    title: '면접 답변 흐름 한번 봐주세요',
     location: '서울 서초구 방배동',
     detailLocation: '방배동',
     deadline: '2일 후 20:00~21:00',
     price: 20000,
-    mode: 'nearby',
-    distance: '2.2km',
-    image: 'music',
+    mode: 'online',
+    distance: '온라인',
+    image: 'book',
     status: '문의중',
-    description: '음악 레슨으로 보컬 호흡, 발성, 고음 연습을 도와드려요.',
+    description: '예상 질문 답변을 같이 보고 어색한 표현이나 순서를 조언해주세요.',
     requesterId: 'sujin',
   },
   {
     id: 'r10',
-    categoryId: 'lesson',
-    category: '레슨 · 음악',
-    title: '우쿨렐레 초급반 (왕초보 환영)',
+    categoryId: 'play',
+    category: '놀아줘',
+    categoryDetail: '카페 수다',
+    title: '주말 오후 카페에서 가볍게 수다 나눠요',
     location: '경기 성남시 분당구 정자동',
     detailLocation: '정자동',
     deadline: '3일 후 14:00~15:00',
     price: 10000,
     mode: 'nearby',
     distance: '2.8km',
-    image: 'music',
+    image: 'review',
     status: '진행중',
-    description: '음악 레슨으로 우쿨렐레 기본 코드와 간단한 연주곡을 같이 연습해요.',
+    description: '새로 생긴 카페에서 1시간 정도 편하게 대화할 분을 찾고 있어요.',
     requesterId: 'haesal',
   },
   {
     id: 'r1',
-    categoryId: 'errand',
-    category: '동네 심부름',
-    title: '약국에서 감기약 받아와주실 분',
+    categoryId: 'wake',
+    category: '깨워줘',
+    title: '내일 아침 7시에 전화로 깨워주세요',
     location: '서울 강남구 역삼동',
     detailLocation: '역삼동',
-    deadline: '오늘 18:00까지',
+    deadline: '내일 07:00',
     price: 10000,
-    mode: 'nearby',
-    distance: '320m',
-    image: 'store',
+    mode: 'online',
+    distance: '온라인',
+    image: 'shield',
     status: '수락대기',
-    description:
-      '역삼역 근처 약국에서 감기약 한 통만 구매해서 전달 부탁드려요. 구매 후 사진으로 확인해주시면 됩니다.',
+    description: '중요한 일정이 있어서 전화로 확실히 깨워주실 분을 찾습니다.',
     requesterId: 'minji',
   },
   {
     id: 'r2',
-    categoryId: 'document',
-    category: '문서 · 자료',
-    title: 'PPT 3장 깔끔하게 정리해주세요',
+    categoryId: 'work',
+    category: '일해줘',
+    categoryDetail: '자료조사',
+    title: '발표 자료에 넣을 사례 5개 찾아주세요',
     location: '온라인',
     detailLocation: '온라인',
     deadline: '내일 14:00까지',
@@ -291,31 +298,31 @@ export const requests: RequestPost[] = [
     distance: '온라인',
     image: 'document',
     status: '완료요청',
-    description:
-      '초안은 있어서 문장 길이와 제목만 정리하면 됩니다. 과한 디자인보다 읽기 편한 느낌이면 좋아요.',
+    description: '키워드와 기준은 정해두었습니다. 출처 링크와 한 줄 요약까지 부탁드려요.',
     requesterId: 'jihun',
   },
   {
     id: 'r3',
-    categoryId: 'pet',
-    category: '반려동물',
-    title: '저녁에 강아지 산책 20분 부탁드려요',
+    categoryId: 'play',
+    category: '놀아줘',
+    categoryDetail: '산책',
+    title: '저녁에 한강 산책 같이 하실 분',
     location: '경기 성남시 분당구 정자동',
     detailLocation: '정자동',
     deadline: '오늘 19:00~19:30',
     price: 10000,
     mode: 'nearby',
     distance: '280m',
-    image: 'pet',
+    image: 'review',
     status: '진행중',
-    description:
-      '아파트 단지 안에서 20분 정도 산책만 부탁드려요. 리드줄과 배변봉투는 준비해둘게요.',
+    description: '가볍게 걷고 근처에서 음료 한 잔 할 수 있으면 좋겠습니다.',
     requesterId: 'haesal',
   },
   {
     id: 'r4',
-    categoryId: 'design',
-    category: '디자인',
+    categoryId: 'work',
+    category: '일해줘',
+    categoryDetail: '디자인',
     title: '인스타 게시물 썸네일 하나 만들어주세요',
     location: '온라인',
     detailLocation: '온라인',
@@ -331,8 +338,9 @@ export const requests: RequestPost[] = [
   },
   {
     id: 'r5',
-    categoryId: 'find',
-    category: '대신 찾아줘',
+    categoryId: 'proxy',
+    category: '대신해줘',
+    categoryDetail: '물건수령',
     title: '도서관에서 예약 책 찾아주실 분',
     location: '서울 송파구 잠실동',
     detailLocation: '잠실동',
@@ -348,9 +356,10 @@ export const requests: RequestPost[] = [
   },
   {
     id: 'r6',
-    categoryId: 'errand',
-    category: '동네 심부름',
-    title: '분식집 포장 음식 픽업 부탁해요',
+    categoryId: 'proxy',
+    category: '대신해줘',
+    categoryDetail: '예약하기',
+    title: '분식집 포장 음식 픽업 해주세요',
     location: '서울 강남구 대치동',
     detailLocation: '대치동',
     deadline: '오늘 20:30까지',

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, MapPin, Navigation, Search, X } from 'lucide-react'
+import { openIOSAppSettings } from '@/components/NativeIOSBridge'
 import { loadKakao, type KakaoMap } from '@/lib/loadKakao'
 import {
   formatRegionFull,
@@ -55,6 +56,15 @@ export function LocationPermissionSheet({
 }) {
   const copy = promptCopy[context]
   const denied = permissionState === 'denied'
+  const primaryLabel = denied ? '설정에서 허용' : copy.allow
+
+  function handlePrimaryClick() {
+    if (denied) {
+      if (!openIOSAppSettings()) onManual()
+      return
+    }
+    onAllow()
+  }
 
   return (
     <div className="sheet-overlay" role="presentation" onClick={onClose}>
@@ -70,9 +80,9 @@ export function LocationPermissionSheet({
         <p>{denied ? '위치 권한이 꺼져 있어요. 동네를 직접 선택하거나 설정에서 위치 권한을 허용해주세요.' : copy.description}</p>
         {error && <p className="location-sheet-error">{error}</p>}
         <div className="location-sheet-actions">
-          <button className="is-primary" type="button" onClick={onAllow} disabled={busy || permissionState === 'unavailable'}>
+          <button className="is-primary" type="button" onClick={handlePrimaryClick} disabled={busy || permissionState === 'unavailable'}>
             <Navigation size={17} />
-            {busy ? '위치 확인 중' : copy.allow}
+            {busy ? '위치 확인 중' : primaryLabel}
           </button>
           <button type="button" onClick={onManual}>
             {copy.manual}
@@ -89,6 +99,7 @@ export function NeighborhoodSelectSheet({
   error,
   searchMode = 'region',
   showCurrentLocation,
+  promptContext,
   onUseCurrent,
   onSelect,
   onClose,
@@ -98,6 +109,7 @@ export function NeighborhoodSelectSheet({
   error?: string
   searchMode?: 'region' | 'address'
   showCurrentLocation?: boolean
+  promptContext?: LocationPromptContext
   onUseCurrent: () => void | Promise<LocationRegion | void>
   onSelect: (region: LocationRegion) => void
   onClose: () => void
@@ -108,6 +120,7 @@ export function NeighborhoodSelectSheet({
   const [pickedRegion, setPickedRegion] = useState<LocationRegion | null>(null)
   const [addressMode, setAddressMode] = useState<'search' | 'mapPick'>('search')
   const [searchState, setSearchState] = useState<'idle' | 'searching' | 'error'>('idle')
+  const [showCurrentPrompt, setShowCurrentPrompt] = useState(false)
 
   useEffect(() => {
     const trimmed = query.trim()
@@ -154,8 +167,14 @@ export function NeighborhoodSelectSheet({
     ? '위치 권한이 꺼져 있어요. 주소를 검색하거나 설정에서 위치 권한을 허용해주세요.'
     : '위치 권한이 꺼져 있어요. 동네를 직접 선택하거나 설정에서 위치 권한을 허용해주세요.'
 
-  async function handleUseCurrent() {
+  async function handleUseCurrent(skipPrompt = false) {
+    if (!skipPrompt && permissionState !== 'granted') {
+      setShowCurrentPrompt(true)
+      return
+    }
+
     const region = await onUseCurrent()
+    setShowCurrentPrompt(false)
     if (searchMode !== 'address' || !region) return
     setQuery(region.addressText)
     setResults([region])
@@ -268,6 +287,17 @@ export function NeighborhoodSelectSheet({
           </button>
         )}
       </div>
+      {showCurrentPrompt && (
+        <LocationPermissionSheet
+          context={promptContext ?? (searchMode === 'address' ? 'request' : 'nearby')}
+          permissionState={permissionState}
+          busy={busy}
+          error={error}
+          onAllow={() => void handleUseCurrent(true)}
+          onManual={() => setShowCurrentPrompt(false)}
+          onClose={() => setShowCurrentPrompt(false)}
+        />
+      )}
     </div>
   )
 }

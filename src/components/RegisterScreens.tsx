@@ -19,7 +19,16 @@ import {
 } from 'lucide-react'
 import { AppHeader } from '@/components/ui/Common'
 import { NeighborhoodSelectSheet } from '@/components/location/LocationSheets'
-import { categoryDetailOptions, getCategoryLabel, postCategories, type Category, type RequestMode } from '@/data/mockData'
+import { requestIOSPushPermission } from '@/components/NativeIOSBridge'
+import {
+  categoryDetailOptions,
+  customCategoryDetailMaxLength,
+  customCategoryDetailOption,
+  getCategoryLabel,
+  postCategories,
+  type Category,
+  type RequestMode,
+} from '@/data/mockData'
 import { createTaskPost, fetchMyPage, saveMyLocationPreference, uploadImageFile } from '@/lib/manwonApi'
 import {
   getLocationPermissionState,
@@ -132,7 +141,7 @@ export function RegistrationTypeScreen({ onSelect }: { onSelect: (kind: Register
       <div className="register-type-stack">
         <button className="register-type-card" type="button" onClick={() => onSelect('request')}>
           <div>
-            <strong>부탁해요</strong>
+            <strong>해주세요</strong>
             <span>누군가에게 부탁하고 싶어요</span>
           </div>
           <span className="register-type-visual">
@@ -266,6 +275,7 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
         longitude: isOffline ? locationRegion?.longitude ?? null : null,
         images: toPersistedImages(images),
       })
+      requestIOSPushPermission('post_created')
       if (onRegistered) window.setTimeout(onRegistered, 350)
     } catch (error) {
       setSaveState('error')
@@ -341,7 +351,7 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
 
   return (
     <section className="registration-flow-screen">
-      <StepHeader title="부탁해요 등록" progress={`${Math.min(step, 3)}/3`} onBack={handleBack} />
+      <StepHeader title="해주세요 등록" progress={`${Math.min(step, 3)}/3`} onBack={handleBack} />
       <div className="step-content">
         {step === 1 && (
           <>
@@ -497,7 +507,7 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
           selectedValue={categoryDetail}
           onClose={() => setSheet(null)}
           onSelect={(nextCategoryDetail) => {
-            if (nextCategoryDetail === '기타') {
+            if (nextCategoryDetail === customCategoryDetailOption) {
               setCategoryDetail('')
               setSheet('categoryDetailCustom')
               return
@@ -509,9 +519,11 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
       )}
       {sheet === 'categoryDetailCustom' && (
         <CustomTextBottomSheet
-          title="기타 세부 카테고리 입력"
+          title="세부 카테고리 직접 입력"
           value={isCustomCategoryDetail(categoryId, categoryDetail) ? categoryDetail : ''}
           placeholder="예: 동행"
+          maxLength={customCategoryDetailMaxLength}
+          helperText={`${customCategoryDetailMaxLength}자 이내로 입력해주세요.`}
           onClose={() => setSheet(null)}
           onSave={(nextValue) => {
             setCategoryDetail(nextValue)
@@ -553,6 +565,7 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
       {showNeighborhoodSheet && (
         <NeighborhoodSelectSheet
           searchMode="address"
+          promptContext="request"
           permissionState={permissionState}
           busy={locationBusy}
           error={locationError}
@@ -730,6 +743,7 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
         trustExampleImages: toPersistedImages(sampleImages),
         workSampleImages: toPersistedImages(sampleImages),
       })
+      requestIOSPushPermission('post_created')
       if (onRegistered) window.setTimeout(onRegistered, 350)
     } catch (error) {
       setSaveState('error')
@@ -995,7 +1009,7 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
           selectedValue={categoryDetail}
           onClose={() => setSheet(null)}
           onSelect={(nextCategoryDetail) => {
-            if (nextCategoryDetail === '기타') {
+            if (nextCategoryDetail === customCategoryDetailOption) {
               setCategoryDetail('')
               setSheet('categoryDetailCustom')
               return
@@ -1007,9 +1021,11 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
       )}
       {sheet === 'categoryDetailCustom' && (
         <CustomTextBottomSheet
-          title="기타 세부 카테고리 입력"
+          title="세부 카테고리 직접 입력"
           value={isCustomCategoryDetail(categoryId, categoryDetail) ? categoryDetail : ''}
           placeholder="예: 동행"
+          maxLength={customCategoryDetailMaxLength}
+          helperText={`${customCategoryDetailMaxLength}자 이내로 입력해주세요.`}
           onClose={() => setSheet(null)}
           onSave={(nextValue) => {
             setCategoryDetail(nextValue)
@@ -1063,6 +1079,7 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
       {showNeighborhoodSheet && (
         <NeighborhoodSelectSheet
           searchMode="address"
+          promptContext="offer"
           permissionState={permissionState}
           busy={locationBusy}
           error={locationError}
@@ -1379,7 +1396,7 @@ function CategoryDetailBottomSheet({
     <BottomSheet title="세부 카테고리를 선택해주세요" onClose={onClose}>
       <div className="mode-sheet-list compact">
         {options.map((option) => {
-          const selected = selectedValue === option
+          const selected = selectedValue === option || (option === customCategoryDetailOption && isCustomCategoryDetail(categoryId, selectedValue))
           return (
             <button className={selected ? 'is-selected' : ''} key={option} type="button" onClick={() => onSelect(option)}>
               <span>
@@ -1399,12 +1416,16 @@ function CustomTextBottomSheet({
   title,
   value,
   placeholder,
+  maxLength = customCategoryMaxLength,
+  helperText = '10자 미만으로 입력해주세요.',
   onSave,
   onClose,
 }: {
   title: string
   value: string
   placeholder: string
+  maxLength?: number
+  helperText?: string
   onSave: (value: string) => void
   onClose: () => void
 }) {
@@ -1413,8 +1434,8 @@ function CustomTextBottomSheet({
   return (
     <BottomSheet title={title} onClose={onClose}>
       <div className="custom-category-input">
-        <TextInput value={draft} onChange={setDraft} placeholder={placeholder} maxLength={customCategoryMaxLength} error={!trimmed ? requiredFieldMessage : undefined} />
-        <p>10자 미만으로 입력해주세요.</p>
+        <TextInput value={draft} onChange={setDraft} placeholder={placeholder} maxLength={maxLength} error={!trimmed ? requiredFieldMessage : undefined} />
+        <p>{helperText}</p>
         <button className="address-modal-confirm" type="button" disabled={!trimmed} onClick={() => onSave(trimmed)}>
           확인
         </button>
@@ -1847,6 +1868,13 @@ function getCustomTextError(value: string, label: string) {
   return ''
 }
 
+function getCustomCategoryDetailError(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed) return requiredFieldMessage
+  if (trimmed.length > customCategoryDetailMaxLength) return `세부 카테고리는 ${customCategoryDetailMaxLength}자 이내로 입력해주세요.`
+  return ''
+}
+
 function getModeLabel(mode: RequestMode) {
   return modeOptions.find((option) => option.value === mode)?.label ?? ''
 }
@@ -2059,9 +2087,9 @@ function validateRequestStep(
     }
     if (input.categoryId && getCategoryDetailOptions(input.categoryId).length > 0) {
       if (!input.categoryDetail) errors.categoryDetail = requiredFieldMessage
-      else if (input.categoryDetail === '기타') errors.categoryDetail = requiredFieldMessage
+      else if (input.categoryDetail === customCategoryDetailOption) errors.categoryDetail = requiredFieldMessage
       else if (isCustomCategoryDetail(input.categoryId, input.categoryDetail)) {
-        const detailError = getCustomTextError(input.categoryDetail, '세부 카테고리')
+        const detailError = getCustomCategoryDetailError(input.categoryDetail)
         if (detailError) errors.categoryDetail = detailError
       }
     }
@@ -2121,9 +2149,9 @@ function validateOfferStep(
     }
     if (input.categoryId && getCategoryDetailOptions(input.categoryId).length > 0) {
       if (!input.categoryDetail) errors.categoryDetail = requiredFieldMessage
-      else if (input.categoryDetail === '기타') errors.categoryDetail = requiredFieldMessage
+      else if (input.categoryDetail === customCategoryDetailOption) errors.categoryDetail = requiredFieldMessage
       else if (isCustomCategoryDetail(input.categoryId, input.categoryDetail)) {
-        const detailError = getCustomTextError(input.categoryDetail, '세부 카테고리')
+        const detailError = getCustomCategoryDetailError(input.categoryDetail)
         if (detailError) errors.categoryDetail = detailError
       }
     }

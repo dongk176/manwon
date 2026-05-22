@@ -1,5 +1,6 @@
 import PhotosUI
 import SwiftUI
+import UIKit
 
 @MainActor
 final class ChatListViewModel: ObservableObject {
@@ -28,6 +29,7 @@ final class ChatListViewModel: ObservableObject {
 
 struct ChatListView: View {
     @EnvironmentObject private var router: AppRouter
+    @EnvironmentObject private var permissionPrompts: PermissionPromptManager
     @StateObject private var viewModel = ChatListViewModel()
     @State private var path: [String] = []
 
@@ -45,6 +47,9 @@ struct ChatListView: View {
         }
         .task {
             await viewModel.load()
+            if !viewModel.conversations.isEmpty {
+                permissionPrompts.requestPush(context: .chatEntered)
+            }
             await viewModel.poll()
         }
         .onChange(of: router.chatConversationId) { conversationId in
@@ -131,7 +136,7 @@ private struct ChatRow: View {
                     Text(conversation.otherNickname ?? "상대방")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundStyle(ManwonColor.text)
-                    Pill(text: statusText(conversation), active: conversation.dealStatus != .completed && conversation.dealStatus != .cancelled)
+                    Pill(text: statusText(conversation), active: !conversation.isClosed)
                     Spacer()
                     Text(compactDateText(conversation.lastMessageAt))
                         .font(.system(size: 12, weight: .medium))
@@ -174,6 +179,7 @@ final class ChatDetailViewModel: ObservableObject {
     @Published var draft = ""
     @Published var isLoading = true
     @Published var isSending = false
+    @Published var pendingTradeAction: String?
     @Published var errorMessage: String?
 
     init(conversationId: String) {
@@ -262,23 +268,31 @@ final class ChatDetailViewModel: ObservableObject {
         isSending = false
     }
 
-    func updateDealStatus(_ status: DealStatus) async {
-        guard let dealId = conversation?.dealId else { return }
+    func updateDealStatus(_ status: DealStatus) async -> Bool {
+        guard let dealId = conversation?.dealId, pendingTradeAction == nil else { return false }
+        pendingTradeAction = status.rawValue
+        defer { pendingTradeAction = nil }
         do {
             try await APIClient.shared.updateDealStatus(dealId: dealId, status: status)
-            await load()
+            await load(silent: true)
+            return true
         } catch {
             errorMessage = error.localizedDescription
+            return false
         }
     }
 
-    func updateApplicationStatus(_ status: String) async {
-        guard let applicationId = conversation?.applicationId else { return }
+    func updateApplicationStatus(_ status: String) async -> Bool {
+        guard let applicationId = conversation?.applicationId, pendingTradeAction == nil else { return false }
+        pendingTradeAction = status
+        defer { pendingTradeAction = nil }
         do {
             try await APIClient.shared.updateApplicationStatus(applicationId: applicationId, status: status)
-            await load()
+            await load(silent: true)
+            return true
         } catch {
             errorMessage = error.localizedDescription
+            return false
         }
     }
 }
@@ -287,6 +301,8 @@ struct ChatDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: ChatDetailViewModel
     @State private var selectedPhoto: PhotosPickerItem?
+    @State private var showProfileSheet = false
+    @FocusState private var composerFocused: Bool
 
     init(conversationId: String) {
         _viewModel = StateObject(wrappedValue: ChatDetailViewModel(conversationId: conversationId))
@@ -294,7 +310,9 @@ struct ChatDetailView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ChatDetailHeader(title: viewModel.conversation?.otherNickname ?? "채팅") {
+            ChatDetailHeader(title: viewModel.conversation?.otherNickname ?? "채팅", onProfile: {
+                showProfileSheet = true
+            }) {
                 dismiss()
             }
             content
@@ -323,6 +341,13 @@ struct ChatDetailView: View {
                     selectedPhoto = nil
                 }
             }
+            .sheet(isPresented: $showProfileSheet) {
+                if let conversation = viewModel.conversation {
+                    ChatProfileSheet(conversation: conversation)
+                        .presentationDetents([.height(320), .medium])
+                        .presentationDragIndicator(.visible)
+                }
+            }
     }
 
     @ViewBuilder
@@ -337,7 +362,9 @@ struct ChatDetailView: View {
                     ScrollView {
                         LazyVStack(spacing: 10) {
                             if let conversation = viewModel.conversation {
-                                TradeActionPanel(conversation: conversation, viewModel: viewModel)
+                                TradeActionPanel(conversation: conversation, viewModel: viewModel) {
+                                    showProfileSheet = true
+                                }
                                     .padding(.horizontal, 16)
                                     .padding(.top, 12)
                             }
@@ -349,10 +376,25 @@ struct ChatDetailView: View {
                         .padding(.bottom, 12)
                     }
                     .background(ManwonColor.background)
-                    .onChange(of: viewModel.messages.count) { _ in
+                    .scrollDismissesKeyboard(.interactively)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        composerFocused = false
+                        dismissKeyboard()
+                    }
+                    .onAppear {
                         if let last = viewModel.messages.last {
-                            withAnimation(.easeOut(duration: 0.2)) {
+                            DispatchQueue.main.async {
                                 proxy.scrollTo(last.id, anchor: .bottom)
+                            }
+                        }
+                    }
+                    .onChange(of: viewModel.messages.last?.id) { _ in
+                        if let last = viewModel.messages.last {
+                            DispatchQueue.main.async {
+                                withAnimation(.easeOut(duration: 0.2)) {
+                                    proxy.scrollTo(last.id, anchor: .bottom)
+                                }
                             }
                         }
                     }
@@ -361,7 +403,8 @@ struct ChatDetailView: View {
                 ComposerBar(
                     draft: $viewModel.draft,
                     disabled: viewModel.conversation?.isClosed == true || viewModel.isSending,
-                    selectedPhoto: $selectedPhoto
+                    selectedPhoto: $selectedPhoto,
+                    focused: $composerFocused
                 ) {
                     Task { await viewModel.sendText() }
                 }
@@ -370,8 +413,13 @@ struct ChatDetailView: View {
     }
 }
 
+private func dismissKeyboard() {
+    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+}
+
 private struct ChatDetailHeader: View {
     let title: String
+    let onProfile: () -> Void
     let onBack: () -> Void
 
     var body: some View {
@@ -390,8 +438,14 @@ private struct ChatDetailHeader: View {
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
 
-            Color.clear
-                .frame(width: 42, height: 42)
+            Button(action: onProfile) {
+                Image(systemName: "person.crop.circle")
+                    .font(.system(size: 21, weight: .semibold))
+                    .foregroundStyle(ManwonColor.text)
+                    .frame(width: 42, height: 42)
+            }
+            .buttonStyle(PressableScaleButtonStyle(scale: 0.94, pressedOpacity: 0.8))
+            .accessibilityLabel("상대방 프로필 보기")
         }
         .padding(.horizontal, 8)
         .padding(.top, 8)
@@ -405,15 +459,141 @@ private struct ChatDetailHeader: View {
     }
 }
 
+private struct ChatProfileSheet: View {
+    let conversation: Conversation
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 13) {
+                Circle()
+                    .fill(ManwonColor.brandSoft)
+                    .frame(width: 58, height: 58)
+                    .overlay {
+                        Text(String((conversation.otherNickname ?? "상대").prefix(1)))
+                            .font(.system(size: 22, weight: .bold))
+                            .foregroundStyle(ManwonColor.brand)
+                    }
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(conversation.otherNickname ?? "상대방")
+                        .font(.system(size: 21, weight: .bold))
+                        .foregroundStyle(ManwonColor.text)
+                    Text(conversation.otherCareerSummary ?? "만원부탁소 사용자")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(ManwonColor.muted)
+                        .lineLimit(2)
+                }
+            }
+
+            HStack(spacing: 10) {
+                ProfileMetric(title: "평점", value: ratingText)
+                ProfileMetric(title: "거래 완료", value: "\(conversation.otherCompletedCount ?? 0)회")
+                ProfileMetric(title: "후기", value: "\(conversation.otherReviewCount ?? 0)개")
+            }
+
+            if let responseTime = conversation.otherResponseTime, !responseTime.isEmpty {
+                HStack {
+                    Text("응답")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(ManwonColor.text)
+                    Spacer()
+                    Text(responseTime)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(ManwonColor.muted)
+                }
+                .padding(13)
+                .background(Color(red: 0.97, green: 0.97, blue: 0.975))
+                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+            }
+
+            HStack(spacing: 8) {
+                if conversation.otherPhoneVerified == true {
+                    ProfileBadge(text: "휴대폰 인증")
+                }
+                if conversation.otherIdentityVerified == true {
+                    ProfileBadge(text: "신원 인증")
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 22)
+        .padding(.bottom, 20)
+    }
+
+    private var ratingText: String {
+        guard let rating = conversation.otherRatingAvg, rating > 0 else { return "신규" }
+        return String(format: "%.1f", rating)
+    }
+}
+
+private struct ProfileMetric: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(spacing: 5) {
+            Text(value)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(ManwonColor.text)
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(ManwonColor.muted)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        .background(ManwonColor.surface)
+        .overlay(
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .stroke(ManwonColor.line, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+    }
+}
+
+private struct ProfileBadge: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 12, weight: .bold))
+            .foregroundStyle(ManwonColor.brand)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(ManwonColor.brandSoft)
+            .clipShape(Capsule())
+    }
+}
+
 private struct TradeActionPanel: View {
+    @EnvironmentObject private var permissionPrompts: PermissionPromptManager
     let conversation: Conversation
     @ObservedObject var viewModel: ChatDetailViewModel
+    let onProfile: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
                 .font(.system(size: 15, weight: .bold))
                 .foregroundStyle(ManwonColor.text)
+            if showsProfilePrompt {
+                Button(action: onProfile) {
+                    HStack {
+                        Text("수락 전에 지원자 프로필을 확인해보세요.")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(ManwonColor.muted)
+                        Spacer()
+                        Text("프로필 보기")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(ManwonColor.brand)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(ManwonColor.brandSoft.opacity(0.55))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(PressableScaleButtonStyle(scale: 0.98, pressedOpacity: 0.86))
+            }
             actions
         }
         .padding(14)
@@ -429,6 +609,9 @@ private struct TradeActionPanel: View {
     private var title: String {
         if conversation.dealStatus == .completed { return "거래가 완료되었어요." }
         if conversation.dealStatus == .cancelled { return "거래가 취소되었어요." }
+        if conversation.applicationStatus == "rejected" { return "지원이 거절되었어요." }
+        if conversation.applicationStatus == "cancelled" { return "지원이 취소되었어요." }
+        if hasPendingApplication && !isRequester { return "지원 수락을 기다리고 있어요." }
         if conversation.dealStatus == .completeRequested { return "완료 요청이 도착했어요." }
         if conversation.dealStatus == .accepted { return "거래를 시작할 수 있어요." }
         if conversation.dealStatus == .inProgress { return "진행 중인 거래입니다." }
@@ -436,31 +619,92 @@ private struct TradeActionPanel: View {
         return conversation.postTitle ?? "거래 대화"
     }
 
+    private var isRequester: Bool {
+        conversation.requesterId == viewModel.currentUserId
+    }
+
+    private var hasPendingApplication: Bool {
+        conversation.applicationId != nil && conversation.applicationStatus == "applied" && conversation.dealId == nil
+    }
+
+    private var showsProfilePrompt: Bool {
+        hasPendingApplication && isRequester
+    }
+
+    private var busy: Bool {
+        viewModel.pendingTradeAction != nil
+    }
+
+    private func actionTitle(_ id: String, _ normal: String) -> String {
+        guard viewModel.pendingTradeAction == id else { return normal }
+        switch id {
+        case "accepted": return "수락 중"
+        case "rejected": return "거절 중"
+        case "in_progress": return "시작 중"
+        case "complete_requested": return "요청 중"
+        case "completed": return "승인 중"
+        case "cancelled": return "취소 중"
+        case "disputed": return "신고 중"
+        default: return "처리 중"
+        }
+    }
+
+    private func runDealAction(_ status: DealStatus) {
+        Task {
+            if await viewModel.updateDealStatus(status) {
+                permissionPrompts.requestPush(context: .dealAction)
+            }
+        }
+    }
+
+    private func runApplicationAction(_ status: String) {
+        Task {
+            if await viewModel.updateApplicationStatus(status) {
+                permissionPrompts.requestPush(context: .dealAction)
+            }
+        }
+    }
+
     @ViewBuilder
     private var actions: some View {
         if conversation.dealStatus == .completeRequested {
             HStack {
-                Button("완료 승인") { Task { await viewModel.updateDealStatus(.completed) } }
+                Button(actionTitle(DealStatus.completed.rawValue, "완료 승인")) { runDealAction(.completed) }
                     .buttonStyle(PrimaryButtonStyle())
-                Button("문제 신고") { Task { await viewModel.updateDealStatus(.disputed) } }
+                    .disabled(busy)
+                Button(actionTitle(DealStatus.disputed.rawValue, "문제 신고")) { runDealAction(.disputed) }
                     .buttonStyle(PrimaryButtonStyle(isSecondary: true))
+                    .disabled(busy)
             }
         } else if conversation.dealStatus == .accepted || conversation.dealStatus == .inProgress {
+            let nextStatus = conversation.dealStatus == .accepted ? DealStatus.inProgress : DealStatus.completeRequested
             HStack {
-                Button(conversation.dealStatus == .accepted ? "진행 시작" : "완료 요청") {
-                    Task { await viewModel.updateDealStatus(conversation.dealStatus == .accepted ? .inProgress : .completeRequested) }
+                Button(actionTitle(nextStatus.rawValue, conversation.dealStatus == .accepted ? "진행 시작" : "완료 요청")) {
+                    runDealAction(nextStatus)
                 }
                 .buttonStyle(PrimaryButtonStyle())
-                Button("취소") { Task { await viewModel.updateDealStatus(.cancelled) } }
+                .disabled(busy)
+                Button(actionTitle(DealStatus.cancelled.rawValue, "취소")) { runDealAction(.cancelled) }
                     .buttonStyle(PrimaryButtonStyle(isSecondary: true))
+                    .disabled(busy)
             }
-        } else if conversation.applicationId != nil && conversation.applicationStatus == "applied" {
+        } else if hasPendingApplication && isRequester {
             HStack {
-                Button("수락하기") { Task { await viewModel.updateApplicationStatus("accepted") } }
+                Button(actionTitle("accepted", "수락하기")) { runApplicationAction("accepted") }
                     .buttonStyle(PrimaryButtonStyle())
-                Button("거절하기") { Task { await viewModel.updateApplicationStatus("rejected") } }
+                    .disabled(busy)
+                Button(actionTitle("rejected", "거절하기")) { runApplicationAction("rejected") }
                     .buttonStyle(PrimaryButtonStyle(isSecondary: true))
+                    .disabled(busy)
             }
+        } else if hasPendingApplication {
+            Text("작성자가 수락하면 거래가 시작됩니다.")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(ManwonColor.muted)
+        } else if conversation.applicationStatus == "rejected" || conversation.applicationStatus == "cancelled" {
+            Text("필요하면 게시물 상세에서 다시 지원할 수 있습니다.")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(ManwonColor.muted)
         }
     }
 }
@@ -520,6 +764,7 @@ private struct ComposerBar: View {
     @Binding var draft: String
     let disabled: Bool
     @Binding var selectedPhoto: PhotosPickerItem?
+    let focused: FocusState<Bool>.Binding
     let send: () -> Void
 
     var body: some View {
@@ -541,16 +786,16 @@ private struct ComposerBar: View {
                 .padding(.vertical, 10)
                 .background(Color(red: 0.96, green: 0.96, blue: 0.965))
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .focused(focused)
                 .disabled(disabled)
 
             Button(action: send) {
-                Text("전송")
-                    .font(.system(size: 14, weight: .bold))
+                Image(systemName: "paperplane.fill")
+                    .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(Color.white)
-                    .padding(.horizontal, 14)
-                    .frame(height: 38)
+                    .frame(width: 38, height: 38)
                     .background(ManwonColor.brand)
-                    .clipShape(Capsule())
+                    .clipShape(Circle())
             }
             .buttonStyle(PressableScaleButtonStyle(scale: 0.94, pressedOpacity: 0.85))
             .disabled(disabled || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)

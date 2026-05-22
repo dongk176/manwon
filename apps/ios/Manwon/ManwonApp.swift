@@ -5,16 +5,16 @@ import UIKit
 struct ManwonApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var router = AppRouter()
+    @StateObject private var permissionPrompts = PermissionPromptManager()
 
     var body: some Scene {
         WindowGroup {
             RootTabView()
                 .environmentObject(router)
+                .environmentObject(permissionPrompts)
                 .onAppear {
                     PushManager.shared.attach(router: router)
-                }
-                .task {
-                    PushManager.shared.requestAuthorizationAndRegister()
+                    PushManager.shared.registerForRemoteNotificationsIfAuthorized()
                 }
         }
     }
@@ -22,6 +22,8 @@ struct ManwonApp: App {
 
 struct RootTabView: View {
     @EnvironmentObject private var router: AppRouter
+    @EnvironmentObject private var permissionPrompts: PermissionPromptManager
+    @Environment(\.scenePhase) private var scenePhase
     @State private var keyboardVisible = false
 
     var body: some View {
@@ -59,7 +61,7 @@ struct RootTabView: View {
                             router.openWebPath("/register")
                         }
                         .padding(.trailing, 20)
-                        .padding(.bottom, 106)
+                        .padding(.bottom, 70)
                         .transition(.scale(scale: 0.88, anchor: .bottomTrailing).combined(with: .opacity))
                     }
                 }
@@ -75,16 +77,28 @@ struct RootTabView: View {
                 .zIndex(200)
             }
         }
+        .overlay {
+            if let prompt = permissionPrompts.prompt {
+                PermissionPromptOverlay(prompt: prompt)
+                    .zIndex(300)
+            }
+        }
         .animation(.easeInOut(duration: 0.18), value: router.selectedTab)
         .animation(.easeInOut(duration: 0.18), value: router.hidesBottomNav)
         .animation(.easeInOut(duration: 0.16), value: keyboardVisible)
         .animation(.easeInOut(duration: 0.18), value: router.mapUnavailableNoticeVisible)
+        .animation(.easeInOut(duration: 0.18), value: permissionPrompts.prompt?.id)
         .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.86), value: router.homeIsAtTop)
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             keyboardVisible = true
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             keyboardVisible = false
+        }
+        .onChange(of: scenePhase) { phase in
+            guard phase == .active else { return }
+            PushManager.shared.registerForRemoteNotificationsIfAuthorized()
+            permissionPrompts.checkUnreadMessagesOnForeground()
         }
     }
 

@@ -36,17 +36,34 @@ final class LocationProvider: NSObject, ObservableObject, CLLocationManagerDeleg
 
     private let manager = CLLocationManager()
 
+    var authorizationStatus: CLAuthorizationStatus {
+        manager.authorizationStatus
+    }
+
     override init() {
         super.init()
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
     }
 
-    func request() {
+    func refreshAuthorizationState() {
+        switch manager.authorizationStatus {
+        case .authorizedAlways, .authorizedWhenInUse:
+            authorizationDenied = false
+            manager.requestLocation()
+        case .denied, .restricted:
+            authorizationDenied = true
+        default:
+            authorizationDenied = false
+        }
+    }
+
+    func requestSystemLocation() {
         switch manager.authorizationStatus {
         case .notDetermined:
             manager.requestWhenInUseAuthorization()
         case .authorizedAlways, .authorizedWhenInUse:
+            authorizationDenied = false
             manager.requestLocation()
         case .denied, .restricted:
             authorizationDenied = true
@@ -56,7 +73,7 @@ final class LocationProvider: NSObject, ObservableObject, CLLocationManagerDeleg
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        request()
+        refreshAuthorizationState()
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
@@ -109,6 +126,7 @@ final class NearbyViewModel: ObservableObject {
 
 struct NearbyView: View {
     @EnvironmentObject private var router: AppRouter
+    @EnvironmentObject private var permissionPrompts: PermissionPromptManager
     @StateObject private var locationProvider = LocationProvider()
     @StateObject private var viewModel = NearbyViewModel()
     @State private var sheetDetent: NearbySheetDetent = .medium
@@ -141,6 +159,23 @@ struct NearbyView: View {
                 }
                 .ignoresSafeArea()
                 .overlay(Color.white.opacity(sheetDetent == .expanded ? 0.02 : 0.08).allowsHitTesting(false))
+
+                Button {
+                    requestNearbyLocation()
+                } label: {
+                    Image(systemName: "location.fill")
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundStyle(ManwonColor.brand)
+                        .frame(width: 48, height: 48)
+                        .background(NearbyStyle.mapControl)
+                        .clipShape(Circle())
+                        .shadow(color: .black.opacity(0.14), radius: 10, x: 0, y: 5)
+                }
+                .buttonStyle(PressableScaleButtonStyle(scale: 0.94, pressedOpacity: 0.9))
+                .padding(.top, 58)
+                .padding(.trailing, 18)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .opacity(sheetDetent == .expanded ? 0 : 1)
 
                 Button {
                     withAnimation(ManwonMotion.select) {
@@ -219,7 +254,7 @@ struct NearbyView: View {
             }
             .background(ManwonColor.background)
             .task {
-                locationProvider.request()
+                locationProvider.refreshAuthorizationState()
                 await viewModel.load(
                     latitude: locationProvider.coordinate.latitude,
                     longitude: locationProvider.coordinate.longitude
@@ -249,12 +284,21 @@ struct NearbyView: View {
     }
 
     private func reloadNearby() {
-        locationProvider.request()
+        requestNearbyLocation()
         Task {
             await viewModel.load(
                 latitude: locationProvider.coordinate.latitude,
                 longitude: locationProvider.coordinate.longitude
             )
+        }
+    }
+
+    private func requestNearbyLocation() {
+        permissionPrompts.requestLocation(
+            context: .nearby,
+            authorizationStatus: locationProvider.authorizationStatus
+        ) {
+            locationProvider.requestSystemLocation()
         }
     }
 

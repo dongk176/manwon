@@ -7,6 +7,7 @@ struct WebTabView: View {
     let title: String
     @Binding var path: String
     @EnvironmentObject private var router: AppRouter
+    @EnvironmentObject private var permissionPrompts: PermissionPromptManager
     @State private var reloadToken = UUID()
     @State private var isShowingSplash = true
     @State private var errorMessage: String?
@@ -21,6 +22,13 @@ struct WebTabView: View {
                 },
                 onRouteChange: { routePath in
                     router.webRouteDidChange(routePath, for: tab)
+                },
+                onPermissionPrompt: { permission, context, unreadCount in
+                    permissionPrompts.handleWebPermissionPrompt(
+                        permission: permission,
+                        context: context,
+                        unreadCount: unreadCount
+                    )
                 },
                 onScrollTopChange: { isAtTop in
                     if tab == .home {
@@ -85,6 +93,7 @@ struct NativeWebView: UIViewRepresentable {
     let reloadToken: UUID
     let onNativeRoute: (String) -> Void
     let onRouteChange: (String) -> Void
+    let onPermissionPrompt: (String, String?, Int?) -> Void
     let onScrollTopChange: (Bool) -> Void
     let onStartLoading: () -> Void
     let onFinishLoading: () -> Void
@@ -94,6 +103,7 @@ struct NativeWebView: UIViewRepresentable {
         Coordinator(
             onNativeRoute: onNativeRoute,
             onRouteChange: onRouteChange,
+            onPermissionPrompt: onPermissionPrompt,
             onScrollTopChange: onScrollTopChange,
             onStartLoading: onStartLoading,
             onFinishLoading: onFinishLoading,
@@ -130,6 +140,7 @@ struct NativeWebView: UIViewRepresentable {
     func updateUIView(_ webView: WKWebView, context: Context) {
         context.coordinator.onNativeRoute = onNativeRoute
         context.coordinator.onRouteChange = onRouteChange
+        context.coordinator.onPermissionPrompt = onPermissionPrompt
         context.coordinator.onScrollTopChange = onScrollTopChange
         context.coordinator.onStartLoading = onStartLoading
         context.coordinator.onFinishLoading = onFinishLoading
@@ -145,6 +156,7 @@ struct NativeWebView: UIViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler, UIScrollViewDelegate {
         var onNativeRoute: (String) -> Void
         var onRouteChange: (String) -> Void
+        var onPermissionPrompt: (String, String?, Int?) -> Void
         var onScrollTopChange: (Bool) -> Void
         var onStartLoading: () -> Void
         var onFinishLoading: () -> Void
@@ -156,6 +168,7 @@ struct NativeWebView: UIViewRepresentable {
         init(
             onNativeRoute: @escaping (String) -> Void,
             onRouteChange: @escaping (String) -> Void,
+            onPermissionPrompt: @escaping (String, String?, Int?) -> Void,
             onScrollTopChange: @escaping (Bool) -> Void,
             onStartLoading: @escaping () -> Void,
             onFinishLoading: @escaping () -> Void,
@@ -163,6 +176,7 @@ struct NativeWebView: UIViewRepresentable {
         ) {
             self.onNativeRoute = onNativeRoute
             self.onRouteChange = onRouteChange
+            self.onPermissionPrompt = onPermissionPrompt
             self.onScrollTopChange = onScrollTopChange
             self.onStartLoading = onStartLoading
             self.onFinishLoading = onFinishLoading
@@ -183,11 +197,28 @@ struct NativeWebView: UIViewRepresentable {
             guard message.name == "manwonNative" else { return }
             guard
                 let payload = message.body as? [String: Any],
-                let type = payload["type"] as? String,
-                let path = payload["path"] as? String
+                let type = payload["type"] as? String
             else {
                 return
             }
+
+            if type == "permissionPrompt" {
+                let permission = payload["permission"] as? String ?? "push"
+                let context = payload["context"] as? String
+                let unreadNumber = payload["unreadCount"] as? NSNumber
+                let unreadCount = unreadNumber?.intValue ?? payload["unreadCount"] as? Int
+                onPermissionPrompt(permission, context, unreadCount)
+                return
+            }
+
+            if type == "openSettings" {
+                if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(settingsURL)
+                }
+                return
+            }
+
+            guard let path = payload["path"] as? String else { return }
 
             if type == "route" {
                 onNativeRoute(path)

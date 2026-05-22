@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Bell, LockKeyhole, MoreVertical, Plus, Send, Smile } from 'lucide-react'
+import { ArrowLeft, Bell, LockKeyhole, MoreVertical, Plus, Send, ShieldCheck, Smile, Star, X } from 'lucide-react'
 import {
   AppHeader,
   BrandButton,
@@ -60,6 +60,8 @@ interface UiChat {
   dealId: string | null
   applicationId: string | null
   applicationStatus: ApiConversation['applicationStatus']
+  requesterId: string
+  helperId: string
   status: TradeStatus
   lastMessage: string
   lastTime: string
@@ -220,8 +222,13 @@ function formatUnreadCount(count: number) {
   return count >= 10 ? '10+' : String(count)
 }
 
+function formatRating(value: number) {
+  return Number.isFinite(value) && value > 0 ? value.toFixed(1) : '신규'
+}
+
 function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => void; onRefresh: () => Promise<void> }) {
   const [showMore, setShowMore] = useState(false)
+  const [showProfileSheet, setShowProfileSheet] = useState(false)
   const [showReportSheet, setShowReportSheet] = useState(false)
   const [showBlockConfirm, setShowBlockConfirm] = useState(false)
   const [messages, setMessages] = useState<UiMessage[]>([])
@@ -229,6 +236,8 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
   const [moderationStatus, setModerationStatus] = useState('')
   const [moderationError, setModerationError] = useState('')
   const messagesRef = useRef<UiMessage[]>([])
+  const messageListRef = useRef<HTMLDivElement | null>(null)
+  const lastScrolledMessageIdRef = useRef<string | null>(null)
 
   const loadMessages = useCallback(async (after?: string | null) => {
     try {
@@ -253,6 +262,28 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
   useEffect(() => {
     messagesRef.current = messages
   }, [messages])
+
+  useEffect(() => {
+    lastScrolledMessageIdRef.current = null
+  }, [chat.id])
+
+  useEffect(() => {
+    if (loadState !== 'ready') return
+    const lastMessage = messages[messages.length - 1]
+    if (!lastMessage) return
+
+    const previousMessageId = lastScrolledMessageIdRef.current
+    lastScrolledMessageIdRef.current = lastMessage.id
+
+    requestAnimationFrame(() => {
+      const list = messageListRef.current
+      if (!list) return
+      list.scrollTo({
+        top: list.scrollHeight,
+        behavior: previousMessageId ? 'smooth' : 'auto',
+      })
+    })
+  }, [chat.id, loadState, messages])
 
   useEffect(() => {
     const currentUserId = getCurrentUserId()
@@ -301,10 +332,6 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
       cleanup?.()
     }
   }, [chat.id, loadMessages, onRefresh])
-
-  async function refreshAll() {
-    await Promise.all([loadMessages(), onRefresh()])
-  }
 
   function addOptimisticMessage(text: string, clientMessageId: string) {
     const createdAt = new Date().toISOString()
@@ -409,10 +436,13 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
         <button className="icon-button" type="button" onClick={onBack} aria-label="뒤로가기">
           <ArrowLeft size={24} />
         </button>
-        <Avatar user={chat.user} size="md" online />
-        <div>
-          <h1>{chat.user.name}</h1>
-        </div>
+        <button className="chat-peer-button" type="button" onClick={() => setShowProfileSheet(true)} aria-label={`${chat.user.name} 프로필 보기`}>
+          <Avatar user={chat.user} size="md" online />
+          <span>
+            <h1>{chat.user.name}</h1>
+            <p>프로필 보기</p>
+          </span>
+        </button>
         <button className="icon-button detail-more" type="button" onClick={() => setShowMore((value) => !value)} aria-label="더보기">
           <MoreVertical size={23} />
         </button>
@@ -435,7 +465,7 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
       {moderationError && <p className="inline-status is-error moderation-feedback">{moderationError}</p>}
 
       <div className="date-pill">오늘</div>
-      <div className="message-list">
+      <div className="message-list" ref={messageListRef}>
         {loadState === 'loading' && <p className="inline-status">메시지를 불러오는 중입니다.</p>}
         {loadState === 'error' && <p className="inline-status is-error">메시지를 불러오지 못했습니다.</p>}
         {loadState === 'ready' && messages.length === 0 && (
@@ -475,7 +505,7 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
         })}
       </div>
 
-      <TradeActionPanel chat={chat} onRefresh={refreshAll} />
+      <TradeActionPanel chat={chat} currentUserId={getCurrentUserId()} onOpenProfile={() => setShowProfileSheet(true)} onRefresh={onRefresh} />
       <MessageComposer
         conversationId={chat.id}
         disabled={chat.status === '거래완료' || chat.status === '취소됨'}
@@ -499,6 +529,7 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
           onSubmit={(input) => void submitReport(input)}
         />
       )}
+      {showProfileSheet && <UserProfileSheet user={chat.user} onClose={() => setShowProfileSheet(false)} />}
     </section>
   )
 }
@@ -594,12 +625,94 @@ function ReportSheet({
   )
 }
 
-function TradeActionPanel({ chat, onRefresh }: { chat: UiChat; onRefresh: () => Promise<void> }) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
+function UserProfileSheet({ user, onClose }: { user: UserProfile; onClose: () => void }) {
+  const verifiedLabels = [
+    user.phoneVerified || user.verified ? '휴대폰 인증' : '',
+    user.identityVerified ? '신원 인증' : '',
+  ].filter(Boolean)
 
-  async function run(action: () => Promise<unknown>) {
-    setBusy(true)
+  return (
+    <div className="sheet-overlay" role="presentation" onClick={onClose}>
+      <div className="profile-sheet" role="dialog" aria-modal="true" aria-labelledby="chat-profile-title" onClick={(event) => event.stopPropagation()}>
+        <div className="drag-handle" />
+        <button className="sheet-x" type="button" onClick={onClose} aria-label="닫기">
+          <X size={18} />
+        </button>
+        <div className="profile-sheet-head">
+          <Avatar user={user} size="lg" online />
+          <div>
+            <h2 id="chat-profile-title">{user.name}</h2>
+            <p>{user.intro || '아직 소개가 없습니다.'}</p>
+          </div>
+        </div>
+        <div className="profile-sheet-stats">
+          <span>
+            <Star size={16} fill="currentColor" />
+            {formatRating(user.rating)}
+            {typeof user.reviewCount === 'number' && <small>후기 {user.reviewCount}개</small>}
+          </span>
+          <span>
+            <ShieldCheck size={16} />
+            거래 완료 {user.completedCount}회
+          </span>
+        </div>
+        {user.responseTime && (
+          <div className="profile-sheet-note">
+            <strong>응답</strong>
+            <span>{user.responseTime}</span>
+          </div>
+        )}
+        {verifiedLabels.length > 0 && (
+          <div className="profile-sheet-badges">
+            {verifiedLabels.map((label) => (
+              <span key={label}>{label}</span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+type TradeActionId = 'accept' | 'reject' | 'complete' | 'dispute' | 'requestComplete' | 'cancel' | 'start'
+
+const tradeActionPendingLabels: Record<TradeActionId, string> = {
+  accept: '수락 중',
+  reject: '거절 중',
+  complete: '승인 중',
+  dispute: '신고 중',
+  requestComplete: '요청 중',
+  cancel: '취소 중',
+  start: '시작 중',
+}
+
+function TradeActionPanel({
+  chat,
+  currentUserId,
+  onOpenProfile,
+  onRefresh,
+}: {
+  chat: UiChat
+  currentUserId: string | null
+  onOpenProfile: () => void
+  onRefresh: () => Promise<void>
+}) {
+  const [pendingAction, setPendingAction] = useState<TradeActionId | null>(null)
+  const [error, setError] = useState('')
+  const busy = pendingAction !== null
+  const isRequester = chat.requesterId === currentUserId
+  const hasPendingApplication = chat.applicationStatus === 'applied' && !chat.dealId
+
+  function actionText(actionId: TradeActionId, label: string) {
+    return pendingAction === actionId ? tradeActionPendingLabels[actionId] : label
+  }
+
+  function actionClass(actionId: TradeActionId) {
+    return pendingAction === actionId ? 'is-processing' : ''
+  }
+
+  async function run(actionId: TradeActionId, action: () => Promise<unknown>) {
+    setPendingAction(actionId)
     setError('')
     try {
       await action()
@@ -607,7 +720,7 @@ function TradeActionPanel({ chat, onRefresh }: { chat: UiChat; onRefresh: () => 
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '상태를 변경하지 못했습니다.')
     } finally {
-      setBusy(false)
+      setPendingAction(null)
     }
   }
 
@@ -636,6 +749,17 @@ function TradeActionPanel({ chat, onRefresh }: { chat: UiChat; onRefresh: () => 
     )
   }
 
+  if (hasPendingApplication && !isRequester) {
+    return (
+      <div className="request-complete-panel">
+        <div>
+          <strong>지원 수락을 기다리고 있어요.</strong>
+          <span>작성자가 수락하면 거래가 시작됩니다.</span>
+        </div>
+      </div>
+    )
+  }
+
   if (chat.status === '완료요청') {
     const dealId = chat.dealId
     return (
@@ -645,11 +769,11 @@ function TradeActionPanel({ chat, onRefresh }: { chat: UiChat; onRefresh: () => 
           <span>물건을 전달받았거나 작업을 확인했다면 승인해주세요.</span>
         </div>
         <div className="two-buttons">
-          <BrandButton disabled={busy || !dealId} onClick={() => dealId && run(() => updateDealStatus(dealId, 'completed'))}>
-            완료 승인
+          <BrandButton className={actionClass('complete')} disabled={busy || !dealId} onClick={() => dealId && run('complete', () => updateDealStatus(dealId, 'completed'))}>
+            {actionText('complete', '완료 승인')}
           </BrandButton>
-          <BrandButton variant="outline" disabled={busy || !dealId} onClick={() => dealId && run(() => updateDealStatus(dealId, 'disputed'))}>
-            문제 신고
+          <BrandButton className={actionClass('dispute')} variant="outline" disabled={busy || !dealId} onClick={() => dealId && run('dispute', () => updateDealStatus(dealId, 'disputed'))}>
+            {actionText('dispute', '문제 신고')}
           </BrandButton>
         </div>
         {error && <p className="inline-status is-error">{error}</p>}
@@ -661,11 +785,11 @@ function TradeActionPanel({ chat, onRefresh }: { chat: UiChat; onRefresh: () => 
     const dealId = chat.dealId
     return (
       <div className="two-buttons chat-action-bar">
-        <BrandButton disabled={busy || !dealId} onClick={() => dealId && run(() => updateDealStatus(dealId, 'complete_requested'))}>
-          완료 요청
+        <BrandButton className={actionClass('requestComplete')} disabled={busy || !dealId} onClick={() => dealId && run('requestComplete', () => updateDealStatus(dealId, 'complete_requested'))}>
+          {actionText('requestComplete', '완료 요청')}
         </BrandButton>
-        <BrandButton variant="outline" disabled={busy || !dealId} onClick={() => dealId && run(() => updateDealStatus(dealId, 'cancelled'))}>
-          취소
+        <BrandButton className={actionClass('cancel')} variant="outline" disabled={busy || !dealId} onClick={() => dealId && run('cancel', () => updateDealStatus(dealId, 'cancelled'))}>
+          {actionText('cancel', '취소')}
         </BrandButton>
         {error && <p className="inline-status is-error">{error}</p>}
       </div>
@@ -676,11 +800,11 @@ function TradeActionPanel({ chat, onRefresh }: { chat: UiChat; onRefresh: () => 
     const dealId = chat.dealId
     return (
       <div className="two-buttons chat-action-bar">
-        <BrandButton disabled={busy || !dealId} onClick={() => dealId && run(() => updateDealStatus(dealId, 'in_progress'))}>
-          진행 시작
+        <BrandButton className={actionClass('start')} disabled={busy || !dealId} onClick={() => dealId && run('start', () => updateDealStatus(dealId, 'in_progress'))}>
+          {actionText('start', '진행 시작')}
         </BrandButton>
-        <BrandButton variant="outline" disabled={busy || !dealId} onClick={() => dealId && run(() => updateDealStatus(dealId, 'cancelled'))}>
-          취소
+        <BrandButton className={actionClass('cancel')} variant="outline" disabled={busy || !dealId} onClick={() => dealId && run('cancel', () => updateDealStatus(dealId, 'cancelled'))}>
+          {actionText('cancel', '취소')}
         </BrandButton>
         {error && <p className="inline-status is-error">{error}</p>}
       </div>
@@ -690,11 +814,17 @@ function TradeActionPanel({ chat, onRefresh }: { chat: UiChat; onRefresh: () => 
   const applicationId = chat.applicationId
   return (
     <div className="two-buttons chat-action-bar">
-      <BrandButton disabled={busy || !applicationId} onClick={() => applicationId && run(() => updateApplicationStatus(applicationId, 'accepted'))}>
-        수락하기
+      <div className="applicant-profile-prompt">
+        <span>수락 전에 지원자 프로필을 확인해보세요.</span>
+        <button type="button" onClick={onOpenProfile}>
+          프로필 보기
+        </button>
+      </div>
+      <BrandButton className={actionClass('accept')} disabled={busy || !applicationId} onClick={() => applicationId && run('accept', () => updateApplicationStatus(applicationId, 'accepted'))}>
+        {actionText('accept', '수락하기')}
       </BrandButton>
-      <BrandButton variant="outline" disabled={busy || !applicationId} onClick={() => applicationId && run(() => updateApplicationStatus(applicationId, 'rejected'))}>
-        거절하기
+      <BrandButton className={actionClass('reject')} variant="outline" disabled={busy || !applicationId} onClick={() => applicationId && run('reject', () => updateApplicationStatus(applicationId, 'rejected'))}>
+        {actionText('reject', '거절하기')}
       </BrandButton>
       {error && <p className="inline-status is-error">{error}</p>}
     </div>
@@ -775,18 +905,22 @@ function mapConversationToChat(conversation: ApiConversation, currentUserId: str
   const user: UserProfile = {
     id: otherId,
     name: otherName,
-    intro: '만원부탁소 사용자',
-    rating: 4.9,
-    completedCount: 0,
-    verified: true,
+    intro: conversation.otherCareerSummary ?? '만원부탁소 사용자',
+    rating: Number(conversation.otherRatingAvg ?? 0),
+    reviewCount: conversation.otherReviewCount ?? undefined,
+    completedCount: conversation.otherCompletedCount ?? 0,
+    verified: Boolean(conversation.otherPhoneVerified || conversation.otherIdentityVerified),
+    phoneVerified: Boolean(conversation.otherPhoneVerified),
+    identityVerified: Boolean(conversation.otherIdentityVerified),
+    responseTime: conversation.otherResponseTime ?? null,
     avatarTone: otherIsRequester ? 'green' : 'blue',
   }
 
   const status = mapTradeStatus(conversation)
   const request: RequestPost = {
     id: conversation.postId ?? conversation.id,
-    categoryId: 'errand',
-    category: conversation.postCategory ?? '동네 심부름',
+    categoryId: 'proxy',
+    category: conversation.postCategory ?? '대신해줘',
     title: conversation.postTitle ?? '거래 대화',
     location: '위치 협의',
     detailLocation: '위치 협의',
@@ -804,6 +938,8 @@ function mapConversationToChat(conversation: ApiConversation, currentUserId: str
     dealId: conversation.dealId,
     applicationId: conversation.applicationId ?? null,
     applicationStatus: conversation.applicationStatus,
+    requesterId: conversation.requesterId,
+    helperId: conversation.helperId,
     status,
     lastMessage: conversation.lastMessage ?? '새 채팅방이 생성되었어요.',
     lastTime: formatTime(conversation.lastMessageAt),
@@ -814,17 +950,20 @@ function mapConversationToChat(conversation: ApiConversation, currentUserId: str
 }
 
 function mapMockChatToChat(thread: ChatThread): UiChat {
+  const request = getRequest(thread.requestId)
   return {
     id: thread.id,
     dealId: null,
     applicationId: null,
     applicationStatus: null,
+    requesterId: request.requesterId,
+    helperId: thread.userId,
     status: thread.status,
     lastMessage: thread.lastMessage,
     lastTime: thread.lastTime,
     unreadCount: thread.unreadCount,
     user: getUser(thread.userId),
-    request: getRequest(thread.requestId),
+    request,
   }
 }
 

@@ -121,6 +121,63 @@ struct MapUnavailableNotice: View {
     }
 }
 
+struct PermissionPromptOverlay: View {
+    let prompt: PermissionPromptManager.Prompt
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.42)
+                .ignoresSafeArea()
+                .onTapGesture(perform: prompt.secondaryAction)
+
+            VStack(spacing: 18) {
+                Image(systemName: prompt.iconName)
+                    .font(.system(size: 30, weight: .bold))
+                    .foregroundStyle(ManwonColor.brand)
+                    .frame(width: 58, height: 58)
+                    .background(ManwonColor.brandSoft)
+                    .clipShape(Circle())
+
+                VStack(spacing: 8) {
+                    Text(prompt.title)
+                        .font(.system(size: 19, weight: .bold))
+                        .foregroundStyle(ManwonColor.text)
+                        .multilineTextAlignment(.center)
+
+                    Text(prompt.message)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(ManwonColor.muted)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(3)
+                }
+
+                VStack(spacing: 9) {
+                    Button(action: prompt.primaryAction) {
+                        Text(prompt.primaryTitle)
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+
+                    Button(action: prompt.secondaryAction) {
+                        Text(prompt.secondaryTitle)
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(ManwonColor.muted)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 42)
+                    }
+                    .buttonStyle(PressableScaleButtonStyle(scale: 0.98, pressedOpacity: 0.86))
+                }
+            }
+            .padding(22)
+            .frame(maxWidth: 350)
+            .padding(.horizontal, 20)
+            .background(ManwonColor.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .shadow(color: Color.black.opacity(0.14), radius: 22, x: 0, y: 12)
+        }
+        .transition(.opacity)
+    }
+}
+
 private struct ManwonBottomNavButton: View {
     let item: ManwonBottomNavItem
     let isSelected: Bool
@@ -148,22 +205,22 @@ struct ManwonFloatingWriteButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: expanded ? 6 : 0) {
+            HStack(spacing: expanded ? 5 : 0) {
                 Image(systemName: "plus")
-                    .font(.system(size: 24, weight: .semibold))
-                    .frame(width: 24, height: 24)
+                    .font(.system(size: 22, weight: .semibold))
+                    .frame(width: 22, height: 22)
 
                 if expanded {
                     Text("글쓰기")
-                        .font(.system(size: 16, weight: .bold))
+                        .font(.system(size: 15, weight: .bold))
                         .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .trailing)))
                 }
             }
             .foregroundStyle(Color.white)
-            .frame(width: expanded ? 118 : 54, height: 54)
+            .frame(width: expanded ? 104 : 48, height: 48)
             .background(ManwonColor.brand)
             .clipShape(Capsule())
-            .shadow(color: ManwonColor.brand.opacity(0.24), radius: 12, x: 0, y: 6)
+            .shadow(color: ManwonColor.brand.opacity(0.22), radius: 10, x: 0, y: 5)
         }
         .buttonStyle(PressableScaleButtonStyle(scale: 0.94, pressedOpacity: 0.9))
         .accessibilityLabel("글쓰기")
@@ -266,14 +323,49 @@ struct Pill: View {
 
 func compactDateText(_ value: String?) -> String {
     guard let value, !value.isEmpty else { return "" }
-    let iso = ISO8601DateFormatter()
-    if let date = iso.date(from: value) {
+    if let date = parseAPIDate(value) {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ko_KR")
         formatter.dateFormat = Calendar.current.isDateInToday(date) ? "a h:mm" : "M.d"
         return formatter.string(from: date)
     }
-    return value
+    return ""
+}
+
+private func parseAPIDate(_ value: String) -> Date? {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    let normalized = trimmed.replacingOccurrences(of: " ", with: "T")
+
+    let isoWithFraction = ISO8601DateFormatter()
+    isoWithFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if let date = isoWithFraction.date(from: normalized) {
+        return date
+    }
+
+    let iso = ISO8601DateFormatter()
+    iso.formatOptions = [.withInternetDateTime]
+    if let date = iso.date(from: normalized) {
+        return date
+    }
+
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone.current
+
+    for format in [
+        "yyyy-MM-dd'T'HH:mm:ss.SSSXXXXX",
+        "yyyy-MM-dd'T'HH:mm:ss.SSSSSSXXXXX",
+        "yyyy-MM-dd'T'HH:mm:ssXXXXX",
+        "yyyy-MM-dd'T'HH:mm:ss.SSS",
+        "yyyy-MM-dd'T'HH:mm:ss"
+    ] {
+        formatter.dateFormat = format
+        if let date = formatter.date(from: normalized) {
+            return date
+        }
+    }
+
+    return nil
 }
 
 func statusText(_ conversation: Conversation) -> String {
@@ -282,5 +374,6 @@ func statusText(_ conversation: Conversation) -> String {
     if conversation.dealStatus == .inProgress { return "진행중" }
     if conversation.dealStatus == .completeRequested { return "완료요청" }
     if conversation.dealStatus == .accepted { return "수락대기" }
+    if conversation.applicationStatus == "rejected" || conversation.applicationStatus == "cancelled" { return "지원종료" }
     return conversation.applicationStatus == "applied" ? "지원됨" : "문의"
 }

@@ -25,7 +25,6 @@ import {
   MapPin,
   Monitor,
   Package,
-  PawPrint,
   Shield,
   Settings,
   ShieldCheck,
@@ -748,7 +747,7 @@ const supportFaqs = [
   },
   {
     question: '위치 정보는 어디까지 공개되나요?',
-    answer: '부탁해요 글은 작성자가 선택한 주소가 게시글과 지도에 공개됩니다. 온라인 글은 위치 정보를 노출하지 않습니다.',
+    answer: '해주세요 글은 작성자가 선택한 주소가 게시글과 지도에 공개됩니다. 온라인 글은 위치 정보를 노출하지 않습니다.',
   },
   {
     question: '금액이나 시간을 바꾸고 싶어요.',
@@ -1228,7 +1227,7 @@ function InitialAvatar({ name, size }: { name: string; size: 'sm' | 'md' | 'lg' 
 }
 
 function TaskThumb({ category, mode, small = false }: { category: string; mode: string; small?: boolean }) {
-  const Icon = mode === 'online' ? Monitor : category.includes('반려') ? PawPrint : category.includes('심부름') ? Package : HeartHandshake
+  const Icon = mode === 'online' ? Monitor : category.includes('깨워') ? Bell : category.includes('들어') ? Headphones : category.includes('대신') ? Package : HeartHandshake
   return (
     <span className={`task-thumb ${small ? 'task-thumb-sm' : ''}`}>
       <Icon size={small ? 18 : 23} />

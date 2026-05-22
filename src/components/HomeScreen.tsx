@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type TouchEvent as ReactTouchEven
 import { ChevronDown } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { AppHeader, CategoryScroller, MapUnavailableOverlay, ReportConfirmSheet, RequestCard, SegmentedControl } from '@/components/ui/Common'
-import { categoryDetailOptions, getCategoryLabel, requests, type RequestPost } from '@/data/mockData'
+import { categoryDetailOptions, customCategoryDetailOption, getCategoryLabel, requests, type RequestPost } from '@/data/mockData'
 import { createReport, fetchMyPage, fetchTaskPosts, mapApiPostToRequestPost } from '@/lib/manwonApi'
 import {
   formatRegionFull,
@@ -16,7 +16,7 @@ import {
 type HomeMode = 'ask' | 'offer'
 
 const homeModeOptions: Array<{ value: HomeMode; label: string }> = [
-  { value: 'ask', label: '부탁해요' },
+  { value: 'ask', label: '해주세요' },
   { value: 'offer', label: '해줄게요' },
 ]
 const refreshHoldHeight = 64
@@ -45,7 +45,7 @@ export function HomeScreen() {
   const loadRunRef = useRef(0)
   const pullStartYRef = useRef<number | null>(null)
   const pullDistanceRef = useRef(0)
-  const detailOptions = categoryDetailOptions[categoryId] ?? []
+  const detailOptions = (categoryDetailOptions[categoryId] ?? []).filter((option) => option !== customCategoryDetailOption)
   const detailFilterOptions = ['전체', ...detailOptions]
   const showDetailOptions = categoryId !== 'all' && detailOptions.length > 0
   const currentRegionLabel = formatRegionShort(currentRegion)
@@ -252,7 +252,7 @@ export function HomeScreen() {
   }
 
   return (
-    <section className={`screen home-screen ${categoryId === 'all' ? 'is-category-all' : 'has-detail-category'}`}>
+    <section className={`screen home-screen ${showDetailOptions ? 'has-detail-category' : 'is-category-all'}`}>
       <AppHeader
         titleContent={
           <div className="home-location-dropdown" ref={regionMenuRef}>

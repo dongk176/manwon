@@ -389,6 +389,7 @@ export function NearbyScreens() {
       {showNeighborhoodSheet && (
         <NeighborhoodSelectSheet
           showCurrentLocation
+          promptContext="nearby"
           permissionState={permissionState}
           busy={locationBusy}
           error={locationError}

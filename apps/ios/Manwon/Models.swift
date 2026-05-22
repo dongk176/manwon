@@ -114,10 +114,18 @@ struct Conversation: Codable, Identifiable, Hashable {
     let helperNickname: String?
     let otherUserId: String?
     let otherNickname: String?
+    let otherAvatarUrl: String?
+    let otherRatingAvg: Double?
+    let otherReviewCount: Int?
+    let otherCompletedCount: Int?
+    let otherPhoneVerified: Bool?
+    let otherIdentityVerified: Bool?
+    let otherCareerSummary: String?
+    let otherResponseTime: String?
     let unreadCount: Int?
 
     var isClosed: Bool {
-        dealStatus == .completed || dealStatus == .cancelled
+        dealStatus == .completed || dealStatus == .cancelled || applicationStatus == "rejected" || applicationStatus == "cancelled"
     }
 }
 

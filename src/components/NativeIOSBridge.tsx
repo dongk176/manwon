@@ -8,11 +8,55 @@ declare global {
     webkit?: {
       messageHandlers?: {
         manwonNative?: {
-          postMessage: (payload: { type: string; path?: string; isAtTop?: boolean }) => void
+          postMessage: (payload: {
+            type: string
+            path?: string
+            isAtTop?: boolean
+            permission?: 'push' | 'location'
+            context?: IOSPushPromptContext
+            unreadCount?: number
+          }) => void
         }
       }
     }
   }
+}
+
+export type IOSPushPromptContext = 'post_created' | 'conversation_started' | 'chat_entered' | 'unread_messages' | 'deal_action'
+
+function isManwonIOS() {
+  return typeof navigator !== 'undefined' && navigator.userAgent.includes('ManwonIOS')
+}
+
+function postNativeMessage(payload: {
+  type: string
+  path?: string
+  isAtTop?: boolean
+  permission?: 'push' | 'location'
+  context?: IOSPushPromptContext
+  unreadCount?: number
+}) {
+  window.webkit?.messageHandlers?.manwonNative?.postMessage(payload)
+  return Boolean(window.webkit?.messageHandlers?.manwonNative)
+}
+
+export function requestIOSPushPermission(context: IOSPushPromptContext, metadata?: { unreadCount?: number }) {
+  if (typeof window === 'undefined' || !isManwonIOS()) return false
+  return postNativeMessage({
+    type: 'permissionPrompt',
+    permission: 'push',
+    context,
+    unreadCount: metadata?.unreadCount,
+    path: routePathFromUrl(),
+  })
+}
+
+export function openIOSAppSettings() {
+  if (typeof window === 'undefined' || !isManwonIOS()) return false
+  return postNativeMessage({
+    type: 'openSettings',
+    path: routePathFromUrl(),
+  })
 }
 
 function isNativeRoute(path: string) {
@@ -23,7 +67,7 @@ function postNativeRoute(rawUrl: string) {
   try {
     const target = new URL(rawUrl, window.location.origin)
     if (!isNativeRoute(target.pathname)) return false
-    window.webkit?.messageHandlers?.manwonNative?.postMessage({
+    postNativeMessage({
       type: 'route',
       path: `${target.pathname}${target.search}`,
     })
@@ -45,14 +89,14 @@ function routePathFromUrl(rawUrl?: string | URL | null) {
 }
 
 function postWebRoute(rawUrl?: string | URL | null) {
-  window.webkit?.messageHandlers?.manwonNative?.postMessage({
+  postNativeMessage({
     type: 'webRoute',
     path: routePathFromUrl(rawUrl),
   })
 }
 
 function postHomeScrollTop(isAtTop: boolean) {
-  window.webkit?.messageHandlers?.manwonNative?.postMessage({
+  postNativeMessage({
     type: 'homeScrollTop',
     path: routePathFromUrl(),
     isAtTop,
@@ -61,7 +105,7 @@ function postHomeScrollTop(isAtTop: boolean) {
 
 export function NativeIOSBridge() {
   useEffect(() => {
-    if (!navigator.userAgent.includes('ManwonIOS')) return
+    if (!isManwonIOS()) return
 
     document.documentElement.classList.add('native-ios-shell')
     document.body.classList.add('native-ios-shell')

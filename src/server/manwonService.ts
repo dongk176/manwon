@@ -383,10 +383,19 @@ function getDealStatusNotification(status: string, postTitle: string | null) {
   return null
 }
 
-function getApplicationStatusNotification(status: string) {
-  if (status === 'accepted') return { type: 'application.accepted', title: '지원이 수락됐어요', body: '작성자가 지원을 수락했습니다. 채팅에서 거래를 시작해보세요.' }
-  if (status === 'rejected') return { type: 'application.rejected', title: '지원이 거절됐어요', body: '아쉽지만 이번 지원은 거절되었습니다.' }
-  if (status === 'cancelled') return { type: 'application.cancelled', title: '지원이 취소됐어요', body: '지원자가 지원을 취소했습니다.' }
+function getApplicationStatusSystemMessage(status: string) {
+  if (status === 'accepted') return '지원이 수락되었어요. 거래를 시작해보세요.'
+  if (status === 'rejected') return '지원이 거절되었어요.'
+  if (status === 'cancelled') return '지원이 취소되었어요.'
+  return null
+}
+
+function getApplicationStatusNotification(status: string, postTitle?: string | null) {
+  const title = postTitle ? `"${postTitle}"` : '게시물'
+  if (status === 'accepted') return { type: 'application.accepted', title: '지원이 수락됐어요', body: `${title} 지원이 수락됐습니다. 채팅에서 거래를 시작해보세요.` }
+  if (status === 'rejected') return { type: 'application.rejected', title: '지원이 거절됐어요', body: `${title} 지원이 거절되었습니다.` }
+  if (status === 'cancelled') return { type: 'application.cancelled', title: '지원이 취소됐어요', body: `${title} 지원자가 지원을 취소했습니다.` }
+  if (status === 'auto_rejected') return { type: 'application.rejected', title: '모집이 마감됐어요', body: `${title}에서 다른 지원자가 수락되어 이번 지원은 마감되었습니다.` }
   return null
 }
 
@@ -537,7 +546,14 @@ export async function updateApplicationStatus(userId: string, applicationId: str
 
   const result = await sql.begin(async (tx) => {
     const applicationRows = await tx`
-      select a.*, p.creator_id, p.post_type, p.price, p.status as post_status, p.recruitment_round as post_recruitment_round
+      select
+        a.*,
+        p.creator_id,
+        p.post_type,
+        p.price,
+        p.status as post_status,
+        p.title as post_title,
+        p.recruitment_round as post_recruitment_round
       from manwon_happiness.applications a
       join manwon_happiness.task_posts p on p.id = a.post_id
       where a.id = ${applicationId}
@@ -554,6 +570,23 @@ export async function updateApplicationStatus(userId: string, applicationId: str
       return null
     }
 
+    if ((input.status === 'rejected' || input.status === 'cancelled') && application.status !== 'applied') {
+      return null
+    }
+
+    const requesterId = application.postType === 'request' ? application.creatorId : application.applicantId
+    const helperId = application.postType === 'request' ? application.applicantId : application.creatorId
+    const existingConversationRows = await tx`
+      select id
+      from manwon_happiness.conversations
+      where post_id = ${application.postId}
+        and requester_id = ${requesterId}
+        and helper_id = ${helperId}
+        and recruitment_round = ${application.recruitmentRound}
+      limit 1
+    `
+    let conversationId = existingConversationRows[0]?.id ? String(existingConversationRows[0].id) : null
+
     const updatedRows = await tx`
       update manwon_happiness.applications
       set status = ${input.status}
@@ -561,19 +594,40 @@ export async function updateApplicationStatus(userId: string, applicationId: str
       returning *
     `
 
-    if (input.status !== 'accepted') return updatedRows[0]
+    const updatedApplication = {
+      ...updatedRows[0],
+      creatorId: application.creatorId,
+      postTitle: application.postTitle,
+      conversationId,
+    }
 
-    await tx`
+    if (input.status !== 'accepted') {
+      const systemMessage = getApplicationStatusSystemMessage(input.status)
+      if (conversationId && systemMessage) {
+        await tx`
+          insert into manwon_happiness.messages (conversation_id, sender_id, message_type, body)
+          values (${conversationId}, ${userId}, 'system', ${systemMessage})
+        `
+        await tx`
+          update manwon_happiness.conversations
+          set last_message = ${systemMessage},
+              last_message_at = now()
+          where id = ${conversationId}
+        `
+      }
+
+      return { application: updatedApplication, conversationId, notifications: [] }
+    }
+
+    const autoRejectedRows = await tx`
       update manwon_happiness.applications
       set status = 'rejected'
       where post_id = ${application.postId}
         and recruitment_round = ${application.recruitmentRound}
         and id <> ${applicationId}
         and status = 'applied'
+      returning id, applicant_id
     `
-
-    const requesterId = application.postType === 'request' ? application.creatorId : application.applicantId
-    const helperId = application.postType === 'request' ? application.applicantId : application.creatorId
 
     const dealRows = await tx`
       insert into manwon_happiness.deals (post_id, requester_id, helper_id, application_id, price, status, accepted_at, recruitment_round)
@@ -600,22 +654,80 @@ export async function updateApplicationStatus(userId: string, applicationId: str
         and deal_id is null
       returning *
     `
+    conversationId = conversationRows[0]?.id ? String(conversationRows[0].id) : conversationId
 
     if (conversationRows.length === 0) {
-      await tx`
+      const insertedConversationRows = await tx`
         insert into manwon_happiness.conversations (deal_id, post_id, requester_id, helper_id, recruitment_round, last_message, last_message_at)
         values (${dealRows[0].id}, ${application.postId}, ${requesterId}, ${helperId}, ${application.recruitmentRound}, '거래가 시작되었어요.', now())
         on conflict do nothing
+        returning id
+      `
+      conversationId = insertedConversationRows[0]?.id ? String(insertedConversationRows[0].id) : conversationId
+    }
+
+    const acceptedSystemMessage = getApplicationStatusSystemMessage('accepted')
+    if (conversationId && acceptedSystemMessage) {
+      await tx`
+        insert into manwon_happiness.messages (conversation_id, sender_id, message_type, body)
+        values (${conversationId}, ${userId}, 'system', ${acceptedSystemMessage})
+      `
+      await tx`
+        update manwon_happiness.conversations
+        set last_message = ${acceptedSystemMessage},
+            last_message_at = now()
+        where id = ${conversationId}
       `
     }
 
-    return { application: updatedRows[0], deal: dealRows[0] }
+    const autoRejectedNotifications: Array<{ userId: string; applicationId: string; conversationId: string | null }> = []
+    const autoRejectedSystemMessage = '다른 지원자가 수락되어 이번 지원은 마감되었어요.'
+    for (const row of autoRejectedRows) {
+      const rejectedRequesterId = application.postType === 'request' ? application.creatorId : row.applicantId
+      const rejectedHelperId = application.postType === 'request' ? row.applicantId : application.creatorId
+      const rejectedConversationRows = await tx`
+        select id
+        from manwon_happiness.conversations
+        where post_id = ${application.postId}
+          and requester_id = ${rejectedRequesterId}
+          and helper_id = ${rejectedHelperId}
+          and recruitment_round = ${application.recruitmentRound}
+        limit 1
+      `
+      const rejectedConversationId = rejectedConversationRows[0]?.id ? String(rejectedConversationRows[0].id) : null
+      if (rejectedConversationId) {
+        await tx`
+          insert into manwon_happiness.messages (conversation_id, sender_id, message_type, body)
+          values (${rejectedConversationId}, ${userId}, 'system', ${autoRejectedSystemMessage})
+        `
+        await tx`
+          update manwon_happiness.conversations
+          set last_message = ${autoRejectedSystemMessage},
+              last_message_at = now()
+          where id = ${rejectedConversationId}
+        `
+      }
+      autoRejectedNotifications.push({
+        userId: String(row.applicantId),
+        applicationId: String(row.id),
+        conversationId: rejectedConversationId,
+      })
+    }
+
+    return {
+      application: { ...updatedApplication, conversationId },
+      deal: dealRows[0],
+      conversationId,
+      notifications: autoRejectedNotifications,
+    }
   })
 
   const application = getApplicationFromStatusResult(result)
   if (application) {
     const targetUserId = input.status === 'cancelled' ? application.creatorId : application.applicantId
-    const notification = getApplicationStatusNotification(input.status)
+    const postTitle = application.postTitle ? String(application.postTitle) : null
+    const conversationId = 'conversationId' in application && application.conversationId ? String(application.conversationId) : null
+    const notification = getApplicationStatusNotification(input.status, postTitle)
     if (targetUserId && notification) {
       void createNotificationEvent(String(targetUserId), {
         ...notification,
@@ -623,7 +735,25 @@ export async function updateApplicationStatus(userId: string, applicationId: str
           type: notification.type,
           postId: application.postId ? String(application.postId) : null,
           applicationId,
+          conversationId,
           dealId: getDealIdFromStatusResult(result),
+        },
+      }).catch(() => undefined)
+    }
+  }
+
+  if (result && typeof result === 'object' && 'notifications' in result && Array.isArray(result.notifications)) {
+    for (const item of result.notifications) {
+      if (!item || typeof item !== 'object' || !('userId' in item)) continue
+      const notification = getApplicationStatusNotification('auto_rejected', application?.postTitle ? String(application.postTitle) : null)
+      if (!notification) continue
+      void createNotificationEvent(String(item.userId), {
+        ...notification,
+        data: {
+          type: notification.type,
+          postId: application?.postId ? String(application.postId) : null,
+          applicationId: 'applicationId' in item ? String(item.applicationId) : null,
+          conversationId: 'conversationId' in item && item.conversationId ? String(item.conversationId) : null,
         },
       }).catch(() => undefined)
     }
@@ -773,6 +903,14 @@ export async function listConversations(userId: string) {
       helper.avatar_url as helper_avatar_url,
       case when c.requester_id = ${userId} then c.helper_id else c.requester_id end as other_user_id,
       case when c.requester_id = ${userId} then helper.nickname else requester.nickname end as other_nickname,
+      case when c.requester_id = ${userId} then helper.avatar_url else requester.avatar_url end as other_avatar_url,
+      case when c.requester_id = ${userId} then helper.rating_avg::float8 else requester.rating_avg::float8 end as other_rating_avg,
+      case when c.requester_id = ${userId} then helper.review_count else requester.review_count end as other_review_count,
+      case when c.requester_id = ${userId} then helper.completed_count else requester.completed_count end as other_completed_count,
+      case when c.requester_id = ${userId} then helper.phone_verified else requester.phone_verified end as other_phone_verified,
+      case when c.requester_id = ${userId} then helper.identity_verified else requester.identity_verified end as other_identity_verified,
+      case when c.requester_id = ${userId} then helper.trust_career_summary else requester.trust_career_summary end as other_career_summary,
+      case when c.requester_id = ${userId} then coalesce(helper.trust_response_time, helper.trust_response_time_text) else coalesce(requester.trust_response_time, requester.trust_response_time_text) end as other_response_time,
       (
         select count(*)::integer
         from manwon_happiness.messages m
@@ -879,23 +1017,40 @@ export async function startConversationForPost(userId: string, postId: string, m
 
     const requesterId = post.postType === 'request' ? post.creatorId : userId
     const helperId = post.postType === 'request' ? userId : post.creatorId
+    const postTitle = post.title ? String(post.title).trim() : ''
+    const applicationSystemMessage = postTitle
+      ? `"${postTitle}"에 지원 요청이 도착했어요. 작성자가 수락하면 거래가 시작됩니다.`
+      : '지원 요청이 도착했어요. 작성자가 수락하면 거래가 시작됩니다.'
+    const initialLastMessage = post.postType === 'request' ? applicationSystemMessage : message ?? '문의가 시작되었어요.'
 
+    let previousApplicationStatus: string | null = null
     if (post.postType === 'request') {
+      const [existingApplication] = await tx`
+        select status
+        from manwon_happiness.applications
+        where post_id = ${postId}
+          and applicant_id = ${userId}
+          and recruitment_round = ${post.recruitmentRound}
+        limit 1
+      `
+      previousApplicationStatus = existingApplication?.status ? String(existingApplication.status) : null
+
       await tx`
         insert into manwon_happiness.applications (post_id, applicant_id, message, recruitment_round)
         values (${postId}, ${userId}, ${message ?? '도와드릴 수 있어요.'}, ${post.recruitmentRound})
         on conflict (post_id, applicant_id, recruitment_round) do update
           set message = coalesce(excluded.message, manwon_happiness.applications.message),
               status = case
-                when manwon_happiness.applications.status = 'cancelled' then 'applied'::manwon_happiness.application_status
+                when manwon_happiness.applications.status in ('cancelled', 'rejected') then 'applied'::manwon_happiness.application_status
                 else manwon_happiness.applications.status
-              end
+              end,
+              updated_at = now()
       `
     }
 
     const insertedRows = await tx`
       insert into manwon_happiness.conversations (post_id, requester_id, helper_id, recruitment_round, last_message, last_message_at)
-      values (${postId}, ${requesterId}, ${helperId}, ${post.recruitmentRound}, ${message ?? '문의가 시작되었어요.'}, now())
+      values (${postId}, ${requesterId}, ${helperId}, ${post.recruitmentRound}, ${initialLastMessage}, now())
       on conflict do nothing
       returning *
     `
@@ -922,10 +1077,21 @@ export async function startConversationForPost(userId: string, postId: string, m
       where conversation_id = ${conversation.id}
     `
 
-    if (Number(messageCountRows[0]?.count ?? 0) === 0) {
+    const shouldAddReapplicationMessage =
+      post.postType === 'request' && previousApplicationStatus !== null && ['cancelled', 'rejected'].includes(previousApplicationStatus)
+    const shouldAddSystemMessage = Number(messageCountRows[0]?.count ?? 0) === 0 || shouldAddReapplicationMessage
+
+    if (shouldAddSystemMessage) {
+      const systemMessage = post.postType === 'request' ? applicationSystemMessage : '문의가 시작되었어요.'
       await tx`
         insert into manwon_happiness.messages (conversation_id, sender_id, message_type, body)
-        values (${conversation.id}, ${userId}, 'system', ${post.postType === 'request' ? '지원했어요. 작성자가 수락하면 거래가 시작됩니다.' : '문의가 시작되었어요.'})
+        values (${conversation.id}, ${userId}, 'system', ${systemMessage})
+      `
+      await tx`
+        update manwon_happiness.conversations
+        set last_message = ${systemMessage},
+            last_message_at = now()
+        where id = ${conversation.id}
       `
     }
 

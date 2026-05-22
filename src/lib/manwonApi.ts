@@ -107,6 +107,14 @@ export interface ApiConversation {
   helperAvatarUrl?: string | null
   otherUserId?: string | null
   otherNickname?: string | null
+  otherAvatarUrl?: string | null
+  otherRatingAvg?: number | string | null
+  otherReviewCount?: number | null
+  otherCompletedCount?: number | null
+  otherPhoneVerified?: boolean | null
+  otherIdentityVerified?: boolean | null
+  otherCareerSummary?: string | null
+  otherResponseTime?: string | null
   unreadCount?: number | null
 }
 
@@ -635,24 +643,35 @@ function trimAddressToNeighborhood(address: string) {
 
 function inferCategoryId(category: string) {
   const map: Record<string, string> = {
-    '동네 심부름': 'errand',
-    '집안 도움': 'home',
-    '문서·자료': 'document',
-    '문서 · 자료': 'document',
-    '디자인·콘텐츠': 'design',
-    디자인: 'design',
-    '영상·사진': 'media',
-    '사진·영상': 'media',
-    '개발 · IT': 'dev_it',
-    레슨: 'lesson',
-    '대신 찾아줘': 'find',
-    반려동물: 'pet',
-    기타: 'etc',
+    깨워줘: 'wake',
+    들어줘: 'listen',
+    조언해줘: 'advice',
+    불러줘: 'call',
+    놀아줘: 'play',
+    골라줘: 'choose',
+    대신해줘: 'proxy',
+    일해줘: 'work',
+    '동네 심부름': 'proxy',
+    '집안 도움': 'proxy',
+    '문서·자료': 'work',
+    '문서 · 자료': 'work',
+    '디자인·콘텐츠': 'work',
+    디자인: 'work',
+    '영상·사진': 'work',
+    '사진·영상': 'work',
+    '개발 · IT': 'work',
+    레슨: 'advice',
+    '대신 찾아줘': 'choose',
+    반려동물: 'play',
+    기타: 'work',
   }
-  return categories.find((item) => item.label === category)?.id ?? map[category] ?? 'etc'
+  return categories.find((item) => item.label === category)?.id ?? map[category] ?? 'work'
 }
 
 function inferIllustration(category: string): IllustrationType {
+  const matchedCategory = categories.find((item) => item.label === category)
+  if (matchedCategory) return matchedCategory.icon
+
   const map: Record<string, IllustrationType> = {
     '동네 심부름': 'store',
     '집안 도움': 'home',
@@ -666,9 +685,9 @@ function inferIllustration(category: string): IllustrationType {
     레슨: 'book',
     '대신 찾아줘': 'find',
     반려동물: 'pet',
-    기타: 'etc',
+    기타: 'document',
   }
-  return map[category] ?? 'etc'
+  return map[category] ?? 'document'
 }
 
 function mapApiStatus(status: ApiTaskPost['status']): TradeStatus {
