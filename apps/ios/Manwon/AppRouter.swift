@@ -18,6 +18,7 @@ final class AppRouter: ObservableObject {
     @Published var chatConversationId: String?
     @Published var chatRouteRevision = 0
     @Published var chatDetailActive = false
+    @Published var chatUnreadCount = 0
     @Published var nearbySheetCoversBottomNav = false
     @Published var homeIsAtTop = true
     @Published var mapUnavailableNoticeVisible = false

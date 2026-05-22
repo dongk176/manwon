@@ -43,6 +43,7 @@ private let manwonBottomNavItems = [
 
 struct ManwonBottomNav: View {
     @Binding var selectedTab: AppTab
+    var chatUnreadCount: Int = 0
     var onSelect: ((AppTab) -> Void)?
     var onUnavailableNearby: () -> Void = {}
 
@@ -65,7 +66,8 @@ struct ManwonBottomNav: View {
                     } label: {
                         ManwonBottomNavButton(
                             item: item,
-                            isSelected: selectedTab == item.id
+                            isSelected: selectedTab == item.id,
+                            unreadCount: item.id == .chat ? chatUnreadCount : 0
                         )
                     }
                     .buttonStyle(PressableScaleButtonStyle(scale: 0.94, pressedOpacity: 0.9))
@@ -181,13 +183,29 @@ struct PermissionPromptOverlay: View {
 private struct ManwonBottomNavButton: View {
     let item: ManwonBottomNavItem
     let isSelected: Bool
+    let unreadCount: Int
 
     var body: some View {
         VStack(spacing: 4) {
-            Image(systemName: item.systemImage)
-                .font(.system(size: 22, weight: .semibold))
-                .frame(width: 30, height: 30)
-                .foregroundStyle(isSelected ? ManwonColor.brand : ManwonColor.text)
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: item.systemImage)
+                    .font(.system(size: 22, weight: .semibold))
+                    .frame(width: 30, height: 30)
+                    .foregroundStyle(isSelected ? ManwonColor.brand : ManwonColor.text)
+
+                if unreadCount > 0 {
+                    Text(unreadBadgeText(unreadCount))
+                        .font(.system(size: 10, weight: .black))
+                        .foregroundStyle(isSelected ? ManwonColor.text : ManwonColor.brand)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .frame(minWidth: 16, minHeight: 16)
+                        .padding(.horizontal, unreadCount > 9 ? 4 : 0)
+                        .offset(x: 14, y: -2)
+                        .accessibilityHidden(true)
+                }
+            }
+            .frame(width: 30, height: 30)
 
             Text(item.title)
                 .font(.system(size: 11, weight: .semibold))
@@ -196,6 +214,10 @@ private struct ManwonBottomNavButton: View {
         .frame(maxWidth: .infinity)
         .animation(ManwonMotion.select, value: isSelected)
         .contentShape(Rectangle())
+    }
+
+    private func unreadBadgeText(_ count: Int) -> String {
+        count > 99 ? "99+" : "\(count)"
     }
 }
 

@@ -55,6 +55,7 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
     private var keyboardVisible = false
     private var homeIsAtTop = true
     private var onboardingRequired = false
+    private var chatUnreadCount = 0
     private var writeButtonExpanded: Boolean? = null
     private var writeButtonWidthAnimator: ValueAnimator? = null
     private var mapUnavailableDialog: AlertDialog? = null
@@ -215,10 +216,26 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
             }
         }
         pressFeedback(button)
+        val iconFrame = FrameLayout(this)
         val icon: View = NavIconView(this, item.tab).apply {
             tag = "iconView"
         }
-        button.addView(icon, LinearLayout.LayoutParams(dp(38), dp(38)))
+        iconFrame.addView(icon, FrameLayout.LayoutParams(dp(38), dp(38), Gravity.CENTER))
+        if (item.tab == AppTab.CHAT) {
+            iconFrame.addView(TextView(this).apply {
+                tag = "unreadBadge"
+                gravity = Gravity.CENTER
+                includeFontPadding = false
+                minWidth = dp(16)
+                setPadding(dp(4), 0, dp(4), 0)
+                styleText(10f, ManwonColors.BRAND, Typeface.BOLD)
+                visibility = View.GONE
+            }, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, dp(16), Gravity.TOP or Gravity.RIGHT).apply {
+                topMargin = dp(2)
+                rightMargin = dp(-7)
+            })
+        }
+        button.addView(iconFrame, LinearLayout.LayoutParams(dp(38), dp(38)))
         val title = TextView(this).apply {
             text = item.title
             gravity = Gravity.CENTER
@@ -314,10 +331,29 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
             val active = tab == selectedTab
             val iconView = button.findViewWithTag<NavIconView>("iconView")
             val title = button.findViewWithTag<TextView>("title")
+            val badge = button.findViewWithTag<TextView>("unreadBadge")
             iconView?.setActive(active)
             title?.setTextColor(if (active) ManwonColors.BRAND else ManwonColors.TEXT)
+            updateUnreadBadge(badge, active)
             button.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
         }
+    }
+
+    private fun updateUnreadBadge(badge: TextView?, active: Boolean) {
+        if (badge == null) return
+        if (chatUnreadCount <= 0) {
+            badge.visibility = View.GONE
+            return
+        }
+        badge.text = if (chatUnreadCount > 99) "99+" else "$chatUnreadCount"
+        badge.setTextColor(if (active) ManwonColors.TEXT else ManwonColors.BRAND)
+        badge.background = null
+        badge.visibility = View.VISIBLE
+    }
+
+    private fun setChatUnreadCount(count: Int) {
+        chatUnreadCount = count.coerceAtLeast(0).coerceAtMost(100)
+        refreshBottomNavSelection()
     }
 
     override fun selectTab(tab: AppTab) {
@@ -442,6 +478,8 @@ class MainActivity : Activity(), ImagePickerHost, NearbyHost {
             showChatDetail(id)
         }, openHome = {
             selectTab(AppTab.HOME)
+        }, onUnreadCountChanged = { count ->
+            setChatUnreadCount(count)
         }), FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         updateBottomNavVisibility()
     }

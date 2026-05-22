@@ -20,7 +20,8 @@ class ChatListView(
     context: Context,
     private val api: APIClient,
     private val openConversation: (String) -> Unit,
-    private val openHome: () -> Unit
+    private val openHome: () -> Unit,
+    private val onUnreadCountChanged: (Int) -> Unit = {}
 ) : FrameLayout(context) {
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
     private val content = LinearLayout(context).apply {
@@ -64,6 +65,7 @@ class ChatListView(
     }
 
     private fun showConversations(conversations: List<Conversation>) {
+        onUnreadCountChanged(totalUnreadCount(conversations))
         content.removeAllViews()
         content.addView(sectionHeader(context, "채팅"))
         if (conversations.isEmpty()) {
@@ -158,6 +160,15 @@ class ChatListView(
         content.removeAllViews()
         content.addView(sectionHeader(context, "채팅"))
         content.addView(emptyView(context, "문제가 생겼어요", message, "다시 시도") { load() })
+    }
+
+    private fun totalUnreadCount(conversations: List<Conversation>): Int {
+        var total = 0
+        conversations.forEach { conversation ->
+            total += maxOf(conversation.unreadCount ?: 0, 0)
+            if (total > 99) return 100
+        }
+        return total
     }
 }
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -25,6 +25,7 @@ import {
   X,
 } from 'lucide-react'
 import { categories, formatPrice, getCategoryIconSrc, type Category, type PostStatus, type RequestPost, type TradeStatus } from '@/data/mockData'
+import { fetchAuthSession, fetchConversations, type ApiConversation } from '@/lib/manwonApi'
 
 export type TabKey = 'home' | 'chat' | 'register' | 'activity' | 'my'
 
@@ -121,6 +122,33 @@ export function AppHeader({
 
 export function BottomNav() {
   const pathname = usePathname()
+  const [chatUnreadCount, setChatUnreadCount] = useState(0)
+
+  useEffect(() => {
+    let cancelled = false
+
+    const refreshUnreadCount = async () => {
+      try {
+        const session = await fetchAuthSession()
+        if (!session.authenticated) {
+          if (!cancelled) setChatUnreadCount(0)
+          return
+        }
+        const conversations = await fetchConversations()
+        if (!cancelled) setChatUnreadCount(sumUnreadConversations(conversations))
+      } catch {
+        if (!cancelled) setChatUnreadCount(0)
+      }
+    }
+
+    void refreshUnreadCount()
+    const timer = window.setInterval(refreshUnreadCount, 8000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [pathname])
 
   return (
     <nav className="bottom-nav" aria-label="하단 탭">
@@ -128,12 +156,20 @@ export function BottomNav() {
         const Icon = item.icon
         const active = isNavItemActive(item.key, pathname)
         const isRegister = item.key === 'register'
+        const unreadLabel = item.key === 'chat' && chatUnreadCount > 0 ? formatUnreadCount(chatUnreadCount) : null
         const className = `bottom-nav-item ${active ? 'is-active' : ''} ${isRegister ? 'is-register' : ''}`
 
         return (
-          <Link key={item.key} href={item.href} className={className} aria-current={active ? 'page' : undefined}>
+          <Link
+            key={item.key}
+            href={item.href}
+            className={className}
+            aria-current={active ? 'page' : undefined}
+            aria-label={unreadLabel ? `채팅, 읽지 않은 메시지 ${formatUnreadAriaCount(chatUnreadCount)}` : item.label}
+          >
             <span className="bottom-nav-icon">
               <Icon size={isRegister ? 29 : 24} strokeWidth={isRegister ? 2.1 : 1.9} />
+              {unreadLabel && <span className="bottom-nav-unread-badge">{unreadLabel}</span>}
             </span>
             <span>{item.label}</span>
           </Link>
@@ -141,6 +177,23 @@ export function BottomNav() {
       })}
     </nav>
   )
+}
+
+function sumUnreadConversations(conversations: ApiConversation[]) {
+  let total = 0
+  for (const conversation of conversations) {
+    total += Math.max(Number(conversation.unreadCount ?? 0), 0)
+    if (total > 99) return 100
+  }
+  return total
+}
+
+function formatUnreadCount(count: number) {
+  return count > 99 ? '99+' : String(count)
+}
+
+function formatUnreadAriaCount(count: number) {
+  return count > 99 ? '99개 이상' : `${count}개`
 }
 
 export function MapUnavailableOverlay({ onClose }: { onClose: () => void }) {

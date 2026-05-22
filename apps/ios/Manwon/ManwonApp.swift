@@ -52,7 +52,7 @@ struct RootTabView: View {
         .overlay(alignment: .bottom) {
             if !router.hidesBottomNav && !keyboardVisible {
                 ZStack(alignment: .bottomTrailing) {
-                    ManwonBottomNav(selectedTab: $router.selectedTab, onSelect: { tab in
+                    ManwonBottomNav(selectedTab: $router.selectedTab, chatUnreadCount: router.chatUnreadCount, onSelect: { tab in
                         switch tab {
                         case .home:
                             router.openWebPath("/")

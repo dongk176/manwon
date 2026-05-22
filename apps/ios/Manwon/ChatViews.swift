@@ -5,18 +5,30 @@ import UIKit
 @MainActor
 final class ChatListViewModel: ObservableObject {
     @Published var conversations: [Conversation] = []
+    @Published var unreadCount = 0
     @Published var isLoading = true
     @Published var errorMessage: String?
 
     func load(silent: Bool = false) async {
         if !silent { isLoading = true }
         do {
-            conversations = try await APIClient.shared.fetchConversations()
+            let nextConversations = try await APIClient.shared.fetchConversations()
+            conversations = nextConversations
+            unreadCount = Self.totalUnreadCount(nextConversations)
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }
         isLoading = false
+    }
+
+    private static func totalUnreadCount(_ conversations: [Conversation]) -> Int {
+        var total = 0
+        for conversation in conversations {
+            total += max(conversation.unreadCount ?? 0, 0)
+            if total > 99 { return 100 }
+        }
+        return total
     }
 
     func poll() async {
@@ -70,6 +82,9 @@ struct ChatListView: View {
         .onAppear {
             syncRouterConversation()
             router.chatDetailActive = !path.isEmpty
+        }
+        .onReceive(viewModel.$unreadCount) { unreadCount in
+            router.chatUnreadCount = unreadCount
         }
     }
 
