@@ -47,14 +47,14 @@ function verifySessionToken(token: string | undefined) {
 }
 
 export function getRequestUserId(request: NextRequest) {
+  const sessionUserId = verifySessionToken(request.cookies.get(sessionCookieName)?.value)
+  if (sessionUserId) return sessionUserId
+
   const authorization = request.headers.get('authorization')
   if (authorization?.startsWith('Bearer ')) {
     const bearerUserId = verifySessionToken(authorization.slice('Bearer '.length).trim())
     if (bearerUserId) return bearerUserId
   }
-
-  const sessionUserId = verifySessionToken(request.cookies.get(sessionCookieName)?.value)
-  if (sessionUserId) return sessionUserId
 
   return null
 }

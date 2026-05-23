@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 const sessionCookieName = 'manwon_session'
-const publicPagePaths = ['/login', '/signup', '/support']
+const publicPagePaths = ['/login', '/signup', '/support', '/profile-onboarding']
 
 function isPublicPagePath(pathname: string) {
   return publicPagePaths.includes(pathname) || pathname === '/' || pathname.startsWith('/posts/') || pathname.startsWith('/terms/')

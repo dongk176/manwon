@@ -238,6 +238,7 @@ export interface ApiMessage {
 
 const userIdStorageKey = 'manwon_user_id'
 const nicknameStorageKey = 'manwon_nickname'
+const accessTokenStorageKey = 'manwon_access_token'
 
 export function getCurrentUserId() {
   if (typeof window === 'undefined') return null
@@ -254,11 +255,25 @@ export function getCurrentUserId() {
   }
 }
 
-export function setCurrentUserId(userId: string, nickname = '만부탁이') {
+function getCurrentAccessToken() {
+  if (typeof window === 'undefined') return null
+  try {
+    return window.localStorage.getItem(accessTokenStorageKey)
+  } catch {
+    return null
+  }
+}
+
+function getResponseAccessToken(value: Record<string, unknown>) {
+  return typeof value.accessToken === 'string' ? value.accessToken : undefined
+}
+
+export function setCurrentUserId(userId: string, nickname = '만부탁이', accessToken?: string) {
   if (typeof window === 'undefined') return
   try {
     window.localStorage.setItem(userIdStorageKey, userId)
     window.localStorage.setItem(nicknameStorageKey, nickname)
+    if (accessToken) window.localStorage.setItem(accessTokenStorageKey, accessToken)
   } catch {
     // Local storage can be unavailable in private contexts.
   }
@@ -269,6 +284,7 @@ export function clearCurrentUserId() {
   try {
     window.localStorage.removeItem(userIdStorageKey)
     window.localStorage.removeItem(nicknameStorageKey)
+    window.localStorage.removeItem(accessTokenStorageKey)
   } catch {
     // Local storage can be unavailable in private contexts.
   }
@@ -278,6 +294,8 @@ function getAuthHeaders() {
   const headers = new Headers()
   const userId = getCurrentUserId()
   if (userId) headers.set('x-manwon-user-id', userId)
+  const accessToken = getCurrentAccessToken()
+  if (accessToken) headers.set('authorization', `Bearer ${accessToken}`)
 
   if (typeof window !== 'undefined') {
     try {
@@ -300,6 +318,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
   const response = await fetch(path, {
     ...init,
+    credentials: 'same-origin',
     headers,
   })
   const payload = (await response.json()) as { ok: boolean; data?: T; error?: string }
@@ -509,7 +528,7 @@ export async function confirmLoginOtp(phone: string, code: string) {
     body: JSON.stringify({ phone, code }),
   })
   if (typeof profile.id === 'string') {
-    setCurrentUserId(profile.id, typeof profile.nickname === 'string' ? profile.nickname : '만부탁이')
+    setCurrentUserId(profile.id, typeof profile.nickname === 'string' ? profile.nickname : '만부탁이', getResponseAccessToken(profile))
   }
   return profile
 }
@@ -517,14 +536,14 @@ export async function confirmLoginOtp(phone: string, code: string) {
 export async function checkLoginCredential(input: { loginId: string; password: string }) {
   const result = await apiFetch<
     | { mode: 'signup_required'; resume?: boolean }
-    | { mode: 'signed_in'; profile: Record<string, unknown> }
+    | { mode: 'signed_in'; profile: Record<string, unknown>; accessToken?: string }
   >('/api/auth/login/check', {
     method: 'POST',
     body: JSON.stringify(input),
   })
 
   if (result.mode === 'signed_in' && typeof result.profile.id === 'string') {
-    setCurrentUserId(result.profile.id, typeof result.profile.nickname === 'string' ? result.profile.nickname : '만부탁이')
+    setCurrentUserId(result.profile.id, typeof result.profile.nickname === 'string' ? result.profile.nickname : '만부탁이', result.accessToken)
   }
 
   return result
@@ -599,7 +618,7 @@ export async function completeSignup(input: SignupOnboardingPayload) {
     body: JSON.stringify(input),
   })
   if (typeof profile.id === 'string') {
-    setCurrentUserId(profile.id, typeof profile.nickname === 'string' ? profile.nickname : '만부탁이')
+    setCurrentUserId(profile.id, typeof profile.nickname === 'string' ? profile.nickname : '만부탁이', getResponseAccessToken(profile))
   }
   return profile
 }
@@ -610,16 +629,18 @@ export async function confirmSignupOtp(input: SignupOnboardingPayload & { code: 
     body: JSON.stringify(input),
   })
   if (typeof profile.id === 'string') {
-    setCurrentUserId(profile.id, typeof profile.nickname === 'string' ? profile.nickname : '만부탁이')
+    setCurrentUserId(profile.id, typeof profile.nickname === 'string' ? profile.nickname : '만부탁이', getResponseAccessToken(profile))
   }
   return profile
 }
 
 export async function fetchAuthSession() {
+  const headers = getAuthHeaders()
+  headers.set('content-type', 'application/json')
   const response = await fetch('/api/auth/session', {
-    headers: {
-      'content-type': 'application/json',
-    },
+    cache: 'no-store',
+    credentials: 'same-origin',
+    headers,
   })
   const payload = (await response.json()) as {
     ok: boolean
@@ -630,6 +651,8 @@ export async function fetchAuthSession() {
   const session = payload.data as { authenticated: boolean; userId?: string; profile: Record<string, unknown> | null }
   if (session.authenticated && session.userId) {
     setCurrentUserId(session.userId, typeof session.profile?.nickname === 'string' ? session.profile.nickname : '만부탁이')
+  } else {
+    clearCurrentUserId()
   }
   return session
 }
