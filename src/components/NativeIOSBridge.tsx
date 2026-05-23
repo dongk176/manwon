@@ -11,6 +11,7 @@ declare global {
           postMessage: (payload: {
             type: string
             path?: string
+            next?: string
             isAtTop?: boolean
             permission?: 'push' | 'location'
             context?: IOSPushPromptContext
@@ -24,9 +25,17 @@ declare global {
       postMessage?: (payload: string) => void
     }
   }
+  interface WindowEventMap {
+    manwonKakaoLogin: CustomEvent<ManwonKakaoLoginEventDetail>
+  }
 }
 
 export type IOSPushPromptContext = 'post_created' | 'conversation_started' | 'chat_entered' | 'unread_messages' | 'deal_action'
+export type ManwonKakaoLoginEventDetail = {
+  ok: boolean
+  error?: string
+  destinationPath?: string
+}
 
 export function isManwonIOS() {
   return typeof navigator !== 'undefined' && navigator.userAgent.includes('ManwonIOS')
@@ -43,6 +52,7 @@ export function isNativeAppShell() {
 function postNativeMessage(payload: {
   type: string
   path?: string
+  next?: string
   isAtTop?: boolean
   permission?: 'push' | 'location'
   context?: IOSPushPromptContext
@@ -58,6 +68,15 @@ export function setNativeOverlayState(isPresented: boolean) {
   return postNativeMessage({
     type: 'overlayState',
     isPresented,
+  })
+}
+
+export function requestNativeKakaoLogin(next?: string | null) {
+  if (typeof window === 'undefined' || !isManwonIOS()) return false
+  return postNativeMessage({
+    type: 'kakaoLogin',
+    next: next ?? undefined,
+    path: routePathFromUrl(),
   })
 }
 

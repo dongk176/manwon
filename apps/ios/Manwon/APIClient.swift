@@ -41,6 +41,10 @@ private struct ReviewReminderPayload: Encodable {
     let dealId: String
 }
 
+private struct KakaoNativeLoginPayload: Encodable {
+    let accessToken: String
+}
+
 private struct ReportPayload: Encodable {
     let targetUserId: String?
     let postId: String?
@@ -290,6 +294,33 @@ final class APIClient {
         try await request("/api/auth/session")
     }
 
+    func signInWithKakaoNative(accessToken: String) async throws -> SessionState {
+        var request = URLRequest(url: AppConfig.webURL(path: "/api/auth/kakao/native"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(KakaoNativeLoginPayload(accessToken: accessToken))
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIClientError.invalidResponse
+        }
+        if httpResponse.statusCode == 401 {
+            throw APIClientError.unauthenticated
+        }
+
+        let envelope = try decoder.decode(APIEnvelope<SessionState>.self, from: data)
+        guard (200..<300).contains(httpResponse.statusCode), envelope.ok else {
+            throw APIClientError.server(envelope.error ?? "카카오 로그인에 실패했습니다.")
+        }
+        guard envelope.data != nil else {
+            throw APIClientError.invalidResponse
+        }
+
+        await storeResponseCookies(from: httpResponse)
+        return try await fetchSession()
+    }
+
     func fetchConversations() async throws -> [Conversation] {
         try await request("/api/conversations")
     }
@@ -519,6 +550,33 @@ final class APIClient {
             throw APIClientError.invalidResponse
         }
         return payload
+    }
+
+    @MainActor
+    private func storeResponseCookies(from response: HTTPURLResponse) async {
+        guard let url = response.url else { return }
+
+        var headerFields: [String: String] = [:]
+        response.allHeaderFields.forEach { key, value in
+            guard let key = key as? String else { return }
+            headerFields[key] = String(describing: value)
+        }
+
+        var cookies = HTTPCookie.cookies(withResponseHeaderFields: headerFields, for: url)
+        if cookies.isEmpty {
+            cookies = HTTPCookieStorage.shared.cookies(for: url) ?? []
+        }
+
+        let webCookies = matchingWebCookies(from: cookies)
+        guard !webCookies.isEmpty else { return }
+
+        for cookie in webCookies {
+            await withCheckedContinuation { continuation in
+                WKWebsiteDataStore.default().httpCookieStore.setCookie(cookie) {
+                    continuation.resume()
+                }
+            }
+        }
     }
 
     @MainActor

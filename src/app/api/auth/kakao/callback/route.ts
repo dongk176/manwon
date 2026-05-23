@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { setAuthCookies } from '@/server/auth'
 import { HttpError } from '@/server/http'
-import { signInWithKakao, type KakaoProfile } from '@/server/kakaoAuth'
+import { getKakaoProfile, signInWithKakao } from '@/server/kakaoAuth'
+import { getAppOrigin, getKakaoRedirectUri } from '@/server/kakaoOAuth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -16,31 +17,6 @@ interface KakaoTokenResponse {
   refresh_token?: string
   refresh_token_expires_in?: number
   scope?: string
-}
-
-interface KakaoUserResponse {
-  id?: number | string
-  properties?: {
-    nickname?: string
-    profile_image?: string
-    thumbnail_image?: string
-  }
-  kakao_account?: {
-    email?: string
-    profile?: {
-      nickname?: string
-      profile_image_url?: string
-      thumbnail_image_url?: string
-    }
-  }
-}
-
-function getAppOrigin(request: NextRequest) {
-  return (process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin).replace(/\/$/, '')
-}
-
-function getRedirectUri(request: NextRequest) {
-  return process.env.KAKAO_REDIRECT_URI || `${getAppOrigin(request)}/api/auth/kakao/callback`
 }
 
 function normalizeNextPath(value: string | undefined) {
@@ -77,7 +53,7 @@ async function exchangeCodeForToken(request: NextRequest, code: string) {
   const body = new URLSearchParams({
     grant_type: 'authorization_code',
     client_id: restApiKey,
-    redirect_uri: getRedirectUri(request),
+    redirect_uri: getKakaoRedirectUri(request),
     code,
   })
   if (process.env.KAKAO_CLIENT_SECRET) {
@@ -97,26 +73,6 @@ async function exchangeCodeForToken(request: NextRequest, code: string) {
   const token = await response.json() as KakaoTokenResponse
   if (!token.access_token) throw new HttpError('카카오 인증 토큰이 비어 있습니다.', 502)
   return token.access_token
-}
-
-async function getKakaoProfile(accessToken: string): Promise<KakaoProfile> {
-  const response = await fetch('https://kapi.kakao.com/v2/user/me', {
-    headers: {
-      authorization: `Bearer ${accessToken}`,
-    },
-    cache: 'no-store',
-  })
-
-  if (!response.ok) throw new HttpError('카카오 계정 정보를 가져오지 못했습니다.', 502)
-  const user = await response.json() as KakaoUserResponse
-  if (user.id === undefined || user.id === null) throw new HttpError('카카오 계정 식별값이 없습니다.', 502)
-
-  return {
-    kakaoId: String(user.id),
-    email: user.kakao_account?.email ?? null,
-    nickname: user.kakao_account?.profile?.nickname ?? user.properties?.nickname ?? null,
-    avatarUrl: user.kakao_account?.profile?.profile_image_url ?? user.properties?.profile_image ?? null,
-  }
 }
 
 function isProfileOnboardingCompleted(profile: Record<string, unknown>) {

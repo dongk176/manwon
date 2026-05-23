@@ -21,6 +21,8 @@ pnpm dev
 
 The default web base URL is `https://manwonmvp.vercel.app`. Change `ManwonWebBaseURL` in `Manwon/Info.plist` for local, staging, or production builds.
 
+Kakao native login reads `KAKAO_NATIVE_APP_KEY` from the iOS build settings. The same key is used for `KakaoNativeAppKey` and the `kakao$(KAKAO_NATIVE_APP_KEY)` URL scheme in `Info.plist`.
+
 ## Push
 
 The project is wired for Firebase Messaging through Swift Package Manager. To enable push in a real build:

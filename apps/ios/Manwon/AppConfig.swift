@@ -7,6 +7,8 @@ enum AppConfig {
         return URL(string: value?.isEmpty == false ? value! : "https://manwonmvp.vercel.app")!
     }()
 
+    static let kakaoNativeAppKey: String? = normalizedInfoString(forKey: "KakaoNativeAppKey")
+
     static func webURL(path: String) -> URL {
         if let absoluteURL = URL(string: path), absoluteURL.scheme != nil {
             return absoluteURL
@@ -22,5 +24,12 @@ enum AppConfig {
         components?.host = nil
         components?.port = nil
         return components?.string.flatMap { $0.isEmpty ? nil : $0 } ?? url.path
+    }
+
+    private static func normalizedInfoString(forKey key: String) -> String? {
+        guard let rawValue = Bundle.main.object(forInfoDictionaryKey: key) as? String else { return nil }
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, !value.contains("$(") else { return nil }
+        return value
     }
 }

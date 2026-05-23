@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { ArrowLeft, Check, ChevronRight, X } from 'lucide-react'
+import { isManwonIOS, requestNativeKakaoLogin } from '@/components/NativeIOSBridge'
 import { BrandButton } from '@/components/ui/Common'
 import { documentMeta, legalPages } from '@/lib/legalDocuments'
 import {
@@ -72,6 +73,11 @@ function isProfileOnboardingCompleted(profile: Record<string, unknown> | null | 
   return profile?.profileOnboardingCompleted === true
 }
 
+function normalizeNextPath(value: string | null | undefined) {
+  if (!value || !value.startsWith('/') || value.startsWith('//')) return '/'
+  return value
+}
+
 function normalizeLoginIdInput(value: string) {
   return value.replace(unsupportedLoginIdGlobalPattern, '').slice(0, LOGIN_ID_MAX_LENGTH)
 }
@@ -105,13 +111,36 @@ export function LoginScreen() {
   const [status, setStatus] = useState<'idle' | 'checking' | 'error'>(hasKakaoOAuthError ? 'error' : 'idle')
   const [oauthStatus, setOauthStatus] = useState<'idle' | 'kakao'>('idle')
   const [message, setMessage] = useState(hasKakaoOAuthError ? '카카오 로그인에 실패했어요. 잠시 후 다시 시도해주세요.' : '')
+  const requestedNextPath = normalizeNextPath(searchParams.get('next'))
 
   const loginIdHint = loginIdInputHint || (loginId.length > 0 && loginId.length < LOGIN_ID_MIN_LENGTH ? `${LOGIN_ID_MIN_LENGTH}자 이상` : '')
   const passwordHint = password.length > 0 && password.length < PASSWORD_MIN_LENGTH ? `${PASSWORD_MIN_LENGTH}자 이상` : ''
   const canSubmitCredentials = loginId.length >= LOGIN_ID_MIN_LENGTH && password.length >= PASSWORD_MIN_LENGTH && !loginIdInputHint
 
+  useEffect(() => {
+    if (!isManwonIOS()) return undefined
+
+    const handleKakaoLogin = (event: WindowEventMap['manwonKakaoLogin']) => {
+      if (event.detail.ok) {
+        setOauthStatus('idle')
+        setStatus('idle')
+        setMessage('')
+        router.replace(normalizeNextPath(event.detail.destinationPath ?? requestedNextPath))
+        router.refresh()
+        return
+      }
+
+      setOauthStatus('idle')
+      setStatus('error')
+      setMessage(event.detail.error || '카카오 로그인에 실패했어요. 잠시 후 다시 시도해주세요.')
+    }
+
+    window.addEventListener('manwonKakaoLogin', handleKakaoLogin)
+    return () => window.removeEventListener('manwonKakaoLogin', handleKakaoLogin)
+  }, [requestedNextPath, router])
+
   function completeLogin(profile: Record<string, unknown>) {
-    router.replace(isProfileOnboardingCompleted(profile) ? searchParams.get('next') || '/' : '/profile-onboarding')
+    router.replace(isProfileOnboardingCompleted(profile) ? requestedNextPath : '/profile-onboarding')
     router.refresh()
   }
 
@@ -128,9 +157,10 @@ export function LoginScreen() {
     setOauthStatus('kakao')
     setMessage('')
 
-    const next = searchParams.get('next')
+    if (requestNativeKakaoLogin(requestedNextPath)) return
+
     const url = new URL('/api/auth/kakao/start', window.location.origin)
-    if (next) url.searchParams.set('next', next)
+    if (requestedNextPath !== '/') url.searchParams.set('next', requestedNextPath)
     window.location.assign(url.toString())
   }
 
@@ -172,8 +202,7 @@ export function LoginScreen() {
   }
 
   function goSignup() {
-    const next = searchParams.get('next')
-    router.push(next ? `/signup?next=${encodeURIComponent(next)}` : '/signup')
+    router.push(requestedNextPath !== '/' ? `/signup?next=${encodeURIComponent(requestedNextPath)}` : '/signup')
   }
 
   function updateLoginId(value: string) {

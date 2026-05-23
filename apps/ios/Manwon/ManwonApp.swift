@@ -1,3 +1,4 @@
+import KakaoSDKCommon
 import SwiftUI
 import UIKit
 
@@ -15,6 +16,12 @@ struct ManwonApp: App {
                 .onAppear {
                     PushManager.shared.attach(router: router)
                     PushManager.shared.registerForRemoteNotificationsIfAuthorized()
+                }
+                .onOpenURL { url in
+                    if KakaoLoginManager.shared.handleOpenURL(url) {
+                        return
+                    }
+                    router.open(url: url)
                 }
         }
     }
@@ -224,11 +231,15 @@ private struct InitialSessionGateView: View {
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        if let kakaoNativeAppKey = AppConfig.kakaoNativeAppKey {
+            KakaoSDK.initSDK(appKey: kakaoNativeAppKey)
+        }
         PushManager.shared.configure()
         PushManager.shared.handleLaunchOptions(launchOptions)
         return true
@@ -243,6 +254,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     }
 
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
+        if KakaoLoginManager.shared.handleOpenURL(url) {
+            return true
+        }
+
         Task { @MainActor in
             PushManager.shared.router?.open(url: url)
         }

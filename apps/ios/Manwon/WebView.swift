@@ -46,6 +46,9 @@ struct WebTabView: View {
                         router.homeScrollDidChange(isAtTop: isAtTop)
                     }
                 },
+                onKakaoLoginSuccess: { session, nextPath in
+                    router.finishKakaoLogin(session, nextPath: nextPath)
+                },
                 onStartLoading: {
                     router.webOverlayDidChange(isPresented: false, for: tab)
                     errorMessage = nil
@@ -141,6 +144,7 @@ struct NativeWebView: UIViewRepresentable {
     let onPermissionPrompt: (String, String?, Int?) -> Void
     let onOverlayChange: (Bool) -> Void
     let onScrollTopChange: (Bool) -> Void
+    let onKakaoLoginSuccess: (SessionState, String?) -> String
     let onStartLoading: () -> Void
     let onFinishLoading: () -> Void
     let onError: () -> Void
@@ -153,6 +157,7 @@ struct NativeWebView: UIViewRepresentable {
             onPermissionPrompt: onPermissionPrompt,
             onOverlayChange: onOverlayChange,
             onScrollTopChange: onScrollTopChange,
+            onKakaoLoginSuccess: onKakaoLoginSuccess,
             onStartLoading: onStartLoading,
             onFinishLoading: onFinishLoading,
             onError: onError
@@ -193,6 +198,7 @@ struct NativeWebView: UIViewRepresentable {
         context.coordinator.onPermissionPrompt = onPermissionPrompt
         context.coordinator.onOverlayChange = onOverlayChange
         context.coordinator.onScrollTopChange = onScrollTopChange
+        context.coordinator.onKakaoLoginSuccess = onKakaoLoginSuccess
         context.coordinator.onStartLoading = onStartLoading
         context.coordinator.onFinishLoading = onFinishLoading
         context.coordinator.onError = onError
@@ -203,6 +209,7 @@ struct NativeWebView: UIViewRepresentable {
         uiView.scrollView.delegate = nil
         uiView.uiDelegate = nil
         uiView.configuration.userContentController.removeScriptMessageHandler(forName: "manwonNative")
+        coordinator.cancelKakaoLogin()
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, UIScrollViewDelegate, CLLocationManagerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, PHPickerViewControllerDelegate {
@@ -212,6 +219,7 @@ struct NativeWebView: UIViewRepresentable {
         var onPermissionPrompt: (String, String?, Int?) -> Void
         var onOverlayChange: (Bool) -> Void
         var onScrollTopChange: (Bool) -> Void
+        var onKakaoLoginSuccess: (SessionState, String?) -> String
         var onStartLoading: () -> Void
         var onFinishLoading: () -> Void
         var onError: () -> Void
@@ -223,6 +231,7 @@ struct NativeWebView: UIViewRepresentable {
         private weak var webView: WKWebView?
         private var pendingLocationRequestId: String?
         private var locationTimeoutTask: Task<Void, Never>?
+        private var kakaoLoginTask: Task<Void, Never>?
         private var filePickerCompletion: (([URL]?) -> Void)?
 
         init(
@@ -232,6 +241,7 @@ struct NativeWebView: UIViewRepresentable {
             onPermissionPrompt: @escaping (String, String?, Int?) -> Void,
             onOverlayChange: @escaping (Bool) -> Void,
             onScrollTopChange: @escaping (Bool) -> Void,
+            onKakaoLoginSuccess: @escaping (SessionState, String?) -> String,
             onStartLoading: @escaping () -> Void,
             onFinishLoading: @escaping () -> Void,
             onError: @escaping () -> Void
@@ -242,6 +252,7 @@ struct NativeWebView: UIViewRepresentable {
             self.onPermissionPrompt = onPermissionPrompt
             self.onOverlayChange = onOverlayChange
             self.onScrollTopChange = onScrollTopChange
+            self.onKakaoLoginSuccess = onKakaoLoginSuccess
             self.onStartLoading = onStartLoading
             self.onFinishLoading = onFinishLoading
             self.onError = onError
@@ -294,6 +305,11 @@ struct NativeWebView: UIViewRepresentable {
                 return
             }
 
+            if type == "kakaoLogin" {
+                startKakaoLogin(nextPath: normalizeNextPath(payload["next"] as? String))
+                return
+            }
+
             if type == "overlayState" {
                 let isPresented = (payload["isPresented"] as? Bool) ?? false
                 onOverlayChange(isPresented)
@@ -329,6 +345,44 @@ struct NativeWebView: UIViewRepresentable {
                 let isAtTop = (payload["isAtTop"] as? Bool) ?? true
                 onScrollTopChange(isAtTop)
             }
+        }
+
+        func cancelKakaoLogin() {
+            kakaoLoginTask?.cancel()
+            kakaoLoginTask = nil
+        }
+
+        private func startKakaoLogin(nextPath: String?) {
+            guard kakaoLoginTask == nil else { return }
+            kakaoLoginTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                defer { self.kakaoLoginTask = nil }
+
+                do {
+                    let accessToken = try await KakaoLoginManager.shared.loginWithKakaoTalk()
+                    let session = try await APIClient.shared.signInWithKakaoNative(accessToken: accessToken)
+                    let destinationPath = self.onKakaoLoginSuccess(session, nextPath)
+                    self.dispatchKakaoLoginEvent(ok: true, destinationPath: destinationPath)
+                } catch {
+                    self.dispatchKakaoLoginEvent(ok: false, error: error.localizedDescription)
+                }
+            }
+        }
+
+        private func normalizeNextPath(_ value: String?) -> String? {
+            guard let value, value.hasPrefix("/"), !value.hasPrefix("//") else { return nil }
+            return value
+        }
+
+        private func dispatchKakaoLoginEvent(ok: Bool, error: String? = nil, destinationPath: String? = nil) {
+            let payload = KakaoLoginEventPayload(ok: ok, error: error, destinationPath: destinationPath)
+            guard
+                let data = try? JSONEncoder().encode(payload),
+                let json = String(data: data, encoding: .utf8)
+            else {
+                return
+            }
+            webView?.evaluateJavaScript("window.dispatchEvent(new CustomEvent('manwonKakaoLogin', { detail: \(json) }));")
         }
 
         private func requestCurrentLocation(requestId: String) {
@@ -676,6 +730,12 @@ struct NativeWebView: UIViewRepresentable {
 
         private func isNativeRoute(_ path: String) -> Bool {
             path == "/chat" || path.hasPrefix("/chat/") || path == "/activity" || path.hasPrefix("/activity/") || path == "/nearby" || path.hasPrefix("/nearby/")
+        }
+
+        private struct KakaoLoginEventPayload: Encodable {
+            let ok: Bool
+            let error: String?
+            let destinationPath: String?
         }
     }
 

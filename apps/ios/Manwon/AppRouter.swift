@@ -82,6 +82,25 @@ final class AppRouter: ObservableObject {
         }
     }
 
+    @discardableResult
+    func finishKakaoLogin(_ session: SessionState, nextPath: String?) -> String {
+        let destination = normalizeNextPath(nextPath)
+        updateSession(session)
+
+        guard session.authenticated else {
+            routeToLogin(next: destination)
+            return loginPath(next: destination)
+        }
+
+        guard session.profile?.profileOnboardingCompleted == true else {
+            routeToProfileOnboarding()
+            return "/profile-onboarding"
+        }
+
+        openNativeRoute(path: destination)
+        return destination
+    }
+
     func routeToLogin(next: String? = nil) {
         if onboardingRequired {
             onboardingRequired = false
@@ -270,6 +289,11 @@ final class AppRouter: ObservableObject {
         components.path = "/login"
         components.queryItems = [URLQueryItem(name: "next", value: next)]
         return components.string ?? "/login"
+    }
+
+    private func normalizeNextPath(_ path: String?) -> String {
+        guard let path, path.hasPrefix("/"), !path.hasPrefix("//") else { return "/" }
+        return path
     }
 
     private func setSelectedTab(_ tab: AppTab) {
