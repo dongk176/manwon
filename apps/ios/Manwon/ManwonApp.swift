@@ -152,12 +152,6 @@ struct RootTabView: View {
 
     private func resolveInitialSessionGate() async {
         let session = await fetchSessionForInitialGate()
-        if session?.authenticated != true {
-            let hasAuthSessionCookie = await APIClient.shared.hasAuthSessionCookie()
-            if !hasAuthSessionCookie {
-                router.routeToLogin()
-            }
-        }
         initialSessionChecked = true
 
         if session?.authenticated == true {

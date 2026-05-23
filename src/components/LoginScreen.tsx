@@ -25,8 +25,8 @@ type RecoverySheetMode = 'findId' | 'resetPassword'
 const agreementItems = [
   {
     key: 'terms',
-    title: '서비스 이용약관 동의',
-    description: '뭐든해줌 이용을 위한 기본 약관이에요.',
+    title: '서비스 이용약관 및 유해 콘텐츠 무관용 동의',
+    description: '부적절한 콘텐츠와 악성 이용자를 허용하지 않는 약관이에요.',
     required: true,
     slug: 'service',
   },
@@ -67,6 +67,10 @@ const signupGenderOptions: Array<{ value: Exclude<SignupGender, ''>; label: stri
   { value: 'female', label: '여성' },
 ]
 
+function isProfileOnboardingCompleted(profile: Record<string, unknown> | null | undefined) {
+  return profile?.profileOnboardingCompleted === true
+}
+
 function normalizeLoginIdInput(value: string) {
   return value.replace(unsupportedLoginIdGlobalPattern, '').slice(0, LOGIN_ID_MAX_LENGTH)
 }
@@ -102,8 +106,8 @@ export function LoginScreen() {
   const passwordHint = password.length > 0 && password.length < PASSWORD_MIN_LENGTH ? `${PASSWORD_MIN_LENGTH}자 이상` : ''
   const canSubmitCredentials = loginId.length >= LOGIN_ID_MIN_LENGTH && password.length >= PASSWORD_MIN_LENGTH && !loginIdInputHint
 
-  function completeLogin() {
-    router.replace(searchParams.get('next') || '/')
+  function completeLogin(profile: Record<string, unknown>) {
+    router.replace(isProfileOnboardingCompleted(profile) ? searchParams.get('next') || '/' : '/profile-onboarding')
     router.refresh()
   }
 
@@ -122,7 +126,7 @@ export function LoginScreen() {
     try {
       const result = await checkLoginCredential({ loginId, password })
       if (result.mode === 'signed_in') {
-        completeLogin()
+        completeLogin(result.profile)
         return
       }
       setStatus('error')

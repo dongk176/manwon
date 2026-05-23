@@ -373,6 +373,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
 
   async function handleStartChat(profileId: string) {
     if (!displayPost) return
+    if (requireLoginForAction()) return
     setActionState('saving')
     setMessage('')
     setShowProfileSelect(false)
@@ -390,6 +391,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
 
   async function handleFavorite() {
     if (!displayPost) return
+    if (requireLoginForAction()) return
     setActionState('saving')
     setMessage('')
     try {
@@ -440,6 +442,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
 
   async function handleReport(input: { reason: string; description: string }) {
     if (!displayPost) return
+    if (requireLoginForAction()) return
     setActionState('saving')
     setMessage('')
     setReportSheetError('')
@@ -470,6 +473,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
 
   async function handleBlock() {
     if (!post?.creatorId) return
+    if (requireLoginForAction()) return
     setActionState('saving')
     setMessage('')
     try {
@@ -619,6 +623,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
   }
 
   function handlePrimaryAction() {
+    if (!isOwner && requireLoginForAction()) return
     if (isOwner) {
       if (editMode) void saveEditMode()
       else if (postStatus === 'cancelled') void handleReopenPost()
@@ -645,6 +650,12 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
       return
     }
     setShowProfileSelect(true)
+  }
+
+  function requireLoginForAction() {
+    if (currentUserId) return false
+    router.push(`/login?next=${encodeURIComponent(getCurrentPath(postId))}`)
+    return true
   }
 
   async function handleSharePost() {
@@ -1114,6 +1125,11 @@ function getReopenNoticeStorageKey(postId: string, dealId: string) {
 function isRemovedPostError(error: unknown) {
   if (!(error instanceof Error)) return false
   return error.message === '삭제된 게시물입니다.' || error.message === '게시글을 찾을 수 없습니다.'
+}
+
+function getCurrentPath(postId: string) {
+  if (typeof window === 'undefined') return `/posts/${encodeURIComponent(postId)}`
+  return `${window.location.pathname}${window.location.search}`
 }
 
 function getDetailImageUrls(post: ApiTaskPost | null, displayPost: RequestPost | undefined) {

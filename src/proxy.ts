@@ -3,6 +3,10 @@ import { NextRequest, NextResponse } from 'next/server'
 const sessionCookieName = 'manwon_session'
 const publicPagePaths = ['/login', '/signup', '/support']
 
+function isPublicPagePath(pathname: string) {
+  return publicPagePaths.includes(pathname) || pathname === '/' || pathname.startsWith('/posts/') || pathname.startsWith('/terms/')
+}
+
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl
 
@@ -16,7 +20,7 @@ export function proxy(request: NextRequest) {
     return NextResponse.next()
   }
 
-  if (publicPagePaths.includes(pathname) || pathname.startsWith('/terms/')) {
+  if (isPublicPagePath(pathname)) {
     return NextResponse.next()
   }
 

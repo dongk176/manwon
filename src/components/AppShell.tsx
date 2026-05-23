@@ -5,8 +5,22 @@ import { usePathname, useRouter } from 'next/navigation'
 import { BottomNav } from '@/components/ui/Common'
 import { fetchAuthSession, fetchDueReviewReminder } from '@/lib/manwonApi'
 
+type AppGateState =
+  | { status: 'checking'; onboardingCompleted: null }
+  | { status: 'anonymous'; onboardingCompleted: null }
+  | { status: 'allowed'; onboardingCompleted: boolean }
+  | { status: 'redirecting'; onboardingCompleted: boolean | null }
+
 function isProfileOnboardingCompleted(profile: Record<string, unknown> | null | undefined) {
   return profile?.profileOnboardingCompleted === true
+}
+
+function isPublicAppPath(pathname: string) {
+  return pathname === '/' || pathname.startsWith('/posts/')
+}
+
+function isProfileOnboardingPath(pathname: string) {
+  return pathname === '/profile-onboarding'
 }
 
 function useOverlayScrollLock() {
@@ -69,7 +83,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
   const overlayVisible = useOverlayScrollLock()
+  const [gateState, setGateState] = useState<AppGateState>({ status: 'checking', onboardingCompleted: null })
+  const publicPath = isPublicAppPath(pathname)
+  const profileOnboardingPath = isProfileOnboardingPath(pathname)
+  const contentAllowed =
+    publicPath ||
+    (gateState.status === 'allowed' &&
+      (gateState.onboardingCompleted ? !profileOnboardingPath : profileOnboardingPath))
+  const onboardingCompleted = gateState.status === 'allowed' ? gateState.onboardingCompleted : false
   const hideBottomNav =
+    !contentAllowed ||
     overlayVisible ||
     pathname.startsWith('/chat/') ||
     pathname.startsWith('/posts/') ||
@@ -81,38 +104,52 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let cancelled = false
+
+    function redirectToLogin() {
+      const queryString = typeof window === 'undefined' ? '' : window.location.search.replace(/^\?/, '')
+      const nextPath = queryString ? `${pathname}?${queryString}` : pathname
+      router.replace(`/login?next=${encodeURIComponent(nextPath)}`)
+    }
+
     void fetchAuthSession()
       .then((session) => {
         if (cancelled) return
 
         if (!session.authenticated) {
-          const queryString = typeof window === 'undefined' ? '' : window.location.search.replace(/^\?/, '')
-          const nextPath = queryString ? `${pathname}?${queryString}` : pathname
-          router.replace(`/login?next=${encodeURIComponent(nextPath)}`)
+          setGateState({ status: 'anonymous', onboardingCompleted: null })
+          if (!publicPath) redirectToLogin()
           return
         }
 
-        const onboardingCompleted = isProfileOnboardingCompleted(session.profile)
+        const nextOnboardingCompleted = isProfileOnboardingCompleted(session.profile)
 
-        if (!onboardingCompleted && pathname !== '/profile-onboarding') {
+        if (!nextOnboardingCompleted && !publicPath && !profileOnboardingPath) {
+          setGateState({ status: 'redirecting', onboardingCompleted: false })
           router.replace('/profile-onboarding')
           return
         }
 
-        if (onboardingCompleted && pathname === '/profile-onboarding') {
+        if (nextOnboardingCompleted && profileOnboardingPath) {
+          setGateState({ status: 'redirecting', onboardingCompleted: true })
           router.replace('/')
+          return
         }
+
+        setGateState({ status: 'allowed', onboardingCompleted: nextOnboardingCompleted })
       })
       .catch(() => {
-        // Anonymous/local users can keep browsing public screens.
+        if (cancelled) return
+        setGateState({ status: 'anonymous', onboardingCompleted: null })
+        if (!publicPath) redirectToLogin()
       })
 
     return () => {
       cancelled = true
     }
-  }, [pathname, router])
+  }, [pathname, profileOnboardingPath, publicPath, router])
 
   useEffect(() => {
+    if (!contentAllowed || !onboardingCompleted) return
     if (pathname.startsWith('/login') || pathname.startsWith('/signup') || pathname.startsWith('/chat/') || pathname === '/profile-onboarding') return
 
     let cancelled = false
@@ -130,11 +167,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [pathname, router])
+  }, [contentAllowed, onboardingCompleted, pathname, router])
 
   return (
     <main className="app-shell">
-      <div className="app-content">{children}</div>
+      <div className="app-content">{contentAllowed ? children : null}</div>
       {!hideBottomNav && <BottomNav />}
     </main>
   )

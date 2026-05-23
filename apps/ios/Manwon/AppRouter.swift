@@ -11,6 +11,7 @@ enum AppTab: Hashable {
 @MainActor
 final class AppRouter: ObservableObject {
     @Published var selectedTab: AppTab = .home
+    @Published var authenticated = false
     @Published var homePath = "/"
     @Published var registerPath = "/register"
     @Published var activityPath = "/activity"
@@ -63,11 +64,20 @@ final class AppRouter: ObservableObject {
     }
 
     func updateSession(_ session: SessionState) {
-        let requiresOnboarding = session.authenticated && session.profile?.profileOnboardingCompleted != true
+        authenticated = session.authenticated
+        if !session.authenticated {
+            onboardingRequired = false
+            if currentRouteRequiresAuthentication {
+                routeToLogin(next: currentRoutePath)
+            }
+            return
+        }
+
+        let requiresOnboarding = session.profile?.profileOnboardingCompleted != true
         if onboardingRequired != requiresOnboarding {
             onboardingRequired = requiresOnboarding
         }
-        if requiresOnboarding {
+        if requiresOnboarding && currentRouteRequiresAuthentication {
             routeToProfileOnboarding()
         }
     }
@@ -89,6 +99,10 @@ final class AppRouter: ObservableObject {
 
     func openNativeRoute(path: String) {
         let normalized = path.isEmpty ? "/" : path
+        if requiresAuthentication(normalized) && !authenticated {
+            routeToLogin(next: normalized)
+            return
+        }
         if shouldBlockForOnboarding(normalized) {
             routeToProfileOnboarding()
             return
@@ -116,6 +130,10 @@ final class AppRouter: ObservableObject {
 
     func openWebPath(_ path: String) {
         let normalized = path.isEmpty ? "/" : path
+        if requiresAuthentication(normalized) && !authenticated {
+            routeToLogin(next: normalized)
+            return
+        }
         if shouldBlockForOnboarding(normalized) {
             routeToProfileOnboarding()
             return
@@ -151,6 +169,10 @@ final class AppRouter: ObservableObject {
     func webRouteDidChange(_ path: String, for tab: AppTab) {
         let normalized = path.isEmpty ? "/" : path
         let routeCameFromActiveTab = tab == selectedTab
+        if requiresAuthentication(normalized) && !authenticated {
+            routeToLogin(next: normalized)
+            return
+        }
         if onboardingRequired {
             routeToProfileOnboarding()
             return
@@ -233,7 +255,7 @@ final class AppRouter: ObservableObject {
     }
 
     private func shouldBlockForOnboarding(_ path: String) -> Bool {
-        onboardingRequired && path != "/profile-onboarding"
+        onboardingRequired && requiresAuthentication(path) && path != "/profile-onboarding"
     }
 
     private func routeToProfileOnboarding() {
@@ -305,5 +327,35 @@ final class AppRouter: ObservableObject {
 
     private func matchesPath(_ path: String, _ root: String) -> Bool {
         path == root || path.hasPrefix("\(root)/") || path.hasPrefix("\(root)?")
+    }
+
+    private var currentRoutePath: String {
+        switch selectedTab {
+        case .chat:
+            if let chatConversationId, chatDetailActive {
+                return "/chat/\(chatConversationId)"
+            }
+            return "/chat"
+        case .home:
+            return displayedWebPaths[.home] ?? homePath
+        case .register:
+            return displayedWebPaths[.register] ?? registerPath
+        case .nearby:
+            return displayedWebPaths[.nearby] ?? activityPath
+        case .my:
+            return displayedWebPaths[.my] ?? myPath
+        }
+    }
+
+    private var currentRouteRequiresAuthentication: Bool {
+        requiresAuthentication(currentRoutePath)
+    }
+
+    private func requiresAuthentication(_ path: String) -> Bool {
+        matchesPath(path, "/chat")
+            || matchesPath(path, "/register")
+            || matchesPath(path, "/activity")
+            || matchesPath(path, "/my")
+            || matchesPath(path, "/profile-onboarding")
     }
 }

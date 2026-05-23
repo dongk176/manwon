@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { setNativeOverlayState } from '@/components/NativeIOSBridge'
 import { ActionGuideOverlay, AppHeader, CategoryScroller, MapUnavailableOverlay, ReportConfirmSheet, RequestCard, SegmentedControl } from '@/components/ui/Common'
 import { categoryDetailOptions, customCategoryDetailOption, getCategoryLabel, requests, type RequestPost } from '@/data/mockData'
-import { createReport, fetchMyPage, fetchTaskPosts, mapApiPostToRequestPost } from '@/lib/manwonApi'
+import { createReport, fetchAuthSession, fetchMyPage, fetchTaskPosts, mapApiPostToRequestPost } from '@/lib/manwonApi'
 import {
   formatRegionFull,
   formatRegionShort,
@@ -227,7 +227,12 @@ export function HomeScreen() {
     router.push(`/posts/${encodeURIComponent(postId)}?postType=${postType}`)
   }
 
-  function openReportSheet(request: RequestPost) {
+  async function openReportSheet(request: RequestPost) {
+    const session = await fetchAuthSession().catch(() => null)
+    if (!session?.authenticated) {
+      router.push(`/login?next=${encodeURIComponent(getCurrentPath())}`)
+      return
+    }
     setReportTarget(request)
     setReportSheetError('')
   }
@@ -360,7 +365,7 @@ export function HomeScreen() {
               key={request.id}
               request={request}
               onOpen={() => openPost(request.id)}
-              onReport={() => openReportSheet(request)}
+              onReport={() => void openReportSheet(request)}
               reportDisabled={reportingPostId === request.id}
             />
           ))}
@@ -468,4 +473,9 @@ function tradeStatusToPostStatus(status: RequestPost['status']) {
 
 function isUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+}
+
+function getCurrentPath() {
+  if (typeof window === 'undefined') return '/'
+  return `${window.location.pathname}${window.location.search}`
 }
