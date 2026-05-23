@@ -23,7 +23,7 @@ import {
   LocationPermissionSheet,
   NeighborhoodSelectSheet,
 } from '@/components/location/LocationSheets'
-import { formatPrice, getCategoryLabel, getUser, requests, type RequestPost } from '@/data/mockData'
+import { formatPrice, getCategoryLabel, getUser, type RequestPost } from '@/data/mockData'
 import {
   fetchMyPage,
   fetchTaskPost,
@@ -34,9 +34,7 @@ import {
 } from '@/lib/manwonApi'
 import { loadKakao, type KakaoCustomOverlay, type KakaoLatLng, type KakaoMap } from '@/lib/loadKakao'
 import {
-  formatRegionFull,
   formatRegionShort,
-  getApproximateCoordinate,
   getLocationPermissionState,
   getStoredLocationRegion,
   requestBrowserLocation,
@@ -174,7 +172,7 @@ export function NearbyScreens() {
   }, [activeRegion.latitude, activeRegion.longitude, categoryId, quickFilter, radiusM])
 
   const displayPosts = useMemo(() => {
-    const source = apiPosts.length > 0 ? apiPostsToNearbyPosts(apiPosts) : mockNearbyPosts(activeRegion)
+    const source = apiPostsToNearbyPosts(apiPosts)
     return source.filter((post) => {
       if (categoryId !== 'all' && post.request.categoryId !== categoryId) return false
       if (quickFilter === 'under' && post.request.price > 10000) return false
@@ -182,7 +180,7 @@ export function NearbyScreens() {
       if (!withinDistance(post.request.distance, distance)) return false
       return true
     })
-  }, [activeRegion, apiPosts, categoryId, distance, quickFilter])
+  }, [apiPosts, categoryId, distance, quickFilter])
 
   const selectedPost = displayPosts.find((post) => post.request.id === selectedPostId) ?? displayPosts[0] ?? null
 
@@ -409,7 +407,7 @@ export function NearbyDetailScreen({ postId }: { postId: string }) {
   const router = useRouter()
   const [region, setRegion] = useState<LocationRegion>(defaultRegion)
   const [apiPost, setApiPost] = useState<ApiTaskPost | null>(null)
-  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'fallback' | 'error'>('loading')
+  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
 
   useEffect(() => {
     const stored = getStoredLocationRegion()
@@ -428,7 +426,7 @@ export function NearbyDetailScreen({ postId }: { postId: string }) {
       .catch(() => {
         if (cancelled) return
         setApiPost(null)
-        setLoadState(requests.some((request) => request.id === postId) ? 'fallback' : 'error')
+        setLoadState('error')
       })
 
     return () => {
@@ -437,10 +435,8 @@ export function NearbyDetailScreen({ postId }: { postId: string }) {
   }, [postId])
 
   const detailPost = useMemo(() => {
-    if (apiPost) return apiPostToNearbyPost(apiPost, region)
-    const fallback = requests.find((request) => request.id === postId)
-    return fallback ? requestToNearbyPost(fallback, region) : null
-  }, [apiPost, postId, region])
+    return apiPost ? apiPostToNearbyPost(apiPost, region) : null
+  }, [apiPost, region])
 
   const detailRegion = apiPost ? regionFromApiPost(apiPost, region) : region
 
@@ -824,10 +820,6 @@ function apiPostsToNearbyPosts(posts: ApiTaskPost[]): NearbyPost[] {
   return result
 }
 
-function mockNearbyPosts(region: LocationRegion): NearbyPost[] {
-  return requests.slice(0, 4).map((request, index) => requestToNearbyPost(request, region, index))
-}
-
 function apiPostToNearbyPost(post: ApiTaskPost, fallbackRegion: LocationRegion, requireCoordinates = false): NearbyPost | null {
   const request = mapApiPostToRequestPost(post)
   const rawLatitude = post.latitude == null ? null : Number(post.latitude)
@@ -843,24 +835,6 @@ function apiPostToNearbyPost(post: ApiTaskPost, fallbackRegion: LocationRegion, 
     longitude,
     displayLatitude: latitude,
     displayLongitude: longitude,
-  }
-}
-
-function requestToNearbyPost(request: RequestPost, region: LocationRegion, index = 0): NearbyPost {
-  const latitude = region.latitude + (index - 1) * 0.002
-  const longitude = region.longitude + (index % 2 === 0 ? 1 : -1) * 0.0015
-  const display = getApproximateCoordinate(latitude, longitude, request.id)
-  return {
-    request: {
-      ...request,
-      location: formatRegionFull(region),
-      detailLocation: formatRegionShort(region),
-      distance: request.distance ?? `${(index + 1) * 230}m`,
-    },
-    latitude,
-    longitude,
-    displayLatitude: display.latitude,
-    displayLongitude: display.longitude,
   }
 }
 

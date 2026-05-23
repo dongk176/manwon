@@ -428,6 +428,7 @@ export function RequestCard({ request, onPrimary, onOpen, onReport, reportDisabl
       </div>
       <div className="request-side">
         <span className="request-price">{formatPrice(request.price)}</span>
+        {variant === 'home' && <PostCapacityLine request={request} />}
         {showPrimaryAction && (
           <BrandButton
             variant="outline"
@@ -445,9 +446,41 @@ export function RequestCard({ request, onPrimary, onOpen, onReport, reportDisabl
   )
 }
 
+function PostCapacityLine({ request }: { request: RequestPost }) {
+  if (request.postType !== 'offer') return null
+
+  const activeChatCount = Math.max(Number(request.activeChatCount ?? 0), 0)
+  if (request.capacityType === 'limited') {
+    const occupiedCount = Math.max(Number(request.occupiedCount ?? 0), 0)
+    const capacityLimit = Math.max(Number(request.capacityLimit ?? 0), 0)
+    return (
+      <span className="request-capacity-line" aria-label={`모집 ${occupiedCount}/${capacityLimit}명, 채팅 ${activeChatCount}건`}>
+        <span>
+          <UserRound size={15} />
+          {occupiedCount}/{capacityLimit}
+        </span>
+        <span>
+          <MessageCircle size={15} />
+          {activeChatCount}
+        </span>
+      </span>
+    )
+  }
+
+  return (
+    <span className="request-capacity-line" aria-label={`채팅 ${activeChatCount}건`}>
+      <span>
+        <MessageCircle size={15} />
+        {activeChatCount}
+      </span>
+    </span>
+  )
+}
+
 function getPostStatusBadge(status?: PostStatus) {
   if (status === 'pending' || status === 'in_progress') return { label: '진행중', className: 'is-progress' }
   if (status === 'completed') return { label: '거래 완료', className: 'is-completed' }
+  if (status === 'closed') return { label: '마감', className: 'is-closed' }
   return null
 }
 

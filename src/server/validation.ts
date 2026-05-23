@@ -2,7 +2,9 @@ import { z } from 'zod'
 
 export const postTypeSchema = z.enum(['request', 'offer'])
 export const taskModeSchema = z.enum(['nearby', 'online', 'both'])
-export const postStatusSchema = z.enum(['open', 'pending', 'in_progress', 'completed', 'cancelled', 'hidden'])
+export const postStatusSchema = z.enum(['open', 'pending', 'in_progress', 'completed', 'cancelled', 'hidden', 'closed'])
+export const capacityTypeSchema = z.enum(['unlimited', 'limited'])
+export const closedReasonSchema = z.enum(['capacity_full', 'manual'])
 export const genderVisibilitySchema = z.enum(['private', 'male', 'female'])
 export const locationSourceSchema = z.enum(['gps', 'manual'])
 export const dealStatusSchema = z.enum(['pending', 'accepted', 'in_progress', 'complete_requested', 'completed', 'cancelled', 'disputed'])
@@ -34,7 +36,24 @@ export const listPostsSchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(30),
 })
 
-export const createPostSchema = z.object({
+const postCapacityRefinement = (input: { capacityType?: 'unlimited' | 'limited'; capacityLimit?: number | null }, context: z.RefinementCtx) => {
+  if (input.capacityType === 'limited' && (input.capacityLimit === undefined || input.capacityLimit === null)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['capacityLimit'],
+      message: '모집 인원을 입력해주세요.',
+    })
+  }
+  if (input.capacityType === 'unlimited' && input.capacityLimit !== undefined && input.capacityLimit !== null) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['capacityLimit'],
+      message: '상시 모집은 인원 제한을 저장하지 않습니다.',
+    })
+  }
+}
+
+const createPostBaseSchema = z.object({
   profileId: z.string().uuid(),
   postType: postTypeSchema,
   title: z.string().trim().min(1).max(80),
@@ -57,6 +76,9 @@ export const createPostSchema = z.object({
   portfolioLinks: z.array(portfolioLinkInputSchema).max(5).default([]),
   responseTimeText: z.string().trim().max(80).nullable().optional(),
   responseTime: z.string().trim().max(80).nullable().optional(),
+  capacityType: capacityTypeSchema.default('unlimited'),
+  capacityLimit: z.number().int().min(1).max(999).nullable().optional(),
+  closedReason: closedReasonSchema.nullable().optional(),
   addressText: z.string().trim().max(120).nullable().optional(),
   region1Depth: z.string().trim().max(40).nullable().optional(),
   region2Depth: z.string().trim().max(40).nullable().optional(),
@@ -74,9 +96,11 @@ export const createPostSchema = z.object({
   workSampleImages: z.array(imageRecordInputSchema).max(5).default([]),
 })
 
-export const updatePostSchema = createPostSchema.partial().extend({
+export const createPostSchema = createPostBaseSchema.superRefine(postCapacityRefinement)
+
+export const updatePostSchema = createPostBaseSchema.partial().extend({
   status: postStatusSchema.optional(),
-})
+}).superRefine(postCapacityRefinement)
 
 export const imageRecordSchema = z.object({
   imageUrl: z.string().url(),

@@ -4,9 +4,10 @@ export type TradeStatus =
   | '진행중'
   | '완료요청'
   | '거래완료'
+  | '마감됨'
   | '취소됨'
 
-export type PostStatus = 'open' | 'pending' | 'in_progress' | 'completed' | 'cancelled' | 'hidden'
+export type PostStatus = 'open' | 'pending' | 'in_progress' | 'completed' | 'cancelled' | 'hidden' | 'closed'
 
 export type RequestMode = 'nearby' | 'online' | 'both'
 
@@ -74,6 +75,11 @@ export interface RequestPost {
   image: IllustrationType
   imageUrl?: string
   postStatus?: PostStatus
+  capacityType?: 'unlimited' | 'limited'
+  capacityLimit?: number | null
+  occupiedCount?: number
+  activeChatCount?: number
+  remainingCount?: number | null
   status: TradeStatus
   description: string
   requesterId: string

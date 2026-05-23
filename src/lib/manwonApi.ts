@@ -32,6 +32,12 @@ export interface ApiTaskPost {
   trustExampleImages?: Array<{ imageUrl: string; storageKey: string; sortOrder: number }>
   workSampleImages?: Array<{ imageUrl: string; storageKey: string; sortOrder: number }>
   status: PostStatus
+  capacityType?: 'unlimited' | 'limited'
+  capacityLimit?: number | null
+  closedReason?: 'capacity_full' | 'manual' | null
+  occupiedCount?: number | null
+  activeChatCount?: number | null
+  remainingCount?: number | null
   recruitmentRound?: number | null
   latestDealId?: string | null
   latestDealStatus?: 'pending' | 'accepted' | 'in_progress' | 'complete_requested' | 'completed' | 'cancelled' | 'disputed' | null
@@ -87,6 +93,9 @@ export interface CreateTaskPostPayload {
   portfolioLinks?: Array<{ title: string; url: string }>
   responseTimeText?: string | null
   responseTime?: string | null
+  capacityType?: 'unlimited' | 'limited'
+  capacityLimit?: number | null
+  closedReason?: 'capacity_full' | 'manual' | null
   addressText?: string | null
   region1Depth?: string | null
   region2Depth?: string | null
@@ -820,6 +829,11 @@ export function mapApiPostToRequestPost(post: ApiTaskPost): RequestPost {
     image: inferIllustration(post.category),
     imageUrl: getDisplayImageUrl(firstImage),
     postStatus: post.status,
+    capacityType: post.capacityType,
+    capacityLimit: post.capacityLimit ?? null,
+    occupiedCount: Number(post.occupiedCount ?? 0),
+    activeChatCount: Number(post.activeChatCount ?? 0),
+    remainingCount: post.remainingCount ?? null,
     status: mapApiStatus(post.status),
     description: post.description,
     requesterId: post.creatorId,
@@ -900,6 +914,7 @@ function mapApiStatus(status: ApiTaskPost['status']): TradeStatus {
     completed: '거래완료',
     cancelled: '취소됨',
     hidden: '취소됨',
+    closed: '마감됨',
   }
   return map[status]
 }

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
-import { Check, CheckCircle2, ChevronLeft, ChevronRight, Clock, Clock3, Globe2, Heart, MapPin, MoreHorizontal, Navigation, Share2, ShieldCheck, Trash2, UsersRound, X } from 'lucide-react'
+import { Check, CheckCircle2, ChevronLeft, ChevronRight, Clock, Clock3, Globe2, Heart, MapPin, MessageCircle, MoreHorizontal, Navigation, Share2, ShieldCheck, Trash2, UserRound, UsersRound, X } from 'lucide-react'
 import { ActionGuideOverlay, BrandButton, CategoryImageFrame, MoreMenu, RatingStars, ReportConfirmSheet } from '@/components/ui/Common'
 import { UserProfileSheet } from '@/components/UserProfileSheet'
 import { Avatar } from '@/components/ui/Illustration'
@@ -59,6 +59,7 @@ type PriceOption = '5000' | '10000' | '15000' | '20000' | 'custom'
 type DeadlineOption = 'now' | 'today' | 'tomorrow' | 'custom'
 type AvailableTimeOption = 'now' | 'today' | 'weekday' | 'weekend' | 'custom'
 type GenderVisibility = 'private' | 'male' | 'female'
+type CapacityType = 'unlimited' | 'limited'
 type DetailEditSheet = 'category' | 'categoryCustom' | 'categoryDetail' | 'categoryDetailCustom' | 'mode' | 'availableTime' | 'availableTimeCustom' | null
 
 interface DetailEditDraft {
@@ -81,6 +82,8 @@ interface DetailEditDraft {
   customDeadlineText: string
   availableTimeOption: AvailableTimeOption
   customAvailableTime: string
+  capacityType: CapacityType
+  capacityLimit: string
   genderVisibility: GenderVisibility
   serviceIntro: string
   serviceScope: string[]
@@ -120,6 +123,10 @@ const genderVisibilityOptions = [
 ] as const
 
 const responseTimeOptions = ['바로 답장 가능', '1시간 내 답장', '오늘 안에 답장', '일정 확인 후 답장'] as const
+const capacityTypeOptions: Array<{ value: CapacityType; label: string }> = [
+  { value: 'unlimited', label: '상시 모집' },
+  { value: 'limited', label: '인원 제한' },
+]
 const customCategoryMaxLength = 9
 const availableTimeMaxLength = 80
 const requiredFieldMessage = '필수 항목이에요.'
@@ -286,6 +293,9 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
   const isOwner = Boolean(post && currentUserId && post.creatorId === currentUserId)
   const postStatus = getRawPostStatus(post, displayPost)
   const showOwnerReopenActions = Boolean(isOwner && postStatus === 'cancelled' && !editMode)
+  const showOwnerManualCloseAction = Boolean(isOwner && post?.postType === 'offer' && postStatus === 'open' && !editMode)
+  const showOwnerOfferResumeAction = Boolean(isOwner && post?.postType === 'offer' && postStatus === 'closed' && !editMode)
+  const showOwnerSecondaryAction = showOwnerReopenActions || showOwnerManualCloseAction || showOwnerOfferResumeAction
   const primaryActionDisabled = !canUsePost || actionState === 'saving' || (!isOwner && postStatus !== 'open') || (isOwner && postStatus === 'hidden')
   const primaryActionLabel = getPrimaryActionLabel({
     saving: actionState === 'saving',
@@ -298,7 +308,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
     'fixed-bottom-button detail-cta-bar',
     editMode ? 'is-single' : '',
     isOwner && !editMode ? 'has-owner-delete' : '',
-    showOwnerReopenActions ? 'is-owner-actions' : '',
+    showOwnerSecondaryAction ? 'is-owner-actions' : '',
   ].filter(Boolean).join(' ')
   const floatingActionsClassName = [
     'post-detail-floating-actions',
@@ -422,6 +432,36 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
     } catch (error) {
       setActionState('error')
       setMessage(error instanceof Error ? error.message : '다시 모집을 시작하지 못했습니다.')
+    }
+  }
+
+  async function handleCloseOfferPost() {
+    if (!post || post.postType !== 'offer') return
+    setActionState('saving')
+    setMessage('')
+    try {
+      const updated = await updateTaskPost(post.id, { status: 'closed', closedReason: 'manual' })
+      setPost((current) => mergeUpdatedPost(current, updated))
+      setActionState('done')
+      setMessage('모집을 종료했습니다.')
+    } catch (error) {
+      setActionState('error')
+      setMessage(error instanceof Error ? error.message : '모집을 종료하지 못했습니다.')
+    }
+  }
+
+  async function handleResumeOfferPost() {
+    if (!post || post.postType !== 'offer') return
+    setActionState('saving')
+    setMessage('')
+    try {
+      const updated = await updateTaskPost(post.id, { status: 'open', closedReason: null })
+      setPost((current) => mergeUpdatedPost(current, updated))
+      setActionState('done')
+      setMessage(updated.status === 'open' ? '모집을 재개했습니다.' : '정원이 가득 차 있어 모집이 마감 상태입니다.')
+    } catch (error) {
+      setActionState('error')
+      setMessage(error instanceof Error ? error.message : '모집을 재개하지 못했습니다.')
     }
   }
 
@@ -601,6 +641,8 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
         portfolioLinks: isRequest ? [] : portfolioLinks,
         responseTimeText: isRequest ? null : nullableText(editDraft.responseTime),
         responseTime: isRequest ? null : nullableText(editDraft.responseTime),
+        capacityType: isRequest ? 'unlimited' : editDraft.capacityType,
+        capacityLimit: !isRequest && editDraft.capacityType === 'limited' ? getCapacityLimitValue(editDraft.capacityLimit) : null,
         addressText: isOffline ? nullableText(editDraft.addressText) : null,
         region1Depth: isOffline ? nullableText(editDraft.region1Depth) : null,
         region2Depth: isOffline ? nullableText(editDraft.region2Depth) : null,
@@ -772,6 +814,8 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
                 ))}
               </section>
 
+              {post && post.postType === 'offer' && <OfferCapacityPanel post={post} />}
+
               {post && <ExtraPostSections post={post} />}
 
               <section className="detail-section-card">
@@ -821,18 +865,29 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
                 {isOwner ? <Trash2 size={20} /> : <Heart size={20} fill={favorite ? 'currentColor' : 'none'} />}
               </button>
             )}
-            {showOwnerReopenActions && (
-              <BrandButton variant="outline" size="lg" onClick={startEditMode} disabled={actionState === 'saving'}>
-                수정하기
+            {showOwnerSecondaryAction && (
+              <BrandButton
+                variant="outline"
+                size="lg"
+                onClick={
+                  showOwnerReopenActions
+                    ? startEditMode
+                    : showOwnerManualCloseAction
+                      ? () => void handleCloseOfferPost()
+                      : () => void handleResumeOfferPost()
+                }
+                disabled={actionState === 'saving'}
+              >
+                {showOwnerReopenActions ? '수정하기' : showOwnerManualCloseAction ? '모집 종료' : '모집 재개'}
               </BrandButton>
             )}
-            {!editMode && isOwner && !showOwnerReopenActions && (
+            {!editMode && isOwner && !showOwnerSecondaryAction && (
               <BrandButton size="lg" onClick={handlePrimaryAction} disabled={primaryActionDisabled}>
                 {primaryActionLabel}
               </BrandButton>
             )}
-            {(!isOwner || showOwnerReopenActions || editMode) && (
-              <BrandButton full={!showOwnerReopenActions} size="lg" onClick={handlePrimaryAction} disabled={primaryActionDisabled}>
+            {(!isOwner || showOwnerSecondaryAction || editMode) && (
+              <BrandButton full={!showOwnerSecondaryAction} size="lg" onClick={handlePrimaryAction} disabled={primaryActionDisabled}>
                 {primaryActionLabel}
               </BrandButton>
             )}
@@ -1084,6 +1139,7 @@ function getRawPostStatus(post: ApiTaskPost | null, displayPost: RequestPost | u
   if (displayPost?.postStatus) return displayPost.postStatus
   if (displayPost?.status === '거래완료') return 'completed'
   if (displayPost?.status === '취소됨') return 'cancelled'
+  if (displayPost?.status === '마감됨') return 'closed'
   if (displayPost?.status === '진행중' || displayPost?.status === '완료요청' || displayPost?.status === '수락대기') return 'in_progress'
   return 'open'
 }
@@ -1110,6 +1166,7 @@ function getPrimaryActionLabel({
   }
   if (postStatus === 'pending' || postStatus === 'in_progress') return '이미 진행중입니다'
   if (postStatus === 'completed') return '거래 완료됨'
+  if (postStatus === 'closed') return '모집이 마감됐어요'
   if (postStatus === 'cancelled' || postStatus === 'hidden') return '취소된 부탁입니다'
   return postType === 'offer' ? '문의하기' : '제가 할게요'
 }
@@ -1231,6 +1288,33 @@ function Info({ icon, label, value }: { icon: React.ReactNode; label: string; va
       <small>{label}</small>
       <strong className={isFastDeadlineText(value) ? 'hot-deadline-text' : undefined}>{value}</strong>
     </span>
+  )
+}
+
+function OfferCapacityPanel({ post }: { post: ApiTaskPost }) {
+  const activeChatCount = Math.max(Number(post.activeChatCount ?? 0), 0)
+  const occupiedCount = Math.max(Number(post.occupiedCount ?? 0), 0)
+  const capacityLimit = Math.max(Number(post.capacityLimit ?? 0), 0)
+  const isLimited = post.capacityType === 'limited'
+
+  return (
+    <section className="offer-capacity-panel" aria-label="모집 현황">
+      {isLimited ? (
+        <span>
+          <UserRound size={18} />
+          <strong>{occupiedCount}/{capacityLimit}명</strong>
+        </span>
+      ) : (
+        <span>
+          <UsersRound size={18} />
+          <strong>상시 모집</strong>
+        </span>
+      )}
+      <span>
+        <MessageCircle size={18} />
+        <strong>채팅 {activeChatCount}</strong>
+      </span>
+    </section>
   )
 }
 
@@ -1433,6 +1517,25 @@ function PostDetailEditForm({
               error={errors.availableTimeOption}
               onClick={() => onSheetChange('availableTime')}
             />
+            <DetailOptionGrid
+              value={draft.capacityType}
+              onChange={(capacityType) => update({
+                capacityType,
+                capacityLimit: capacityType === 'limited' && !draft.capacityLimit.trim() ? '5' : draft.capacityLimit,
+              })}
+              options={capacityTypeOptions}
+              columns={2}
+            />
+            {draft.capacityType === 'limited' && (
+              <DetailTextInput
+                value={draft.capacityLimit}
+                onChange={(capacityLimit) => update({ capacityLimit: capacityLimit.replace(/[^0-9]/g, '') })}
+                placeholder="목표 인원"
+                inputMode="numeric"
+                suffix="명"
+                error={errors.capacityLimit}
+              />
+            )}
           </>
         )}
       </section>
@@ -1840,6 +1943,8 @@ function createEditDraft(post: ApiTaskPost, displayPost: RequestPost): DetailEdi
     customDeadlineText: deadlineOption === 'custom' ? post.deadlineText ?? displayPost.deadline : '',
     availableTimeOption,
     customAvailableTime: availableTimeOption === 'custom' ? post.availableTimeText ?? displayPost.deadline : '',
+    capacityType: post.capacityType ?? 'unlimited',
+    capacityLimit: post.capacityLimit != null ? String(post.capacityLimit) : '5',
     genderVisibility: post.genderVisibility,
     serviceIntro: post.serviceIntro ?? '',
     serviceScope: Array.isArray(post.serviceScope) ? post.serviceScope : [],
@@ -1885,6 +1990,12 @@ function validateEditDraft(draft: DetailEditDraft, postType: 'request' | 'offer'
     } else if (draft.availableTimeOption === 'custom' && draft.customAvailableTime.trim().length > availableTimeMaxLength) {
       errors.availableTimeOption = '가능 시간은 80자 이내로 입력해주세요.'
       errors.customAvailableTime = '가능 시간은 80자 이내로 입력해주세요.'
+    }
+    if (draft.capacityType === 'limited') {
+      const capacityLimit = getCapacityLimitValue(draft.capacityLimit)
+      if (!capacityLimit) errors.capacityLimit = '목표 인원을 입력해주세요.'
+      else if (capacityLimit < 1) errors.capacityLimit = '1명 이상 입력해주세요.'
+      else if (capacityLimit > 999) errors.capacityLimit = '999명 이하로 입력해주세요.'
     }
     if (draft.portfolioUrl.trim() && !isValidUrl(draft.portfolioUrl.trim())) {
       errors.portfolioUrl = '올바른 링크를 입력해주세요.'
@@ -1984,6 +2095,10 @@ function getPriceValue(option: PriceOption, customPrice: string) {
 function formatNumberInput(value: number) {
   if (!Number.isFinite(value) || value <= 0) return ''
   return String(Math.floor(value)).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+}
+
+function getCapacityLimitValue(value: string) {
+  return Number(value.replace(/[^0-9]/g, ''))
 }
 
 function getDeadlineIso(option: DeadlineOption) {

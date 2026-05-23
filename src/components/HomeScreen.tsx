@@ -5,7 +5,7 @@ import { ChevronDown } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { setNativeOverlayState } from '@/components/NativeIOSBridge'
 import { ActionGuideOverlay, AppHeader, CategoryScroller, MapUnavailableOverlay, ReportConfirmSheet, RequestCard, SegmentedControl } from '@/components/ui/Common'
-import { categoryDetailOptions, customCategoryDetailOption, getCategoryLabel, requests, type RequestPost } from '@/data/mockData'
+import { categoryDetailOptions, customCategoryDetailOption, getCategoryLabel, type RequestPost } from '@/data/mockData'
 import { createReport, fetchAuthSession, fetchMyPage, fetchTaskPosts, mapApiPostToRequestPost, type ApiTaskPost } from '@/lib/manwonApi'
 import {
   formatRegionFull,
@@ -212,8 +212,7 @@ export function HomeScreen() {
   }
 
   const filteredRequests = useMemo(() => {
-    const source = dbPosts.length > 0 ? dbPosts : requests
-    const base = dbPosts.length > 0 || categoryId === 'all' ? source : source.filter((request) => request.categoryId === categoryId)
+    const base = categoryId === 'all' ? dbPosts : dbPosts.filter((request) => request.categoryId === categoryId)
     const detailFiltered = detailCategory
       ? base.filter((request) => request.categoryDetail === detailCategory || requestMatchesDetail(request, detailCategory))
       : base
@@ -477,12 +476,14 @@ function getHomeStatusRank(post: RequestPost) {
   const status = post.postStatus ?? tradeStatusToPostStatus(post.status)
   if (status === 'open') return 0
   if (status === 'pending' || status === 'in_progress') return 1
-  if (status === 'completed') return 2
+  if (status === 'closed') return 2
+  if (status === 'completed') return 3
   return 3
 }
 
 function tradeStatusToPostStatus(status: RequestPost['status']) {
   if (status === '거래완료') return 'completed'
+  if (status === '마감됨') return 'closed'
   if (status === '진행중' || status === '완료요청' || status === '수락대기') return 'in_progress'
   if (status === '취소됨') return 'cancelled'
   return 'open'

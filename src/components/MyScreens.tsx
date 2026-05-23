@@ -2403,6 +2403,7 @@ function mapReportStatus(status: string) {
 
 function mapPostStatus(status: string) {
   if (status === 'completed') return '완료'
+  if (status === 'closed') return '마감'
   if (status === 'cancelled' || status === 'hidden') return '취소'
   if (status === 'pending') return '수락대기'
   if (status === 'in_progress') return '진행중'
