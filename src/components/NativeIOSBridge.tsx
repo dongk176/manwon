@@ -28,7 +28,7 @@ declare global {
 
 export type IOSPushPromptContext = 'post_created' | 'conversation_started' | 'chat_entered' | 'unread_messages' | 'deal_action'
 
-function isManwonIOS() {
+export function isManwonIOS() {
   return typeof navigator !== 'undefined' && navigator.userAgent.includes('ManwonIOS')
 }
 
@@ -36,7 +36,6 @@ export function isNativeAppShell() {
   if (typeof window === 'undefined') return false
   const userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent
   return userAgent.includes('ManwonIOS')
-    || userAgent.includes('ManwonIOS')
     || Boolean(window.webkit?.messageHandlers?.manwonNative)
     || Boolean(window.ManwonNative?.postMessage)
 }

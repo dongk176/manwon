@@ -6085,6 +6085,77 @@ html.native-ios-shell [role="button"] {
   margin-top: 76px;
 }
 
+.auth-choice-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 76px;
+}
+
+.auth-social-button,
+.auth-credential-choice-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 48px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 850;
+}
+
+.auth-social-button:disabled {
+  opacity: 0.62;
+  cursor: wait;
+}
+
+.auth-social-button.is-kakao {
+  background: #fee500;
+  color: #191600;
+}
+
+.auth-social-button.is-apple {
+  background: #111114;
+  color: #fff;
+}
+
+.auth-ios-only-button {
+  display: none;
+}
+
+html.native-ios-shell .auth-ios-only-button {
+  display: inline-flex;
+}
+
+.auth-button-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.auth-credential-choice-button {
+  border: 1px solid #dedee2;
+  background: #fff;
+  color: #1d1d1f;
+}
+
+.auth-method-back-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  justify-self: flex-start;
+  min-height: 28px;
+  color: #6f6f76;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .auth-field {
   position: relative;
   display: block;

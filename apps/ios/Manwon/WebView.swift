@@ -272,6 +272,12 @@ struct NativeWebView: UIViewRepresentable {
                 return
             }
 
+            if let host = webView?.url?.host,
+               isKakaoAuthHost(host),
+               type == "webRoute" || type == "homeScrollTop" || type == "overlayState" || type == "route" {
+                return
+            }
+
             if type == "permissionPrompt" {
                 let permission = payload["permission"] as? String ?? "push"
                 let context = payload["context"] as? String
@@ -574,10 +580,12 @@ struct NativeWebView: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             if let url = webView.url {
-                let path = AppConfig.pathWithQuery(from: url)
-                currentPath = path
-                requestedPath = path
-                onRouteChange(path)
+                if isFirstPartyHost(url.host) {
+                    let path = AppConfig.pathWithQuery(from: url)
+                    currentPath = path
+                    requestedPath = path
+                    onRouteChange(path)
+                }
             }
             webView.scrollView.setZoomScale(1, animated: false)
             onFinishLoading()
@@ -619,7 +627,12 @@ struct NativeWebView: UIViewRepresentable {
                 return
             }
 
-            guard isAllowedHost(targetURL.host) else {
+            if isKakaoAuthHost(targetURL.host) {
+                decisionHandler(.allow)
+                return
+            }
+
+            guard isFirstPartyHost(targetURL.host) else {
                 UIApplication.shared.open(targetURL)
                 decisionHandler(.cancel)
                 return
@@ -650,10 +663,15 @@ struct NativeWebView: UIViewRepresentable {
             return scheme != "http" && scheme != "https"
         }
 
-        private func isAllowedHost(_ host: String?) -> Bool {
+        private func isFirstPartyHost(_ host: String?) -> Bool {
             guard let host else { return false }
             let baseHost = AppConfig.webBaseURL.host ?? ""
             return host == baseHost || host == "localhost" || host == "127.0.0.1"
+        }
+
+        private func isKakaoAuthHost(_ host: String?) -> Bool {
+            guard let host = host?.lowercased() else { return false }
+            return host == "kauth.kakao.com" || host == "accounts.kakao.com" || host == "kapi.kakao.com"
         }
 
         private func isNativeRoute(_ path: String) -> Bool {
@@ -661,8 +679,13 @@ struct NativeWebView: UIViewRepresentable {
         }
     }
 
-    private static let nativeShellScript = """
+    private static var nativeShellScript: String {
+        let baseHost = AppConfig.webBaseURL.host ?? ""
+        return """
     (function() {
+      var nativeShellHost = "\(baseHost)";
+      var currentHost = window.location.hostname;
+      if (currentHost !== nativeShellHost && currentHost !== 'localhost' && currentHost !== '127.0.0.1') return;
       var lockedViewportContent = 'width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no';
       var viewport = document.querySelector('meta[name="viewport"]');
       if (!viewport) {
@@ -825,4 +848,5 @@ struct NativeWebView: UIViewRepresentable {
       scheduleOverlayState();
     })();
     """
+    }
 }

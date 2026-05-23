@@ -21,6 +21,7 @@ import {
 type SignupStep = 'credentials' | 'profile'
 type SignupGender = 'male' | 'female' | ''
 type RecoverySheetMode = 'findId' | 'resetPassword'
+type LoginMethodMode = 'choices' | 'credentials'
 
 const agreementItems = [
   {
@@ -95,12 +96,15 @@ function formatPhoneNumber(value: string) {
 export function LoginScreen() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const hasKakaoOAuthError = searchParams.get('oauth_error') === 'kakao'
+  const [methodMode, setMethodMode] = useState<LoginMethodMode>('choices')
   const [loginId, setLoginId] = useState('')
   const [loginIdInputHint, setLoginIdInputHint] = useState('')
   const [password, setPassword] = useState('')
   const [recoverySheet, setRecoverySheet] = useState<RecoverySheetMode | null>(null)
-  const [status, setStatus] = useState<'idle' | 'checking' | 'error'>('idle')
-  const [message, setMessage] = useState('')
+  const [status, setStatus] = useState<'idle' | 'checking' | 'error'>(hasKakaoOAuthError ? 'error' : 'idle')
+  const [oauthStatus, setOauthStatus] = useState<'idle' | 'kakao'>('idle')
+  const [message, setMessage] = useState(hasKakaoOAuthError ? '카카오 로그인에 실패했어요. 잠시 후 다시 시도해주세요.' : '')
 
   const loginIdHint = loginIdInputHint || (loginId.length > 0 && loginId.length < LOGIN_ID_MIN_LENGTH ? `${LOGIN_ID_MIN_LENGTH}자 이상` : '')
   const passwordHint = password.length > 0 && password.length < PASSWORD_MIN_LENGTH ? `${PASSWORD_MIN_LENGTH}자 이상` : ''
@@ -117,6 +121,34 @@ export function LoginScreen() {
       return
     }
     router.replace('/')
+  }
+
+  function loginWithKakao() {
+    if (oauthStatus !== 'idle') return
+    setOauthStatus('kakao')
+    setMessage('')
+
+    const next = searchParams.get('next')
+    const url = new URL('/api/auth/kakao/start', window.location.origin)
+    if (next) url.searchParams.set('next', next)
+    window.location.assign(url.toString())
+  }
+
+  function showCredentialLogin() {
+    setMethodMode('credentials')
+    setStatus('idle')
+    setMessage('')
+  }
+
+  function showMethodChoices() {
+    setMethodMode('choices')
+    setStatus('idle')
+    setMessage('')
+  }
+
+  function handleAppleLoginPlaceholder() {
+    setStatus('error')
+    setMessage('Apple 로그인은 앱에서 사용할 수 있도록 준비 중이에요.')
   }
 
   async function loginWithCredentials() {
@@ -160,48 +192,70 @@ export function LoginScreen() {
           뭐든해줌
         </div>
 
-        <div className="auth-form-panel">
-          <label className={`auth-field ${loginIdHint ? 'has-hint' : ''}`}>
-            <span className="sr-only">아이디</span>
-            <input
-              value={loginId}
-              autoComplete="username"
-              placeholder="아이디"
-              disabled={status === 'checking'}
-              aria-invalid={Boolean(loginIdHint)}
-              onChange={(event) => updateLoginId(event.target.value)}
-            />
-            {loginIdHint && <span className="auth-field-hint">{loginIdHint}</span>}
-          </label>
-
-          <label className={`auth-field ${passwordHint ? 'has-hint' : ''}`}>
-            <span className="sr-only">비밀번호</span>
-            <input
-              value={password}
-              autoComplete="current-password"
-              type="password"
-              placeholder="비밀번호"
-              disabled={status === 'checking'}
-              aria-invalid={Boolean(passwordHint)}
-              onChange={(event) => setPassword(event.target.value.slice(0, PASSWORD_MAX_LENGTH))}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') void loginWithCredentials()
-              }}
-            />
-            {passwordHint && <span className="auth-field-hint">{passwordHint}</span>}
-          </label>
-
-          <div className="auth-button-stack">
-            <button className="auth-main-button" type="button" disabled={!canSubmitCredentials || status === 'checking'} onClick={() => void loginWithCredentials()}>
-              {status === 'checking' ? '확인 중' : '로그인하기'}
+        {methodMode === 'choices' ? (
+          <div className="auth-choice-panel">
+            <button className="auth-social-button is-kakao" type="button" disabled={oauthStatus !== 'idle'} onClick={loginWithKakao}>
+              <span className="auth-button-mark" aria-hidden="true">K</span>
+              {oauthStatus === 'kakao' ? '카카오로 이동 중' : '카카오로 로그인'}
             </button>
-            <button className="auth-sub-button" type="button" disabled={status === 'checking'} onClick={goSignup}>
-              가입하기
+            <button className="auth-social-button is-apple auth-ios-only-button" type="button" onClick={handleAppleLoginPlaceholder}>
+              <span className="auth-button-mark" aria-hidden="true"></span>
+              Apple로 로그인
             </button>
+            <button className="auth-credential-choice-button" type="button" onClick={showCredentialLogin}>
+              아이디 비밀번호로 로그인
+            </button>
+            {message && <p className={`inline-status ${status === 'error' ? 'is-error' : ''}`}>{message}</p>}
           </div>
+        ) : (
+          <div className="auth-form-panel">
+            <button className="auth-method-back-button" type="button" onClick={showMethodChoices}>
+              <ArrowLeft size={18} />
+              로그인 방법
+            </button>
 
-          {message && <p className={`inline-status ${status === 'error' ? 'is-error' : ''}`}>{message}</p>}
-        </div>
+            <label className={`auth-field ${loginIdHint ? 'has-hint' : ''}`}>
+              <span className="sr-only">아이디</span>
+              <input
+                value={loginId}
+                autoComplete="username"
+                placeholder="아이디"
+                disabled={status === 'checking'}
+                aria-invalid={Boolean(loginIdHint)}
+                onChange={(event) => updateLoginId(event.target.value)}
+              />
+              {loginIdHint && <span className="auth-field-hint">{loginIdHint}</span>}
+            </label>
+
+            <label className={`auth-field ${passwordHint ? 'has-hint' : ''}`}>
+              <span className="sr-only">비밀번호</span>
+              <input
+                value={password}
+                autoComplete="current-password"
+                type="password"
+                placeholder="비밀번호"
+                disabled={status === 'checking'}
+                aria-invalid={Boolean(passwordHint)}
+                onChange={(event) => setPassword(event.target.value.slice(0, PASSWORD_MAX_LENGTH))}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') void loginWithCredentials()
+                }}
+              />
+              {passwordHint && <span className="auth-field-hint">{passwordHint}</span>}
+            </label>
+
+            <div className="auth-button-stack">
+              <button className="auth-main-button" type="button" disabled={!canSubmitCredentials || status === 'checking'} onClick={() => void loginWithCredentials()}>
+                {status === 'checking' ? '확인 중' : '로그인하기'}
+              </button>
+              <button className="auth-sub-button" type="button" disabled={status === 'checking'} onClick={goSignup}>
+                가입하기
+              </button>
+            </div>
+
+            {message && <p className={`inline-status ${status === 'error' ? 'is-error' : ''}`}>{message}</p>}
+          </div>
+        )}
 
         <div className="auth-help-links" aria-label="계정 찾기">
           <button type="button" onClick={() => setRecoverySheet('findId')}>
@@ -223,6 +277,7 @@ export function LoginScreen() {
             setPassword('')
             setStatus('idle')
             setMessage('아이디를 찾았어요. 비밀번호를 입력한 뒤 로그인해주세요.')
+            setMethodMode('credentials')
             setRecoverySheet(null)
           }}
           onPasswordReset={(recoveredLoginId) => {
@@ -230,6 +285,7 @@ export function LoginScreen() {
             setPassword('')
             setStatus('idle')
             setMessage('새 비밀번호가 저장되었습니다. 다시 로그인해주세요.')
+            setMethodMode('credentials')
             setRecoverySheet(null)
           }}
         />
