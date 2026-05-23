@@ -185,6 +185,11 @@ export function LoginScreen() {
   }
 
   function closeLogin() {
+    if (isManwonIOS()) {
+      router.replace('/')
+      return
+    }
+
     if (window.history.length > 1) {
       router.back()
       return
