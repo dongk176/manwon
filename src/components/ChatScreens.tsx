@@ -32,7 +32,9 @@ import {
   createReport,
   createReview,
   getCurrentUserId,
+  getDisplayImageUrl,
   isPhoneVerificationRequired,
+  normalizeDisplayImageUrl,
   scheduleReviewReminder,
   sendConversationMessage,
   updateApplicationStatus,
@@ -1217,7 +1219,7 @@ function mapConversationToChat(conversation: ApiConversation, currentUserId: str
     id: otherId,
     name: otherName,
     intro: conversation.otherBio?.trim() || '',
-    avatarUrl: conversation.otherAvatarUrl ?? null,
+    avatarUrl: normalizeDisplayImageUrl(conversation.otherAvatarUrl) ?? null,
     defaultAvatarKey: conversation.otherDefaultAvatarKey ?? null,
     rating: Number(conversation.otherRatingAvg ?? 0),
     reviewCount: conversation.otherReviewCount ?? undefined,
@@ -1456,7 +1458,10 @@ function normalizeProfileImages(value: unknown): Array<{ imageUrl: string; stora
 
   return value.flatMap((item) => {
     if (!isRecord(item)) return []
-    const imageUrl = typeof item.imageUrl === 'string' ? item.imageUrl.trim() : ''
+    const imageUrl = getDisplayImageUrl({
+      imageUrl: typeof item.imageUrl === 'string' ? item.imageUrl : undefined,
+      storageKey: typeof item.storageKey === 'string' ? item.storageKey : undefined,
+    })?.trim() ?? ''
     if (!imageUrl || (!isHttpUrl(imageUrl) && !imageUrl.startsWith('/'))) return []
     const storageKey = typeof item.storageKey === 'string' ? item.storageKey : undefined
     const sortOrder = typeof item.sortOrder === 'number' ? item.sortOrder : undefined

@@ -430,6 +430,10 @@ final class APIClient {
         try await requestNoData("/api/reviews", method: "POST", body: ReviewPayload(dealId: dealId, rating: rating, content: content))
     }
 
+    func fetchUserReviews(userId: String) async throws -> [UserReview] {
+        try await request("/api/users/\(userId)/reviews")
+    }
+
     func scheduleReviewReminder(dealId: String) async throws {
         try await requestNoData("/api/review-reminders", method: "POST", body: ReviewReminderPayload(dealId: dealId))
     }
@@ -518,6 +522,48 @@ final class APIClient {
             return value
         }
         return AppConfig.webURL(path: value).absoluteString
+    }
+
+    func displayImageURLString(_ value: String?, storageKey: String? = nil) -> String? {
+        if let storageKey = normalizedImageStorageKey(storageKey) {
+            return storageImageProxyURLString(storageKey)
+        }
+        if let storageKey = inferredImageStorageKey(from: value) {
+            return storageImageProxyURLString(storageKey)
+        }
+        return absoluteURLString(value)
+    }
+
+    private func storageImageProxyURLString(_ storageKey: String) -> String {
+        var components = URLComponents()
+        components.path = "/api/uploads/image"
+        components.queryItems = [URLQueryItem(name: "key", value: storageKey)]
+        return AppConfig.webURL(path: components.string ?? "/api/uploads/image").absoluteString
+    }
+
+    private func inferredImageStorageKey(from value: String?) -> String? {
+        guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        if let directKey = normalizedImageStorageKey(value) {
+            return directKey
+        }
+        guard let url = URL(string: value), url.scheme != nil else {
+            return nil
+        }
+        return normalizedImageStorageKey(url.path)
+    }
+
+    private func normalizedImageStorageKey(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let keySource = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard let range = keySource.range(of: "manwon/") else { return nil }
+        let key = String(keySource[range.lowerBound...])
+        guard key.hasPrefix("manwon/"), !key.contains("..") else { return nil }
+        guard key.range(of: #"\.(jpe?g|png|webp)$"#, options: [.regularExpression, .caseInsensitive]) != nil else {
+            return nil
+        }
+        return key
     }
 
     func request<T: Decodable, Body: Encodable>(_ path: String, method: String = "GET", body: Body? = nil) async throws -> T {

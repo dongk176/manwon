@@ -300,7 +300,7 @@ export async function listTaskPosts(input: ListPostsInput, viewerId?: string | n
       creator.review_count as creator_review_count,
       creator.completed_count as creator_completed_count,
       capacity_stats.occupied_count as occupied_count,
-      capacity_stats.active_chat_count as active_chat_count,
+      chat_stats.active_chat_count as active_chat_count,
       case
         when p.capacity_type = 'limited' and p.capacity_limit is not null then greatest(p.capacity_limit - capacity_stats.occupied_count, 0)
         else null
@@ -336,14 +336,16 @@ export async function listTaskPosts(input: ListPostsInput, viewerId?: string | n
     left join lateral (
       select
         count(d.id) filter (
-          where d.status in ('accepted', 'in_progress', 'complete_requested', 'completed')
-        )::integer as occupied_count,
-        count(d.id) filter (
-          where d.status in ('accepted', 'in_progress', 'complete_requested')
-        )::integer as active_chat_count
+          where d.status = 'completed'
+        )::integer as occupied_count
       from manwon_happiness.deals d
       where d.post_id = p.id
     ) capacity_stats on true
+    left join lateral (
+      select count(distinct a.applicant_id)::integer as active_chat_count
+      from manwon_happiness.applications a
+      where a.post_id = p.id
+    ) chat_stats on true
     where (
         (${publicStatusScope}::boolean = false and p.status = 'open')
         or (
@@ -383,7 +385,7 @@ export async function listTaskPosts(input: ListPostsInput, viewerId?: string | n
              or (b.blocker_id = p.creator_id and b.blocked_user_id = ${currentUserId}::uuid)
         )
       )
-    group by p.id, creator.nickname, creator.avatar_url, creator.gender, creator.phone_verified, creator.identity_verified, creator.rating_avg, creator.review_count, creator.completed_count, creator_profile.id, creator_profile.nickname, creator_profile.avatar_url, creator_profile.bio, capacity_stats.occupied_count, capacity_stats.active_chat_count
+    group by p.id, creator.nickname, creator.avatar_url, creator.gender, creator.phone_verified, creator.identity_verified, creator.rating_avg, creator.review_count, creator.completed_count, creator_profile.id, creator_profile.nickname, creator_profile.avatar_url, creator_profile.bio, capacity_stats.occupied_count, chat_stats.active_chat_count
     order by
       case
         when ${publicStatusScope}::boolean = true and p.status = 'open' then 0
@@ -420,7 +422,7 @@ export async function getTaskPost(postId: string, viewerId?: string | null) {
       creator.review_count as creator_review_count,
       creator.completed_count as creator_completed_count,
       capacity_stats.occupied_count as occupied_count,
-      capacity_stats.active_chat_count as active_chat_count,
+      chat_stats.active_chat_count as active_chat_count,
       case
         when p.capacity_type = 'limited' and p.capacity_limit is not null then greatest(p.capacity_limit - capacity_stats.occupied_count, 0)
         else null
@@ -445,6 +447,11 @@ export async function getTaskPost(postId: string, viewerId?: string | null) {
       latest_deal.id as latest_deal_id,
       latest_deal.status as latest_deal_status,
       latest_deal.cancelled_by as latest_deal_cancelled_by,
+      viewer_application.id as viewer_application_id,
+      viewer_application.status as viewer_application_status,
+      viewer_application.conversation_id as viewer_conversation_id,
+      viewer_application.deal_id as viewer_deal_id,
+      viewer_application.deal_status as viewer_deal_status,
       coalesce(
         json_agg(
           json_build_object(
@@ -464,14 +471,16 @@ export async function getTaskPost(postId: string, viewerId?: string | null) {
     left join lateral (
       select
         count(d.id) filter (
-          where d.status in ('accepted', 'in_progress', 'complete_requested', 'completed')
-        )::integer as occupied_count,
-        count(d.id) filter (
-          where d.status in ('accepted', 'in_progress', 'complete_requested')
-        )::integer as active_chat_count
+          where d.status = 'completed'
+        )::integer as occupied_count
       from manwon_happiness.deals d
       where d.post_id = p.id
     ) capacity_stats on true
+    left join lateral (
+      select count(distinct a.applicant_id)::integer as active_chat_count
+      from manwon_happiness.applications a
+      where a.post_id = p.id
+    ) chat_stats on true
     left join lateral (
       select d.id, d.status, ${cancelledByColumn} as cancelled_by, d.cancelled_at, d.completed_at, d.updated_at, d.created_at
       from manwon_happiness.deals d
@@ -479,8 +488,30 @@ export async function getTaskPost(postId: string, viewerId?: string | null) {
       order by coalesce(d.cancelled_at, d.completed_at, d.updated_at, d.created_at) desc
       limit 1
     ) latest_deal on true
+    left join lateral (
+      select
+        a.id,
+        a.status,
+        c.id as conversation_id,
+        d.id as deal_id,
+        d.status as deal_status
+      from manwon_happiness.applications a
+      left join manwon_happiness.conversations c on c.post_id = a.post_id
+        and c.recruitment_round = a.recruitment_round
+        and (
+          (p.post_type = 'request' and c.requester_id = p.creator_id and c.helper_id = a.applicant_id)
+          or (p.post_type = 'offer' and c.requester_id = a.applicant_id and c.helper_id = p.creator_id)
+        )
+      left join manwon_happiness.deals d on d.application_id = a.id
+      where ${currentUserId}::uuid is not null
+        and a.post_id = p.id
+        and a.applicant_id = ${currentUserId}::uuid
+        and a.recruitment_round = p.recruitment_round
+      order by a.updated_at desc
+      limit 1
+    ) viewer_application on true
     where p.id = ${postId}
-    group by p.id, creator.nickname, creator.avatar_url, creator.gender, creator.phone_verified, creator.identity_verified, creator.rating_avg, creator.review_count, creator.completed_count, creator.trust_career_summary, creator.trust_portfolio_links, creator.trust_work_sample_images, creator.trust_response_time, creator.trust_response_time_text, creator_profile.id, creator_profile.nickname, creator_profile.avatar_url, creator_profile.default_avatar_key, creator_profile.bio, creator_profile.career_summary, creator_profile.career_description, creator_profile.portfolio_links, creator_profile.work_sample_images, creator_profile.available_time_text, capacity_stats.occupied_count, capacity_stats.active_chat_count, latest_deal.id, latest_deal.status, latest_deal.cancelled_by
+    group by p.id, creator.nickname, creator.avatar_url, creator.gender, creator.phone_verified, creator.identity_verified, creator.rating_avg, creator.review_count, creator.completed_count, creator.trust_career_summary, creator.trust_portfolio_links, creator.trust_work_sample_images, creator.trust_response_time, creator.trust_response_time_text, creator_profile.id, creator_profile.nickname, creator_profile.avatar_url, creator_profile.default_avatar_key, creator_profile.bio, creator_profile.career_summary, creator_profile.career_description, creator_profile.portfolio_links, creator_profile.work_sample_images, creator_profile.available_time_text, capacity_stats.occupied_count, chat_stats.active_chat_count, latest_deal.id, latest_deal.status, latest_deal.cancelled_by, viewer_application.id, viewer_application.status, viewer_application.conversation_id, viewer_application.deal_id, viewer_application.deal_status
     limit 1
   `
 
@@ -670,10 +701,7 @@ function jsonArray(value: unknown) {
   return Array.isArray(value) ? value : []
 }
 
-function normalizeCapacity(input: Pick<CreatePostInput | UpdatePostInput, 'postType' | 'capacityType' | 'capacityLimit'>) {
-  if (input.postType !== 'offer') {
-    return { capacityType: 'unlimited', capacityLimit: null }
-  }
+function normalizeCapacity(input: Pick<CreatePostInput | UpdatePostInput, 'capacityType' | 'capacityLimit'>) {
   const capacityType = input.capacityType ?? 'unlimited'
   return {
     capacityType,
@@ -681,7 +709,7 @@ function normalizeCapacity(input: Pick<CreatePostInput | UpdatePostInput, 'postT
   }
 }
 
-async function getOfferCapacitySnapshot(sql: SqlExecutor, postId: string) {
+async function getPostCapacitySnapshot(sql: SqlExecutor, postId: string) {
   const rows = await sql`
     select
       p.post_type,
@@ -690,11 +718,13 @@ async function getOfferCapacitySnapshot(sql: SqlExecutor, postId: string) {
       p.capacity_limit,
       p.closed_reason,
       count(d.id) filter (
-        where d.status in ('accepted', 'in_progress', 'complete_requested', 'completed')
+        where d.status = 'completed'
       )::integer as occupied_count,
-      count(d.id) filter (
-        where d.status in ('accepted', 'in_progress', 'complete_requested')
-      )::integer as active_chat_count
+      (
+        select count(distinct a.applicant_id)::integer
+        from manwon_happiness.applications a
+        where a.post_id = p.id
+      ) as active_chat_count
     from manwon_happiness.task_posts p
     left join manwon_happiness.deals d on d.post_id = p.id
     where p.id = ${postId}
@@ -704,9 +734,9 @@ async function getOfferCapacitySnapshot(sql: SqlExecutor, postId: string) {
   return rows[0] ?? null
 }
 
-async function refreshOfferPostCapacity(sql: SqlExecutor, postId: string) {
-  const snapshot = await getOfferCapacitySnapshot(sql, postId)
-  if (!snapshot || snapshot.postType !== 'offer' || snapshot.status === 'hidden') return snapshot
+async function refreshPostCapacity(sql: SqlExecutor, postId: string) {
+  const snapshot = await getPostCapacitySnapshot(sql, postId)
+  if (!snapshot || snapshot.status === 'hidden') return snapshot
 
   const capacityType = String(snapshot.capacityType ?? 'unlimited')
   const capacityLimit = snapshot.capacityLimit == null ? null : Number(snapshot.capacityLimit)
@@ -837,21 +867,18 @@ export async function updateTaskPost(userId: string, postId: string, input: Upda
 
   const nextPostType = input.postType !== undefined ? input.postType : existing.postType
   const capacity = normalizeCapacity({
-    postType: nextPostType,
     capacityType: input.capacityType !== undefined ? input.capacityType : existing.capacityType,
     capacityLimit: input.capacityLimit !== undefined ? input.capacityLimit : existing.capacityLimit,
   })
-  const capacitySnapshot = nextPostType === 'offer' ? await getOfferCapacitySnapshot(sql, postId) : null
+  const capacitySnapshot = await getPostCapacitySnapshot(sql, postId)
   const occupiedCount = Number(capacitySnapshot?.occupiedCount ?? 0)
-  if (nextPostType === 'offer' && capacity.capacityType === 'limited' && capacity.capacityLimit !== null && capacity.capacityLimit < occupiedCount) {
-    throw new HttpError('현재 진행 중이거나 완료된 인원보다 적게 설정할 수 없습니다.', 400)
+  if (capacity.capacityType === 'limited' && capacity.capacityLimit !== null && capacity.capacityLimit < occupiedCount) {
+    throw new HttpError('이미 완료된 거래 인원보다 적게 설정할 수 없습니다.', 400)
   }
 
   let nextStatus = input.status !== undefined ? input.status : existing.status
   let nextClosedReason = input.closedReason !== undefined ? input.closedReason : existing.closedReason
-  if (nextPostType !== 'offer') {
-    nextClosedReason = null
-  } else if (nextStatus === 'open') {
+  if (nextStatus === 'open') {
     nextClosedReason = null
   } else if (nextStatus === 'closed' && !nextClosedReason) {
     nextClosedReason = 'manual'
@@ -863,7 +890,6 @@ export async function updateTaskPost(userId: string, postId: string, input: Upda
     }
   }
   if (
-    nextPostType === 'offer' &&
     nextStatus !== 'hidden' &&
     nextClosedReason !== 'manual' &&
     capacity.capacityType === 'limited' &&
@@ -980,14 +1006,13 @@ export async function createApplication(userId: string, input: CreateApplication
       and p.creator_id <> ${userId}
       and p.status = 'open'
       and (
-        p.post_type <> 'offer'
-        or p.capacity_type <> 'limited'
+        p.capacity_type <> 'limited'
         or p.capacity_limit is null
         or (
           select count(d.id)
           from manwon_happiness.deals d
           where d.post_id = p.id
-            and d.status in ('accepted', 'in_progress', 'complete_requested', 'completed')
+            and d.status = 'completed'
         ) < p.capacity_limit
       )
       and not exists (
@@ -1007,6 +1032,7 @@ export async function createApplication(userId: string, input: CreateApplication
           message = excluded.message,
           status = 'applied',
           updated_at = now()
+      where manwon_happiness.applications.status = 'rejected'
     returning *
   `
 
@@ -1036,7 +1062,7 @@ export async function updateApplicationStatus(userId: string, applicationId: str
       left join lateral (
         select
           count(d.id) filter (
-            where d.status in ('accepted', 'in_progress', 'complete_requested', 'completed')
+            where d.status = 'completed'
           )::integer as occupied_count
         from manwon_happiness.deals d
         where d.post_id = p.id
@@ -1058,13 +1084,12 @@ export async function updateApplicationStatus(userId: string, applicationId: str
       }
       const capacityLimit = application.capacityLimit == null ? null : Number(application.capacityLimit)
       const occupiedCount = Number(application.occupiedCount ?? 0)
-      const isOfferFull =
-        application.postType === 'offer' &&
+      const isCapacityFull =
         application.capacityType === 'limited' &&
         capacityLimit !== null &&
         occupiedCount >= capacityLimit
-      if (isOfferFull) {
-        await refreshOfferPostCapacity(tx, String(application.postId))
+      if (isCapacityFull) {
+        await refreshPostCapacity(tx, String(application.postId))
         return null
       }
     }
@@ -1121,17 +1146,7 @@ export async function updateApplicationStatus(userId: string, applicationId: str
       return { application: updatedApplication, conversationId, notifications: [] }
     }
 
-    const autoRejectedRows = application.postType === 'request'
-      ? await tx`
-        update manwon_happiness.applications
-        set status = 'rejected'
-        where post_id = ${application.postId}
-          and recruitment_round = ${application.recruitmentRound}
-          and id <> ${applicationId}
-          and status = 'applied'
-        returning id, applicant_id
-      `
-      : []
+    const autoRejectedRows: Array<{ id: string; applicantId: string }> = []
 
     const dealRows = await tx`
       insert into manwon_happiness.deals (post_id, requester_id, helper_id, requester_profile_id, helper_profile_id, application_id, price, status, accepted_at, recruitment_round)
@@ -1139,16 +1154,7 @@ export async function updateApplicationStatus(userId: string, applicationId: str
       returning *
     `
 
-    if (application.postType === 'request') {
-      await tx`
-        update manwon_happiness.task_posts
-        set status = 'pending'
-        where id = ${application.postId}
-          and recruitment_round = ${application.recruitmentRound}
-      `
-    } else {
-      await refreshOfferPostCapacity(tx, String(application.postId))
-    }
+    await refreshPostCapacity(tx, String(application.postId))
 
     const conversationRows = await tx`
       update manwon_happiness.conversations
@@ -1305,6 +1311,15 @@ export async function updateDealStatus(userId: string, dealId: string, input: Up
     if (input.status === 'in_progress' && !isPostCreator) return null
     if (input.status === 'complete_requested' && !isApplicant) return null
     if ((input.status === 'completed' || input.status === 'disputed') && !isPostCreator) return null
+    if (existing.status === input.status) {
+      return {
+        deal: existing,
+        conversationId: null,
+        postTitle: null,
+        notifyUserId: userId,
+        skipNotification: true,
+      }
+    }
     if (input.status === 'completed' || input.status === 'disputed') {
       const turnRows = await tx`
         select count(distinct m.sender_id)::integer as sender_count
@@ -1352,26 +1367,14 @@ export async function updateDealStatus(userId: string, dealId: string, input: Up
     const deal = rows[0]
     if (!deal) return null
 
-    const isRequestPost = existing.postType === 'request'
-    if (isRequestPost && input.status === 'in_progress') {
-      await tx`update manwon_happiness.task_posts set status = 'in_progress' where id = ${deal.postId}`
-    }
     if (input.status === 'completed') {
-      if (isRequestPost) {
-        await tx`update manwon_happiness.task_posts set status = 'completed' where id = ${deal.postId}`
-      }
       await tx`
         update manwon_happiness.users
         set completed_count = completed_count + 1
         where id in (${deal.requesterId}, ${deal.helperId})
       `
     }
-    if (isRequestPost && input.status === 'cancelled') {
-      await tx`update manwon_happiness.task_posts set status = 'cancelled' where id = ${deal.postId}`
-    }
-    if (!isRequestPost) {
-      await refreshOfferPostCapacity(tx, String(deal.postId))
-    }
+    await refreshPostCapacity(tx, String(deal.postId))
 
     const systemMessage = getDealStatusSystemMessage(input.status)
     const conversationRows = await tx`
@@ -1404,6 +1407,7 @@ export async function updateDealStatus(userId: string, dealId: string, input: Up
   })
 
   if (!result) return null
+  if ('skipNotification' in result && result.skipNotification) return result.deal
 
   const notification = getDealStatusNotification(input.status, result.postTitle)
   if (notification) {
@@ -1625,7 +1629,7 @@ export async function startConversationForPost(userId: string, postId: string, p
       left join lateral (
         select
           count(d.id) filter (
-            where d.status in ('accepted', 'in_progress', 'complete_requested', 'completed')
+            where d.status = 'completed'
           )::integer as occupied_count
         from manwon_happiness.deals d
         where d.post_id = p.id
@@ -1645,8 +1649,8 @@ export async function startConversationForPost(userId: string, postId: string, p
     `
     const post = postRows[0]
     if (!post) return null
-    if (post.postType === 'offer' && post.capacityType === 'limited' && post.capacityLimit != null && Number(post.occupiedCount ?? 0) >= Number(post.capacityLimit)) {
-      await refreshOfferPostCapacity(tx, postId)
+    if (post.capacityType === 'limited' && post.capacityLimit != null && Number(post.occupiedCount ?? 0) >= Number(post.capacityLimit)) {
+      await refreshPostCapacity(tx, postId)
       return null
     }
 
@@ -1669,19 +1673,24 @@ export async function startConversationForPost(userId: string, postId: string, p
         limit 1
       `
       previousApplicationStatus = existingApplication?.status ? String(existingApplication.status) : null
+      if (previousApplicationStatus !== null && previousApplicationStatus !== 'rejected') {
+        throw new HttpError('이미 보낸 요청입니다. 거절된 경우에만 다시 보낼 수 있습니다.', 409)
+      }
 
-      await tx`
+      const applicationRows = await tx`
         insert into manwon_happiness.applications (post_id, applicant_id, applicant_profile_id, message, recruitment_round)
         values (${postId}, ${userId}, ${profileId}, ${message ?? (post.postType === 'request' ? '도와드릴 수 있어요.' : '문의드려요.')}, ${post.recruitmentRound})
         on conflict (post_id, applicant_id, recruitment_round) do update
           set applicant_profile_id = excluded.applicant_profile_id,
               message = coalesce(excluded.message, manwon_happiness.applications.message),
-              status = case
-                when manwon_happiness.applications.status in ('cancelled', 'rejected') then 'applied'::manwon_happiness.application_status
-                else manwon_happiness.applications.status
-              end,
+              status = 'applied'::manwon_happiness.application_status,
               updated_at = now()
+          where manwon_happiness.applications.status = 'rejected'
+        returning id
       `
+      if (applicationRows.length === 0) {
+        throw new HttpError('이미 보낸 요청입니다. 거절된 경우에만 다시 보낼 수 있습니다.', 409)
+      }
     }
 
     const insertedRows = await tx`
@@ -1714,7 +1723,7 @@ export async function startConversationForPost(userId: string, postId: string, p
     `
 
     const shouldAddReapplicationMessage =
-      post.postType === 'request' && previousApplicationStatus !== null && ['cancelled', 'rejected'].includes(previousApplicationStatus)
+      post.postType === 'request' && previousApplicationStatus === 'rejected'
     const shouldAddSystemMessage = Number(messageCountRows[0]?.count ?? 0) === 0 || shouldAddReapplicationMessage
 
     if (shouldAddSystemMessage) {
@@ -2042,6 +2051,32 @@ export async function createReview(userId: string, input: CreateReviewInput) {
   }).catch(() => undefined)
 
   return result.review
+}
+
+export async function listUserReceivedReviews(userId: string, limit = 50) {
+  const sql = getSql()
+  return sql`
+    select
+      r.id,
+      r.deal_id,
+      r.reviewer_id,
+      r.reviewee_id,
+      r.rating,
+      r.content,
+      r.created_at,
+      coalesce(reviewer_profile.nickname, reviewer.nickname) as reviewer_nickname,
+      coalesce(reviewer_profile.avatar_url, reviewer.avatar_url) as reviewer_avatar_url,
+      reviewer_profile.default_avatar_key as reviewer_default_avatar_key,
+      p.title as post_title
+    from manwon_happiness.reviews r
+    join manwon_happiness.users reviewer on reviewer.id = r.reviewer_id
+    left join manwon_happiness.activity_profiles reviewer_profile on reviewer_profile.id = r.reviewer_profile_id
+    left join manwon_happiness.deals d on d.id = r.deal_id
+    left join manwon_happiness.task_posts p on p.id = d.post_id
+    where r.reviewee_id = ${userId}
+    order by r.created_at desc
+    limit ${Math.max(1, Math.min(limit, 100))}
+  `
 }
 
 export async function scheduleReviewReminder(userId: string, input: ReviewReminderInput) {

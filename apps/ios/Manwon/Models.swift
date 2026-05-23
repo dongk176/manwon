@@ -174,6 +174,20 @@ struct Conversation: Codable, Identifiable, Hashable {
     }
 }
 
+struct UserReview: Codable, Identifiable, Hashable {
+    let id: String
+    let dealId: String?
+    let reviewerId: String?
+    let revieweeId: String?
+    let reviewerNickname: String?
+    let reviewerAvatarUrl: String?
+    let reviewerDefaultAvatarKey: String?
+    let rating: Double?
+    let content: String?
+    let createdAt: String?
+    let postTitle: String?
+}
+
 struct Message: Codable, Identifiable, Hashable {
     let id: String
     let conversationId: String

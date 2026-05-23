@@ -21,7 +21,12 @@ final class AppRouter: ObservableObject {
     @Published var chatDetailActive = false
     @Published var chatUnreadCount = 0
     @Published var nearbySheetCoversBottomNav = false
-    @Published private var webSplashCoversBottomNav: [AppTab: Bool] = [:]
+    @Published private var webSplashCoversBottomNav: [AppTab: Bool] = [
+        .home: true,
+        .register: true,
+        .nearby: true,
+        .my: true
+    ]
     @Published private var webOverlayCoversBottomNav: [AppTab: Bool] = [:]
     @Published var homeIsAtTop = true
     @Published var mapUnavailableNoticeVisible = false

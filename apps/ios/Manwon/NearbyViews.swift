@@ -512,8 +512,8 @@ private struct NearbyPostThumbnail: View {
     var body: some View {
         ZStack {
             if
-                let imageUrl = post.images?.first?.imageUrl,
-                let absolute = APIClient.shared.absoluteURLString(imageUrl),
+                let image = post.images?.first,
+                let absolute = APIClient.shared.displayImageURLString(image.imageUrl, storageKey: image.storageKey),
                 let url = URL(string: absolute)
             {
                 AsyncImage(url: url) { phase in

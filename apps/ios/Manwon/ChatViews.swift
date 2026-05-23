@@ -234,7 +234,7 @@ private struct ChatListAvatar: View {
     private var url: URL? {
         let preferredUrl = imageUrl?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let preferredUrl, !preferredUrl.isEmpty {
-            return APIClient.shared.absoluteURLString(preferredUrl).flatMap(URL.init(string:))
+            return APIClient.shared.displayImageURLString(preferredUrl).flatMap(URL.init(string:))
         }
         return defaultProfileImagePath(gender: gender)
             .flatMap { APIClient.shared.absoluteURLString($0) }
@@ -1452,6 +1452,10 @@ private struct ChatProfileSheet: View {
     let conversation: Conversation
     private let photoColumns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 3)
     @State private var selectedPhoto: ProfilePhotoPreview?
+    @State private var showReviews = false
+    @State private var reviewLoadState: ProfileReviewLoadState = .idle
+    @State private var reviews: [UserReview] = []
+    @State private var reviewError: String?
 
     var body: some View {
         ScrollView {
@@ -1489,11 +1493,31 @@ private struct ChatProfileSheet: View {
                 HStack(spacing: 10) {
                     ProfileMetric(title: "평점", value: ratingText)
                     ProfileMetric(title: "거래 완료", value: "\(conversation.otherCompletedCount ?? 0)회")
-                    ProfileMetric(title: "후기", value: "\(conversation.otherReviewCount ?? 0)개")
+                    Button {
+                        toggleReviews()
+                    } label: {
+                        ProfileMetric(title: "후기", value: "\(conversation.otherReviewCount ?? 0)개")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("후기 목록 보기")
                 }
 
-                if hasProfileDetails {
+                if hasProfileDetails || showReviews {
                     VStack(alignment: .leading, spacing: 12) {
+                        if showReviews {
+                            ProfileDetailSection(title: "후기") {
+                                ProfileReviewsContent(
+                                    state: reviewLoadState,
+                                    reviews: reviews,
+                                    errorMessage: reviewError,
+                                    retry: {
+                                        reviewLoadState = .idle
+                                        Task { await loadReviewsIfNeeded() }
+                                    }
+                                )
+                            }
+                        }
+
                         if let careerSummary {
                             ProfileDetailSection(title: "경력 한 줄") {
                                 Text(careerSummary)
@@ -1615,7 +1639,7 @@ private struct ChatProfileSheet: View {
     private var workSampleImageURLs: [URL] {
         (conversation.otherWorkSampleImages ?? []).compactMap { image in
             guard
-                let absolute = APIClient.shared.absoluteURLString(image.imageUrl),
+                let absolute = APIClient.shared.displayImageURLString(image.imageUrl, storageKey: image.storageKey),
                 let url = URL(string: absolute)
             else {
                 return nil
@@ -1643,6 +1667,34 @@ private struct ChatProfileSheet: View {
         return nil
     }
 
+    private func toggleReviews() {
+        let nextValue = !showReviews
+        showReviews = nextValue
+        if nextValue {
+            Task { await loadReviewsIfNeeded() }
+        }
+    }
+
+    @MainActor
+    private func loadReviewsIfNeeded() async {
+        guard reviewLoadState == .idle || reviewLoadState == .failed else { return }
+        guard let userId = conversation.otherUserId, !userId.isEmpty else {
+            reviews = []
+            reviewLoadState = .loaded
+            return
+        }
+
+        reviewLoadState = .loading
+        reviewError = nil
+        do {
+            reviews = try await APIClient.shared.fetchUserReviews(userId: userId)
+            reviewLoadState = .loaded
+        } catch {
+            reviewError = error.localizedDescription
+            reviewLoadState = .failed
+        }
+    }
+
     private func trimmed(_ value: String?) -> String? {
         let text = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return text.isEmpty ? nil : text
@@ -1658,6 +1710,164 @@ private struct ProfilePhotoPreview: Identifiable {
 
     var id: String {
         url.absoluteString
+    }
+}
+
+private enum ProfileReviewLoadState {
+    case idle
+    case loading
+    case loaded
+    case failed
+}
+
+private struct ProfileReviewsContent: View {
+    let state: ProfileReviewLoadState
+    let reviews: [UserReview]
+    let errorMessage: String?
+    let retry: () -> Void
+
+    var body: some View {
+        switch state {
+        case .idle, .loading:
+            HStack(spacing: 8) {
+                ProgressView()
+                Text("후기를 불러오는 중입니다.")
+            }
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(ManwonColor.muted)
+        case .failed:
+            VStack(alignment: .leading, spacing: 10) {
+                Text(errorMessage ?? "후기를 불러오지 못했습니다.")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(ManwonColor.brand)
+                Button("다시 불러오기", action: retry)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Color.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(ManwonColor.brand)
+                    .clipShape(Capsule())
+            }
+        case .loaded:
+            if reviews.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("아직 받은 후기가 없어요")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(ManwonColor.text)
+                    Text("거래가 완료되면 후기가 표시됩니다.")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(ManwonColor.muted)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(reviews) { review in
+                        ProfileReviewRow(review: review)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct ProfileReviewRow: View {
+    let review: UserReview
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 9) {
+                ReviewAuthorAvatar(imageUrl: review.reviewerAvatarUrl, name: reviewerName)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(reviewerName)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(ManwonColor.text)
+                    Text(ratingText)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(ManwonColor.muted)
+                }
+                Spacer()
+                Text(compactDateText(review.createdAt))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(ManwonColor.muted)
+            }
+
+            if let postTitle {
+                Text(postTitle)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(ManwonColor.muted)
+                    .lineLimit(1)
+            }
+
+            Text(content)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(ManwonColor.muted)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(11)
+        .background(Color.white)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(ManwonColor.line, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private var reviewerName: String {
+        let value = review.reviewerNickname?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return value.isEmpty ? "사용자" : value
+    }
+
+    private var ratingText: String {
+        guard let rating = review.rating else { return "평점 0.0" }
+        return String(format: "평점 %.1f", rating)
+    }
+
+    private var content: String {
+        let value = review.content?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return value.isEmpty ? "후기 내용이 없습니다." : value
+    }
+
+    private var postTitle: String? {
+        let value = review.postTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return value.isEmpty ? nil : value
+    }
+}
+
+private struct ReviewAuthorAvatar: View {
+    let imageUrl: String?
+    let name: String
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(ManwonColor.brandSoft)
+
+            if
+                let absolute = APIClient.shared.displayImageURLString(imageUrl),
+                let url = URL(string: absolute)
+            {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    default:
+                        fallback
+                    }
+                }
+            } else {
+                fallback
+            }
+        }
+        .frame(width: 34, height: 34)
+        .clipShape(Circle())
+    }
+
+    private var fallback: some View {
+        Text(String(name.prefix(1)))
+            .font(.system(size: 13, weight: .bold))
+            .foregroundStyle(ManwonColor.brand)
     }
 }
 
@@ -1737,7 +1947,7 @@ private struct ChatProfileAvatar: View {
                 .fill(ManwonColor.brandSoft)
 
             if
-                let absolute = APIClient.shared.absoluteURLString(imageUrl),
+                let absolute = APIClient.shared.displayImageURLString(imageUrl),
                 let url = URL(string: absolute)
             {
                 AsyncImage(url: url) { phase in
@@ -2079,7 +2289,7 @@ private struct MessageBubble: View {
             HStack {
                 if isMine { Spacer(minLength: 50) }
                 VStack(alignment: isMine ? .trailing : .leading, spacing: 6) {
-                    if message.messageType == .image, let imageURL = APIClient.shared.absoluteURLString(message.imageUrl), let url = URL(string: imageURL) {
+                    if message.messageType == .image, let imageURL = APIClient.shared.displayImageURLString(message.imageUrl), let url = URL(string: imageURL) {
                         AsyncImage(url: url) { phase in
                             switch phase {
                             case .success(let image):

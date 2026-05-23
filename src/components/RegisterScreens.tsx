@@ -178,6 +178,46 @@ export function RegistrationTypeScreen({ onSelect }: { onSelect: (kind: Register
   )
 }
 
+function CapacityStepCard({
+  capacityType,
+  capacityLimit,
+  defaultLimit,
+  errors,
+  onCapacityTypeChange,
+  onCapacityLimitChange,
+}: {
+  capacityType: CapacityType
+  capacityLimit: string
+  defaultLimit: string
+  errors: StepErrors
+  onCapacityTypeChange: (capacityType: CapacityType) => void
+  onCapacityLimitChange: (capacityLimit: string) => void
+}) {
+  return (
+    <StepCard title="모집 방식">
+      <OptionGrid
+        value={capacityType}
+        onChange={(nextCapacityType) => {
+          onCapacityTypeChange(nextCapacityType)
+          if (nextCapacityType === 'limited' && !capacityLimit.trim()) onCapacityLimitChange(defaultLimit)
+        }}
+        options={capacityTypeOptions}
+        columns={2}
+      />
+      {capacityType === 'limited' && (
+        <CapacityLimitField
+          value={capacityLimit}
+          onChange={onCapacityLimitChange}
+          error={errors.capacityLimit}
+        />
+      )}
+      <p className="step-card-hint">
+        {capacityType === 'limited' ? '거래 완료 인원이 목표에 도달하면 자동으로 마감됩니다.' : '직접 종료할 때까지 새 문의를 받을 수 있습니다.'}
+      </p>
+    </StepCard>
+  )
+}
+
 export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () => void; onRegistered?: () => void }) {
   const [step, setStep] = useState<RequestStep>(1)
   const [sheet, setSheet] = useState<SheetKind>(null)
@@ -205,6 +245,8 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
   const [priceNotice, setPriceNotice] = useState('')
   const [deadlineOption, setDeadlineOption] = useState<DeadlineOption>('asap')
   const [customDeadlineText, setCustomDeadlineText] = useState('')
+  const [capacityType, setCapacityType] = useState<CapacityType>('limited')
+  const [capacityLimit, setCapacityLimit] = useState('1')
 
   const isOffline = mode === 'nearby' || mode === 'both'
   const selectedCategory = getCategory(categoryId)
@@ -212,7 +254,7 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
   const selectedCategoryDetails = getCategoryDetailOptions(categoryId)
   const price = getPriceValue(priceOption, customPrice)
   const deadlineText = getRequestDeadlineText(deadlineOption, customDeadlineText)
-  const isDirty = hasRequestInput({ title, categoryId, customCategory, categoryDetail, description, images, mode, customPrice, customDeadlineText })
+  const isDirty = hasRequestInput({ title, categoryId, customCategory, categoryDetail, description, images, mode, customPrice, customDeadlineText, capacityType, capacityLimit })
 
   useImagePreviewCleanup(images)
 
@@ -259,6 +301,8 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
       customPrice,
       deadlineOption,
       customDeadlineText,
+      capacityType,
+      capacityLimit,
       selectedProfileId,
     })
     setErrors(nextErrors)
@@ -284,6 +328,8 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
       customPrice,
       deadlineOption,
       customDeadlineText,
+      capacityType,
+      capacityLimit,
       selectedProfileId,
     })
     if (validation.step) {
@@ -306,6 +352,8 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
         price,
         deadlineAt: getDeadlineIso(deadlineOption, customDeadlineText),
         deadlineText,
+        capacityType,
+        capacityLimit: capacityType === 'limited' ? getCapacityLimitValue(capacityLimit) : null,
         genderVisibility: 'private',
         addressText: isOffline ? locationRegion?.addressText ?? null : null,
         region1Depth: isOffline ? locationRegion?.region1Depth ?? null : null,
@@ -483,6 +531,14 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
               error={errors.customDeadlineText}
               onClick={() => setSheet('requestDeadline')}
             />
+            <CapacityStepCard
+              capacityType={capacityType}
+              capacityLimit={capacityLimit}
+              defaultLimit="1"
+              errors={errors}
+              onCapacityTypeChange={setCapacityType}
+              onCapacityLimitChange={setCapacityLimit}
+            />
           </>
         )}
 
@@ -507,6 +563,7 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
                 },
                 { label: '금액', value: formatWon(price), accent: true, onEdit: () => setStep(3) },
                 { label: '마감 시간', value: deadlineText, icon: <Clock3 size={18} />, onEdit: () => setStep(3) },
+                { label: '모집 방식', value: getCapacitySummary(capacityType, capacityLimit), onEdit: () => setStep(3) },
               ]}
               description={description}
               images={images}
@@ -999,27 +1056,14 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
               error={errors.availableTimeOption}
               onClick={() => setSheet('availableTime')}
             />
-            <StepCard title="모집 방식">
-              <OptionGrid
-                value={capacityType}
-                onChange={(nextCapacityType) => {
-                  setCapacityType(nextCapacityType)
-                  if (nextCapacityType === 'limited' && !capacityLimit.trim()) setCapacityLimit('5')
-                }}
-                options={capacityTypeOptions}
-                columns={2}
-              />
-              {capacityType === 'limited' && (
-                <CapacityLimitField
-                  value={capacityLimit}
-                  onChange={setCapacityLimit}
-                  error={errors.capacityLimit}
-                />
-              )}
-              <p className="step-card-hint">
-                {capacityType === 'limited' ? '진행 중이거나 완료된 인원이 목표에 도달하면 자동으로 마감됩니다.' : '직접 종료할 때까지 새 문의를 받을 수 있습니다.'}
-              </p>
-            </StepCard>
+            <CapacityStepCard
+              capacityType={capacityType}
+              capacityLimit={capacityLimit}
+              defaultLimit="5"
+              errors={errors}
+              onCapacityTypeChange={setCapacityType}
+              onCapacityLimitChange={setCapacityLimit}
+            />
           </>
         )}
 
@@ -2206,6 +2250,8 @@ function hasRequestInput(input: {
   mode: RequestMode | null
   customPrice: string
   customDeadlineText: string
+  capacityType: CapacityType
+  capacityLimit: string
 }) {
   return Boolean(
     input.title.trim() ||
@@ -2216,7 +2262,9 @@ function hasRequestInput(input: {
       input.images.length > 0 ||
       input.mode ||
       input.customPrice.trim() ||
-      input.customDeadlineText.trim(),
+      input.customDeadlineText.trim() ||
+      input.capacityType !== 'limited' ||
+      input.capacityLimit.trim() !== '1',
   )
 }
 
@@ -2270,6 +2318,8 @@ function validateRequestStep(
     customPrice: string
     deadlineOption: DeadlineOption
     customDeadlineText: string
+    capacityType: CapacityType
+    capacityLimit: string
     selectedProfileId: string
   },
 ) {
@@ -2305,6 +2355,7 @@ function validateRequestStep(
       if (!selectedDate) errors.customDeadlineText = requiredFieldMessage
       else if (formatDateInput(selectedDate) < formatDateInput(new Date())) errors.customDeadlineText = '오늘 포함 미래 날짜만 선택할 수 있어요.'
     }
+    addCapacityErrors(input, errors)
   }
   return errors
 }
@@ -2372,12 +2423,7 @@ function validateOfferStep(
       errors.availableTimeOption = `가능한 시간은 ${availableTimeMaxLength}자 이내로 입력해주세요.`
       errors.customAvailableTime = `가능한 시간은 ${availableTimeMaxLength}자 이내로 입력해주세요.`
     }
-    if (input.capacityType === 'limited') {
-      const capacityLimit = getCapacityLimitValue(input.capacityLimit)
-      if (!capacityLimit) errors.capacityLimit = '목표 인원을 입력해주세요.'
-      else if (capacityLimit < 1) errors.capacityLimit = '1명 이상 입력해주세요.'
-      else if (capacityLimit > 999) errors.capacityLimit = '999명 이하로 입력해주세요.'
-    }
+    addCapacityErrors(input, errors)
   }
   if (step === 3 && !isValidUrl(input.portfolioUrl)) {
     errors.portfolioUrl = 'http 또는 https 링크를 입력해주세요.'
@@ -2391,6 +2437,14 @@ function validateOfferAll(input: Parameters<typeof validateOfferStep>[1]) {
     if (Object.keys(errors).length > 0) return { step, errors }
   }
   return { step: null, errors: {} }
+}
+
+function addCapacityErrors(input: { capacityType: CapacityType; capacityLimit: string }, errors: StepErrors) {
+  if (input.capacityType !== 'limited') return
+  const capacityLimit = getCapacityLimitValue(input.capacityLimit)
+  if (!capacityLimit) errors.capacityLimit = '목표 인원을 입력해주세요.'
+  else if (capacityLimit < 1) errors.capacityLimit = '1명 이상 입력해주세요.'
+  else if (capacityLimit > 999) errors.capacityLimit = '999명 이하로 입력해주세요.'
 }
 
 function stringFromProfile(profile: Record<string, unknown>, key: string) {

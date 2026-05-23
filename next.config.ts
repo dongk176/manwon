@@ -16,6 +16,9 @@ const nextConfig: NextConfig = {
       {
         pathname: '/registration/**',
       },
+      {
+        pathname: '/brand/**',
+      },
     ],
   },
   serverExternalPackages: ['@aws-sdk/client-s3', '@aws-sdk/s3-request-presigner', 'postgres'],

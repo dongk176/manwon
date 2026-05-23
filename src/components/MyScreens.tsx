@@ -60,6 +60,7 @@ import {
   isPhoneVerificationRequired,
   isDefaultActivityProfile,
   logout,
+  normalizeDisplayImageUrl,
   updateActivityProfile,
   uploadImageFile,
   withdrawAccount,
@@ -2395,11 +2396,12 @@ function formToPreviewProfile(form: ActivityProfileFormState): ActivityProfile {
 }
 
 function ProfileImage({ profile }: { profile: Pick<ActivityProfile, 'avatarUrl' | 'defaultAvatarKey' | 'nickname' | 'gender'> }) {
-  if (profile.avatarUrl) {
+  const avatarUrl = normalizeDisplayImageUrl(profile.avatarUrl)
+  if (avatarUrl) {
     return (
       <span className="activity-profile-image is-photo">
         {/* eslint-disable-next-line @next/next/no-img-element -- User-uploaded avatar URLs can be runtime external URLs; CSS controls the crop. */}
-        <img src={profile.avatarUrl} alt="" aria-hidden="true" />
+        <img src={avatarUrl} alt="" aria-hidden="true" />
       </span>
     )
   }

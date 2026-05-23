@@ -33,6 +33,7 @@ import {
   fetchTaskPost,
   getDefaultProfileImageByGender,
   getDisplayImageUrl,
+  normalizeDisplayImageUrl,
   isPhoneVerificationRequired,
   mapApiPostToRequestPost,
   removeFavorite,
@@ -63,6 +64,7 @@ type AvailableTimeOption = 'now' | 'today' | 'weekday' | 'weekend' | 'custom'
 type GenderVisibility = 'private' | 'male' | 'female'
 type CapacityType = 'unlimited' | 'limited'
 type DetailEditSheet = 'category' | 'categoryCustom' | 'categoryDetail' | 'categoryDetailCustom' | 'mode' | 'availableTime' | 'availableTimeCustom' | null
+type ViewerInteractionLock = 'applied' | 'accepted' | 'in_progress' | 'complete_requested' | 'completed' | 'cancelled' | 'disputed'
 
 interface DetailEditDraft {
   title: string
@@ -275,7 +277,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
       id: post?.creatorId ?? displayPost?.requesterId ?? requester.id,
       name: creatorName,
       intro: post ? post.creatorBio ?? '' : requester.intro ?? '',
-      avatarUrl: post ? post.creatorAvatarUrl ?? null : requester.avatarUrl ?? null,
+      avatarUrl: normalizeDisplayImageUrl(post ? post.creatorAvatarUrl ?? null : requester.avatarUrl ?? null) ?? null,
       defaultAvatarKey: post ? post.creatorDefaultAvatarKey ?? null : requester.defaultAvatarKey ?? null,
       rating: Number.isFinite(creatorRating) ? creatorRating : 0,
       reviewCount: creatorReviewCount,
@@ -296,17 +298,19 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
   const canUsePost = Boolean(displayPost)
   const isOwner = Boolean(post && currentUserId && post.creatorId === currentUserId)
   const postStatus = getRawPostStatus(post, displayPost)
+  const viewerInteractionLock = getViewerInteractionLock(post)
   const showOwnerReopenActions = Boolean(isOwner && postStatus === 'cancelled' && !editMode)
   const showOwnerManualCloseAction = Boolean(isOwner && post?.postType === 'offer' && postStatus === 'open' && !editMode)
   const showOwnerOfferResumeAction = Boolean(isOwner && post?.postType === 'offer' && postStatus === 'closed' && !editMode)
   const showOwnerSecondaryAction = showOwnerReopenActions || showOwnerManualCloseAction || showOwnerOfferResumeAction
-  const primaryActionDisabled = !canUsePost || actionState === 'saving' || (!isOwner && postStatus !== 'open') || (isOwner && postStatus === 'hidden')
+  const primaryActionDisabled = !canUsePost || actionState === 'saving' || (!isOwner && postStatus !== 'open') || (!isOwner && viewerInteractionLock !== null) || (isOwner && postStatus === 'hidden')
   const primaryActionLabel = getPrimaryActionLabel({
     saving: actionState === 'saving',
     isOwner,
     editMode,
     postType: displayPost?.postType,
     postStatus,
+    viewerInteractionLock,
   })
   const ctaClassName = [
     'fixed-bottom-button detail-cta-bar',
@@ -656,8 +660,8 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
         portfolioLinks: isRequest ? [] : portfolioLinks,
         responseTimeText: isRequest ? null : nullableText(editDraft.responseTime),
         responseTime: isRequest ? null : nullableText(editDraft.responseTime),
-        capacityType: isRequest ? 'unlimited' : editDraft.capacityType,
-        capacityLimit: !isRequest && editDraft.capacityType === 'limited' ? getCapacityLimitValue(editDraft.capacityLimit) : null,
+        capacityType: editDraft.capacityType,
+        capacityLimit: editDraft.capacityType === 'limited' ? getCapacityLimitValue(editDraft.capacityLimit) : null,
         addressText: isOffline ? nullableText(editDraft.addressText) : null,
         region1Depth: isOffline ? nullableText(editDraft.region1Depth) : null,
         region2Depth: isOffline ? nullableText(editDraft.region2Depth) : null,
@@ -829,7 +833,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
                 ))}
               </section>
 
-              {post && post.postType === 'offer' && <OfferCapacityPanel post={post} />}
+              {post && <PostCapacityPanel post={post} />}
 
               {post && <ExtraPostSections post={post} />}
 
@@ -1083,11 +1087,12 @@ function ActivityProfileSelectSheet({
 }
 
 function DetailActivityProfileAvatar({ profile }: { profile: ActivityProfile }) {
-  if (profile.avatarUrl) {
+  const avatarUrl = normalizeDisplayImageUrl(profile.avatarUrl)
+  if (avatarUrl) {
     return (
       <span className="activity-profile-avatar is-image">
         {/* eslint-disable-next-line @next/next/no-img-element -- Runtime profile URLs may be external; CSS controls the avatar crop. */}
-        <img src={profile.avatarUrl} alt="" aria-hidden="true" />
+        <img src={avatarUrl} alt="" aria-hidden="true" />
       </span>
     )
   }
@@ -1185,12 +1190,14 @@ function getPrimaryActionLabel({
   editMode,
   postType,
   postStatus,
+  viewerInteractionLock,
 }: {
   saving: boolean
   isOwner: boolean
   editMode: boolean
   postType?: 'request' | 'offer'
   postStatus: PostStatus
+  viewerInteractionLock: ViewerInteractionLock | null
 }) {
   if (saving) return '처리 중'
   if (isOwner) {
@@ -1199,11 +1206,41 @@ function getPrimaryActionLabel({
     if (postStatus === 'cancelled') return '다시 모집하기'
     return '수정하기'
   }
+  if (viewerInteractionLock) return getViewerInteractionLockLabel(viewerInteractionLock, postType)
   if (postStatus === 'pending' || postStatus === 'in_progress') return '이미 진행중입니다'
   if (postStatus === 'completed') return '거래 완료됨'
   if (postStatus === 'closed') return '모집이 마감됐어요'
   if (postStatus === 'cancelled' || postStatus === 'hidden') return '취소된 부탁입니다'
   return postType === 'offer' ? '문의하기' : '제가 할게요'
+}
+
+function getViewerInteractionLock(post: ApiTaskPost | null): ViewerInteractionLock | null {
+  if (!post) return null
+  if (post.viewerApplicationStatus === 'rejected') return null
+
+  if (post.viewerDealStatus) {
+    if (post.viewerDealStatus === 'pending' || post.viewerDealStatus === 'accepted') return 'accepted'
+    if (post.viewerDealStatus === 'in_progress') return 'in_progress'
+    if (post.viewerDealStatus === 'complete_requested') return 'complete_requested'
+    if (post.viewerDealStatus === 'completed') return 'completed'
+    if (post.viewerDealStatus === 'cancelled') return 'cancelled'
+    if (post.viewerDealStatus === 'disputed') return 'disputed'
+  }
+
+  if (post.viewerApplicationStatus === 'applied') return 'applied'
+  if (post.viewerApplicationStatus === 'accepted') return 'accepted'
+  if (post.viewerApplicationStatus === 'cancelled') return 'cancelled'
+  return null
+}
+
+function getViewerInteractionLockLabel(lock: ViewerInteractionLock, postType?: 'request' | 'offer') {
+  if (lock === 'applied') return postType === 'offer' ? '이미 문의했어요' : '이미 보냈어요'
+  if (lock === 'accepted') return '수락된 요청입니다'
+  if (lock === 'in_progress') return '거래 진행 중'
+  if (lock === 'complete_requested') return '완료 확인 중'
+  if (lock === 'completed') return '거래 완료됨'
+  if (lock === 'cancelled') return '취소된 요청입니다'
+  return '분쟁 처리 중'
 }
 
 function getDefaultStartMessage(postType?: 'request' | 'offer') {
@@ -1326,7 +1363,7 @@ function Info({ icon, label, value }: { icon: React.ReactNode; label: string; va
   )
 }
 
-function OfferCapacityPanel({ post }: { post: ApiTaskPost }) {
+function PostCapacityPanel({ post }: { post: ApiTaskPost }) {
   const activeChatCount = Math.max(Number(post.activeChatCount ?? 0), 0)
   const occupiedCount = Math.max(Number(post.occupiedCount ?? 0), 0)
   const capacityLimit = Math.max(Number(post.capacityLimit ?? 0), 0)
@@ -1337,7 +1374,7 @@ function OfferCapacityPanel({ post }: { post: ApiTaskPost }) {
       {isLimited ? (
         <span>
           <UserRound size={18} />
-          <strong>{occupiedCount}/{capacityLimit}명</strong>
+          <strong>마감 {occupiedCount}/{capacityLimit}명</strong>
         </span>
       ) : (
         <span>
@@ -1554,26 +1591,26 @@ function PostDetailEditForm({
               error={errors.availableTimeOption}
               onClick={() => onSheetChange('availableTime')}
             />
-            <DetailOptionGrid
-              value={draft.capacityType}
-              onChange={(capacityType) => update({
-                capacityType,
-                capacityLimit: capacityType === 'limited' && !draft.capacityLimit.trim() ? '5' : draft.capacityLimit,
-              })}
-              options={capacityTypeOptions}
-              columns={2}
-            />
-            {draft.capacityType === 'limited' && (
-              <DetailTextInput
-                value={draft.capacityLimit}
-                onChange={(capacityLimit) => update({ capacityLimit: capacityLimit.replace(/[^0-9]/g, '') })}
-                placeholder="목표 인원"
-                inputMode="numeric"
-                suffix="명"
-                error={errors.capacityLimit}
-              />
-            )}
           </>
+        )}
+        <DetailOptionGrid
+          value={draft.capacityType}
+          onChange={(capacityType) => update({
+            capacityType,
+            capacityLimit: capacityType === 'limited' && !draft.capacityLimit.trim() ? (isRequest ? '1' : '5') : draft.capacityLimit,
+          })}
+          options={capacityTypeOptions}
+          columns={2}
+        />
+        {draft.capacityType === 'limited' && (
+          <DetailTextInput
+            value={draft.capacityLimit}
+            onChange={(capacityLimit) => update({ capacityLimit: capacityLimit.replace(/[^0-9]/g, '') })}
+            placeholder="목표 인원"
+            inputMode="numeric"
+            suffix="명"
+            error={errors.capacityLimit}
+          />
         )}
       </section>
 
@@ -2019,6 +2056,12 @@ function validateEditDraft(draft: DetailEditDraft, postType: 'request' | 'offer'
   if (postType === 'request' && draft.deadlineOption === 'custom' && !draft.customDeadlineText.trim()) {
     errors.customDeadlineText = requiredFieldMessage
   }
+  if (draft.capacityType === 'limited') {
+    const capacityLimit = getCapacityLimitValue(draft.capacityLimit)
+    if (!capacityLimit) errors.capacityLimit = '목표 인원을 입력해주세요.'
+    else if (capacityLimit < 1) errors.capacityLimit = '1명 이상 입력해주세요.'
+    else if (capacityLimit > 999) errors.capacityLimit = '999명 이하로 입력해주세요.'
+  }
   if (postType === 'offer') {
     if (!draft.availableTimeOption) errors.availableTimeOption = requiredFieldMessage
     if (draft.availableTimeOption === 'custom' && !draft.customAvailableTime.trim()) {
@@ -2027,12 +2070,6 @@ function validateEditDraft(draft: DetailEditDraft, postType: 'request' | 'offer'
     } else if (draft.availableTimeOption === 'custom' && draft.customAvailableTime.trim().length > availableTimeMaxLength) {
       errors.availableTimeOption = `가능 시간은 ${availableTimeMaxLength}자 이내로 입력해주세요.`
       errors.customAvailableTime = `가능 시간은 ${availableTimeMaxLength}자 이내로 입력해주세요.`
-    }
-    if (draft.capacityType === 'limited') {
-      const capacityLimit = getCapacityLimitValue(draft.capacityLimit)
-      if (!capacityLimit) errors.capacityLimit = '목표 인원을 입력해주세요.'
-      else if (capacityLimit < 1) errors.capacityLimit = '1명 이상 입력해주세요.'
-      else if (capacityLimit > 999) errors.capacityLimit = '999명 이하로 입력해주세요.'
     }
     if (draft.portfolioUrl.trim() && !isValidUrl(draft.portfolioUrl.trim())) {
       errors.portfolioUrl = '올바른 링크를 입력해주세요.'

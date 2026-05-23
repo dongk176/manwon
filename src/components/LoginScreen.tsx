@@ -275,6 +275,7 @@ export function LoginScreen() {
         </button>
 
         <div className="auth-brand auth-brand-with-logo" aria-label="뭐든해줌">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img className="auth-brand-logo" src="/brand/launch-logo.png" width={64} height={64} alt="" aria-hidden="true" />
           <span>뭐든해줌</span>
         </div>

@@ -42,6 +42,11 @@ export interface ApiTaskPost {
   latestDealId?: string | null
   latestDealStatus?: 'pending' | 'accepted' | 'in_progress' | 'complete_requested' | 'completed' | 'cancelled' | 'disputed' | null
   latestDealCancelledBy?: string | null
+  viewerApplicationId?: string | null
+  viewerApplicationStatus?: 'applied' | 'accepted' | 'rejected' | 'cancelled' | null
+  viewerConversationId?: string | null
+  viewerDealId?: string | null
+  viewerDealStatus?: 'pending' | 'accepted' | 'in_progress' | 'complete_requested' | 'completed' | 'cancelled' | 'disputed' | null
   addressText: string | null
   region1depth?: string | null
   region2depth?: string | null
@@ -154,6 +159,20 @@ export interface ApiConversation {
   hasChatAfterStarted?: boolean | null
   myReviewId?: string | null
   unreadCount?: number | null
+}
+
+export interface ApiUserReview {
+  id: string
+  dealId?: string | null
+  reviewerId: string
+  revieweeId: string
+  reviewerNickname?: string | null
+  reviewerAvatarUrl?: string | null
+  reviewerDefaultAvatarKey?: string | null
+  rating: number
+  content?: string | null
+  createdAt: string
+  postTitle?: string | null
 }
 
 export interface ActivityProfile {
@@ -455,12 +474,52 @@ export async function uploadImageFile(file: File, target: 'task-post' | 'profile
 
 export function getDisplayImageUrl(image: { imageUrl?: string | null; storageKey?: string | null } | null | undefined) {
   if (!image) return undefined
-  if (image.storageKey) return `/api/uploads/image?key=${encodeURIComponent(image.storageKey)}`
-  return image.imageUrl ?? undefined
+  if (image.storageKey) return getStorageImageProxyUrl(image.storageKey)
+  return normalizeDisplayImageUrl(image.imageUrl)
+}
+
+export function normalizeDisplayImageUrl(value?: string | null) {
+  const imageUrl = value?.trim()
+  if (!imageUrl) return undefined
+
+  const storageKey = inferImageStorageKey(imageUrl)
+  if (storageKey) return getStorageImageProxyUrl(storageKey)
+  return imageUrl
+}
+
+function getStorageImageProxyUrl(storageKey: string) {
+  return `/api/uploads/image?key=${encodeURIComponent(storageKey)}`
+}
+
+function inferImageStorageKey(value: string) {
+  const directKey = normalizeImageStorageKey(value)
+  if (directKey) return directKey
+
+  try {
+    const url = new URL(value)
+    return normalizeImageStorageKey(url.pathname)
+  } catch {
+    return null
+  }
+}
+
+function normalizeImageStorageKey(value: string) {
+  const normalized = value.replace(/^\/+/, '')
+  const keyStart = normalized.indexOf('manwon/')
+  if (keyStart < 0) return null
+  const key = normalized.slice(keyStart)
+  if (!key.startsWith('manwon/')) return null
+  if (key.includes('..')) return null
+  if (!/\.(jpe?g|png|webp)$/i.test(key)) return null
+  return key
 }
 
 export async function fetchConversations() {
   return apiFetch<ApiConversation[]>('/api/conversations')
+}
+
+export async function fetchUserReviews(userId: string) {
+  return apiFetch<ApiUserReview[]>(`/api/users/${encodeURIComponent(userId)}/reviews`)
 }
 
 export async function startConversationFromPost(postId: string, profileId: string, message?: string) {

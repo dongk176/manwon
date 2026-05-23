@@ -20,7 +20,7 @@ import {
   WalletCards,
 } from 'lucide-react'
 import type { IllustrationType, UserProfile } from '@/data/mockData'
-import { getDefaultProfileImageByGender } from '@/lib/manwonApi'
+import { getDefaultProfileImageByGender, normalizeDisplayImageUrl } from '@/lib/manwonApi'
 
 const iconMap = {
   all: Grid2X2,
@@ -68,7 +68,7 @@ interface AvatarProps {
 
 export function Avatar({ user, size = 'md', online = false }: AvatarProps) {
   const initial = user.name.slice(0, 1)
-  const imageUrl = user.avatarUrl?.trim() || ''
+  const imageUrl = normalizeDisplayImageUrl(user.avatarUrl) || ''
   const defaultAvatarKey = user.defaultAvatarKey?.trim() || ''
   const fallbackImageUrl = !imageUrl && !defaultAvatarKey ? getDefaultProfileImageByGender(user.gender) ?? '' : ''
   const displayImageUrl = imageUrl || fallbackImageUrl
