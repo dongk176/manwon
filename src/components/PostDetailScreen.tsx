@@ -20,7 +20,7 @@ import {
   type RequestPost,
   type UserProfile,
 } from '@/data/mockData'
-import { LocationPermissionSheet, NeighborhoodSelectSheet } from '@/components/location/LocationSheets'
+import { currentLocationLookupEnabled, LocationPermissionSheet, NeighborhoodSelectSheet } from '@/components/location/LocationSheets'
 import { requestIOSPushPermission } from '@/components/NativeIOSBridge'
 import {
   addFavorite,
@@ -1448,10 +1448,12 @@ function PostDetailEditForm({
               error={errors.location}
               onClick={onOpenNeighborhoodSheet}
             />
-            <button className="location-use-button" type="button" onClick={onOpenLocationPrompt} disabled={locationBusy || permissionState === 'unavailable'}>
-              <Navigation size={16} />
-              {locationBusy ? '위치 확인 중' : '현재 위치 사용'}
-            </button>
+            {currentLocationLookupEnabled && (
+              <button className="location-use-button" type="button" onClick={onOpenLocationPrompt} disabled={locationBusy || permissionState === 'unavailable'}>
+                <Navigation size={16} />
+                {locationBusy ? '위치 확인 중' : '현재 위치 사용'}
+              </button>
+            )}
             {locationError && <p className="field-error">{locationError}</p>}
           </>
         )}

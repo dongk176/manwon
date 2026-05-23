@@ -50,7 +50,7 @@ interface KakaoKeywordDocument {
 type KakaoSearchMode = 'region' | 'address'
 
 function getKakaoRestKey() {
-  const key = process.env.KAKAO_REST_API_KEY
+  const key = process.env.KAKAO_LOCAL_REST_API_KEY ?? process.env.KAKAO_REST_API_KEY
   if (!key) throw new Error('KAKAO_LOCAL_UNAVAILABLE')
   return key
 }

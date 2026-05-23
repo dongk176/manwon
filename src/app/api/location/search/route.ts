@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { z } from 'zod'
+import { searchLocalRegions } from '@/data/koreaRegions'
 import { ok, toHttpError } from '@/server/http'
 import { searchKakaoNeighborhoods } from '@/server/kakaoLocal'
 
@@ -13,7 +14,14 @@ const querySchema = z.object({
 export async function GET(request: NextRequest) {
   try {
     const input = querySchema.parse(Object.fromEntries(request.nextUrl.searchParams.entries()))
-    return ok(await searchKakaoNeighborhoods(input.q, input.mode))
+    const localResults = searchLocalRegions(input.q)
+
+    if (input.mode === 'region' || localResults.length > 0) {
+      return ok(localResults)
+    }
+
+    const kakaoResults = await searchKakaoNeighborhoods(input.q, input.mode)
+    return ok(kakaoResults.length > 0 ? kakaoResults : localResults)
   } catch (error) {
     return toHttpError(error)
   }

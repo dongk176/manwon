@@ -16,6 +16,8 @@ import {
 
 export type LocationPromptContext = 'nearby' | 'request' | 'offer'
 
+export const currentLocationLookupEnabled = false
+
 const promptCopy: Record<LocationPromptContext, { title: string; description: string; allow: string; manual: string }> = {
   nearby: {
     title: '내 주변 부탁을 찾아볼까요?',
@@ -56,9 +58,10 @@ export function LocationPermissionSheet({
 }) {
   const copy = promptCopy[context]
   const denied = permissionState === 'denied'
-  const shouldUseNativePermissionDirectly = isNativeAppShell() && permissionState !== 'denied' && permissionState !== 'unavailable'
+  const shouldUseNativePermissionDirectly = currentLocationLookupEnabled && isNativeAppShell() && permissionState !== 'denied' && permissionState !== 'unavailable'
   const didRequestNativePermission = useRef(false)
   const primaryLabel = denied ? '설정에서 허용' : copy.allow
+  const description = currentLocationLookupEnabled ? copy.description : '동네를 직접 검색해서 선택해주세요.'
   const deniedDescription = context === 'offer'
     ? '위치 사용 동의가 꺼져 있어요. 설정에서 위치 권한을 켜거나 동네를 직접 선택해주세요.'
     : '위치 권한이 꺼져 있어요. 동네를 직접 선택하거나 설정에서 위치 권한을 허용해주세요.'
@@ -90,13 +93,15 @@ export function LocationPermissionSheet({
           <MapPin size={23} />
         </span>
         <h2 id="location-prompt-title">{copy.title}</h2>
-        <p>{denied ? deniedDescription : copy.description}</p>
+        <p>{denied && currentLocationLookupEnabled ? deniedDescription : description}</p>
         {error && <p className="location-sheet-error">{error}</p>}
         <div className="location-sheet-actions">
-          <button className="is-primary" type="button" onClick={handlePrimaryClick} disabled={busy || permissionState === 'unavailable'}>
-            <Navigation size={17} />
-            {busy ? '위치 확인 중' : primaryLabel}
-          </button>
+          {currentLocationLookupEnabled && (
+            <button className="is-primary" type="button" onClick={handlePrimaryClick} disabled={busy || permissionState === 'unavailable'}>
+              <Navigation size={17} />
+              {busy ? '위치 확인 중' : primaryLabel}
+            </button>
+          )}
           <button type="button" onClick={onManual}>
             {copy.manual}
           </button>
@@ -173,11 +178,11 @@ export function NeighborhoodSelectSheet({
   }, [query, searchMode])
 
   const title = searchMode === 'address' ? '주소를 선택해주세요' : '동네를 선택해주세요'
-  const placeholder = searchMode === 'address' ? '주소나 건물명을 검색해보세요' : '동네명을 검색해보세요'
-  const shortLabel = searchMode === 'address' ? '지도 핀 위치' : undefined
+  const placeholder = searchMode === 'address' ? '동네명이나 주소를 검색해보세요' : '동네명을 검색해보세요'
+  const shortLabel = searchMode === 'address' ? '선택 위치' : undefined
   const searchingText = searchMode === 'address' ? '주소를 검색하는 중입니다.' : '동네를 검색하는 중입니다.'
   const errorText = searchMode === 'address' ? '주소 검색에 실패했습니다.' : '동네 검색에 실패했습니다.'
-  const showCurrentLocationRow = showCurrentLocation ?? searchMode === 'address'
+  const showCurrentLocationRow = currentLocationLookupEnabled && (showCurrentLocation ?? searchMode === 'address')
   const deniedText = searchMode === 'address'
     ? '위치 권한이 꺼져 있어요. 주소를 검색하거나 설정에서 위치 권한을 허용해주세요.'
     : '위치 권한이 꺼져 있어요. 동네를 직접 선택하거나 설정에서 위치 권한을 허용해주세요.'
@@ -252,15 +257,15 @@ export function NeighborhoodSelectSheet({
               </button>
             )}
             {error && <p className="location-sheet-error">{error}</p>}
-            {permissionState === 'denied' && <p className="location-sheet-error">{deniedText}</p>}
+            {currentLocationLookupEnabled && permissionState === 'denied' && <p className="location-sheet-error">{deniedText}</p>}
             <div className="neighborhood-results">
               {query.trim().length < 2 && (
                 <>
                   {searchMode === 'address' ? (
                     <>
-                      <SampleRegion label="서울 마포구 성산로" onClick={() => handleQueryChange('서울 마포구 성산로')} />
-                      <SampleRegion label="서울 강남구 테헤란로" onClick={() => handleQueryChange('서울 강남구 테헤란로')} />
-                      <SampleRegion label="역삼역" onClick={() => handleQueryChange('역삼역')} />
+                      <SampleRegion label="서울 강남구 역삼동" onClick={() => handleQueryChange('서울 강남구 역삼동')} />
+                      <SampleRegion label="서울 마포구 합정동" onClick={() => handleQueryChange('서울 마포구 합정동')} />
+                      <SampleRegion label="서울 성동구 성수동1가" onClick={() => handleQueryChange('서울 성동구 성수동1가')} />
                     </>
                   ) : (
                     <>
@@ -303,7 +308,7 @@ export function NeighborhoodSelectSheet({
           </button>
         )}
       </div>
-      {showCurrentPrompt && (
+      {currentLocationLookupEnabled && showCurrentPrompt && (
         <LocationPermissionSheet
           context={promptContext ?? (searchMode === 'address' ? 'request' : 'nearby')}
           permissionState={permissionState}

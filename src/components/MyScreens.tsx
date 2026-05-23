@@ -337,7 +337,7 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
   const completedCount = getNumber(myPage ?? {}, 'completedCount')
   const favoriteCount = getNumber(myPage ?? {}, 'favoriteCount', activity.favorites.length)
   const receivedReviewCount = getNumber(myPage ?? {}, 'receivedReviewCount', activity.receivedReviews.length)
-  const phoneVerified = myPage?.phoneVerified === true
+  const isAuthenticated = Boolean(getString(myPage ?? {}, 'id'))
 
   if (loadState === 'loading') {
     return withWithdrawOverlay(
@@ -385,9 +385,9 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
       </MenuGroup>
 
       <MenuGroup>
-        {!phoneVerified && <MenuItem icon={<LogIn />} title="로그인 / 회원가입" badge="권장" onClick={() => router.push('/login?next=/my')} />}
+        {!isAuthenticated && <MenuItem icon={<LogIn />} title="로그인 / 회원가입" badge="권장" onClick={() => router.push('/login?next=/my')} />}
         <MenuItem icon={<Ban />} title="차단/신고 관리" onClick={() => router.push('/my/blocks')} muted />
-        {phoneVerified && <MenuItem icon={<LogOut />} title={authBusy ? '로그아웃 중' : '로그아웃'} onClick={() => void handleLogout()} muted />}
+        {isAuthenticated && <MenuItem icon={<LogOut />} title={authBusy ? '로그아웃 중' : '로그아웃'} onClick={() => void handleLogout()} muted />}
       </MenuGroup>
 
       <button className="customer-center" type="button" onClick={() => router.push('/my/support')}>
