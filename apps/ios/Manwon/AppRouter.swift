@@ -83,7 +83,7 @@ final class AppRouter: ObservableObject {
     }
 
     @discardableResult
-    func finishKakaoLogin(_ session: SessionState, nextPath: String?) -> String {
+    func finishSocialLogin(_ session: SessionState, nextPath: String?) -> String {
         let destination = normalizeNextPath(nextPath)
         updateSession(session)
 

@@ -61,6 +61,8 @@ export async function signInWithKakao(profile: KakaoProfile) {
     insert into ${sql(schema)}.users (
       kakao_id,
       kakao_email,
+      kakao_nickname,
+      kakao_avatar_url,
       nickname,
       display_name,
       avatar_url,
@@ -71,18 +73,31 @@ export async function signInWithKakao(profile: KakaoProfile) {
     values (
       ${profile.kakaoId},
       ${profile.email},
+      ${profile.nickname},
+      ${profile.avatarUrl},
       ${displayName},
       ${displayName},
       ${profile.avatarUrl},
-      true,
-      now(),
+      false,
+      null,
       now()
     )
     on conflict (kakao_id) where withdrawn_at is null do update
     set kakao_email = excluded.kakao_email,
-        avatar_url = coalesce(excluded.avatar_url, ${sql(schema)}.users.avatar_url),
-        phone_verified = true,
-        phone_verified_at = coalesce(${sql(schema)}.users.phone_verified_at, now()),
+        kakao_nickname = excluded.kakao_nickname,
+        kakao_avatar_url = excluded.kakao_avatar_url,
+        nickname = case
+          when ${sql(schema)}.users.profile_onboarding_completed then ${sql(schema)}.users.nickname
+          else coalesce(excluded.kakao_nickname, ${sql(schema)}.users.nickname)
+        end,
+        display_name = case
+          when ${sql(schema)}.users.profile_onboarding_completed then ${sql(schema)}.users.display_name
+          else coalesce(excluded.display_name, ${sql(schema)}.users.display_name)
+        end,
+        avatar_url = case
+          when ${sql(schema)}.users.profile_onboarding_completed then ${sql(schema)}.users.avatar_url
+          else coalesce(excluded.kakao_avatar_url, ${sql(schema)}.users.avatar_url)
+        end,
         last_login_at = now(),
         updated_at = now()
     returning *

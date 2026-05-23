@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { ArrowLeft, Check, ChevronRight, X } from 'lucide-react'
-import { isManwonIOS, requestNativeKakaoLogin } from '@/components/NativeIOSBridge'
+import { isManwonIOS, requestNativeAppleLogin, requestNativeKakaoLogin } from '@/components/NativeIOSBridge'
 import { BrandButton } from '@/components/ui/Common'
 import { documentMeta, legalPages } from '@/lib/legalDocuments'
 import {
@@ -102,15 +102,23 @@ function formatPhoneNumber(value: string) {
 export function LoginScreen() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const hasKakaoOAuthError = searchParams.get('oauth_error') === 'kakao'
+  const oauthError = searchParams.get('oauth_error')
+  const hasKakaoOAuthError = oauthError === 'kakao'
+  const hasAppleOAuthError = oauthError === 'apple'
   const [methodMode, setMethodMode] = useState<LoginMethodMode>('choices')
   const [loginId, setLoginId] = useState('')
   const [loginIdInputHint, setLoginIdInputHint] = useState('')
   const [password, setPassword] = useState('')
   const [recoverySheet, setRecoverySheet] = useState<RecoverySheetMode | null>(null)
-  const [status, setStatus] = useState<'idle' | 'checking' | 'error'>(hasKakaoOAuthError ? 'error' : 'idle')
-  const [oauthStatus, setOauthStatus] = useState<'idle' | 'kakao'>('idle')
-  const [message, setMessage] = useState(hasKakaoOAuthError ? '카카오 로그인에 실패했어요. 잠시 후 다시 시도해주세요.' : '')
+  const [status, setStatus] = useState<'idle' | 'checking' | 'error'>(hasKakaoOAuthError || hasAppleOAuthError ? 'error' : 'idle')
+  const [oauthStatus, setOauthStatus] = useState<'idle' | 'kakao' | 'apple'>('idle')
+  const [message, setMessage] = useState(
+    hasKakaoOAuthError
+      ? '카카오 로그인에 실패했어요. 잠시 후 다시 시도해주세요.'
+      : hasAppleOAuthError
+        ? 'Apple 로그인에 실패했어요. 잠시 후 다시 시도해주세요.'
+        : '',
+  )
   const requestedNextPath = normalizeNextPath(searchParams.get('next'))
 
   const loginIdHint = loginIdInputHint || (loginId.length > 0 && loginId.length < LOGIN_ID_MIN_LENGTH ? `${LOGIN_ID_MIN_LENGTH}자 이상` : '')
@@ -120,7 +128,7 @@ export function LoginScreen() {
   useEffect(() => {
     if (!isManwonIOS()) return undefined
 
-    const handleKakaoLogin = (event: WindowEventMap['manwonKakaoLogin']) => {
+    const handleSocialLogin = (event: WindowEventMap['manwonKakaoLogin'] | WindowEventMap['manwonAppleLogin'], providerLabel: string) => {
       if (event.detail.ok) {
         setOauthStatus('idle')
         setStatus('idle')
@@ -132,11 +140,18 @@ export function LoginScreen() {
 
       setOauthStatus('idle')
       setStatus('error')
-      setMessage(event.detail.error || '카카오 로그인에 실패했어요. 잠시 후 다시 시도해주세요.')
+      setMessage(event.detail.error || `${providerLabel} 로그인에 실패했어요. 잠시 후 다시 시도해주세요.`)
     }
 
+    const handleKakaoLogin = (event: WindowEventMap['manwonKakaoLogin']) => handleSocialLogin(event, '카카오')
+    const handleAppleLogin = (event: WindowEventMap['manwonAppleLogin']) => handleSocialLogin(event, 'Apple')
+
     window.addEventListener('manwonKakaoLogin', handleKakaoLogin)
-    return () => window.removeEventListener('manwonKakaoLogin', handleKakaoLogin)
+    window.addEventListener('manwonAppleLogin', handleAppleLogin)
+    return () => {
+      window.removeEventListener('manwonKakaoLogin', handleKakaoLogin)
+      window.removeEventListener('manwonAppleLogin', handleAppleLogin)
+    }
   }, [requestedNextPath, router])
 
   function completeLogin(profile: Record<string, unknown>) {
@@ -155,6 +170,7 @@ export function LoginScreen() {
   function loginWithKakao() {
     if (oauthStatus !== 'idle') return
     setOauthStatus('kakao')
+    setStatus('idle')
     setMessage('')
 
     if (requestNativeKakaoLogin(requestedNextPath)) return
@@ -176,9 +192,17 @@ export function LoginScreen() {
     setMessage('')
   }
 
-  function handleAppleLoginPlaceholder() {
+  function loginWithApple() {
+    if (oauthStatus !== 'idle') return
+    setOauthStatus('apple')
+    setStatus('idle')
+    setMessage('')
+
+    if (requestNativeAppleLogin(requestedNextPath)) return
+
+    setOauthStatus('idle')
     setStatus('error')
-    setMessage('Apple 로그인은 앱에서 사용할 수 있도록 준비 중이에요.')
+    setMessage('Apple 로그인은 iOS 앱에서 사용할 수 있어요.')
   }
 
   async function loginWithCredentials() {
@@ -227,9 +251,9 @@ export function LoginScreen() {
               <span className="auth-button-mark" aria-hidden="true">K</span>
               {oauthStatus === 'kakao' ? '카카오로 이동 중' : '카카오로 로그인'}
             </button>
-            <button className="auth-social-button is-apple auth-ios-only-button" type="button" onClick={handleAppleLoginPlaceholder}>
+            <button className="auth-social-button is-apple auth-ios-only-button" type="button" disabled={oauthStatus !== 'idle'} onClick={loginWithApple}>
               <span className="auth-button-mark" aria-hidden="true"></span>
-              Apple로 로그인
+              {oauthStatus === 'apple' ? 'Apple로 이동 중' : 'Apple로 로그인'}
             </button>
             <button className="auth-credential-choice-button" type="button" onClick={showCredentialLogin}>
               아이디 비밀번호로 로그인

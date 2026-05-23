@@ -27,6 +27,7 @@ declare global {
   }
   interface WindowEventMap {
     manwonKakaoLogin: CustomEvent<ManwonKakaoLoginEventDetail>
+    manwonAppleLogin: CustomEvent<ManwonAppleLoginEventDetail>
   }
 }
 
@@ -36,6 +37,7 @@ export type ManwonKakaoLoginEventDetail = {
   error?: string
   destinationPath?: string
 }
+export type ManwonAppleLoginEventDetail = ManwonKakaoLoginEventDetail
 
 export function isManwonIOS() {
   return typeof navigator !== 'undefined' && navigator.userAgent.includes('ManwonIOS')
@@ -75,6 +77,15 @@ export function requestNativeKakaoLogin(next?: string | null) {
   if (typeof window === 'undefined' || !isManwonIOS()) return false
   return postNativeMessage({
     type: 'kakaoLogin',
+    next: next ?? undefined,
+    path: routePathFromUrl(),
+  })
+}
+
+export function requestNativeAppleLogin(next?: string | null) {
+  if (typeof window === 'undefined' || !isManwonIOS()) return false
+  return postNativeMessage({
+    type: 'appleLogin',
     next: next ?? undefined,
     path: routePathFromUrl(),
   })

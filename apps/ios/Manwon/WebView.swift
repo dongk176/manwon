@@ -47,7 +47,10 @@ struct WebTabView: View {
                     }
                 },
                 onKakaoLoginSuccess: { session, nextPath in
-                    router.finishKakaoLogin(session, nextPath: nextPath)
+                    router.finishSocialLogin(session, nextPath: nextPath)
+                },
+                onAppleLoginSuccess: { session, nextPath in
+                    router.finishSocialLogin(session, nextPath: nextPath)
                 },
                 onStartLoading: {
                     router.webOverlayDidChange(isPresented: false, for: tab)
@@ -145,6 +148,7 @@ struct NativeWebView: UIViewRepresentable {
     let onOverlayChange: (Bool) -> Void
     let onScrollTopChange: (Bool) -> Void
     let onKakaoLoginSuccess: (SessionState, String?) -> String
+    let onAppleLoginSuccess: (SessionState, String?) -> String
     let onStartLoading: () -> Void
     let onFinishLoading: () -> Void
     let onError: () -> Void
@@ -158,6 +162,7 @@ struct NativeWebView: UIViewRepresentable {
             onOverlayChange: onOverlayChange,
             onScrollTopChange: onScrollTopChange,
             onKakaoLoginSuccess: onKakaoLoginSuccess,
+            onAppleLoginSuccess: onAppleLoginSuccess,
             onStartLoading: onStartLoading,
             onFinishLoading: onFinishLoading,
             onError: onError
@@ -199,6 +204,7 @@ struct NativeWebView: UIViewRepresentable {
         context.coordinator.onOverlayChange = onOverlayChange
         context.coordinator.onScrollTopChange = onScrollTopChange
         context.coordinator.onKakaoLoginSuccess = onKakaoLoginSuccess
+        context.coordinator.onAppleLoginSuccess = onAppleLoginSuccess
         context.coordinator.onStartLoading = onStartLoading
         context.coordinator.onFinishLoading = onFinishLoading
         context.coordinator.onError = onError
@@ -210,6 +216,7 @@ struct NativeWebView: UIViewRepresentable {
         uiView.uiDelegate = nil
         uiView.configuration.userContentController.removeScriptMessageHandler(forName: "manwonNative")
         coordinator.cancelKakaoLogin()
+        coordinator.cancelAppleLogin()
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, UIScrollViewDelegate, CLLocationManagerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate, PHPickerViewControllerDelegate {
@@ -220,6 +227,7 @@ struct NativeWebView: UIViewRepresentable {
         var onOverlayChange: (Bool) -> Void
         var onScrollTopChange: (Bool) -> Void
         var onKakaoLoginSuccess: (SessionState, String?) -> String
+        var onAppleLoginSuccess: (SessionState, String?) -> String
         var onStartLoading: () -> Void
         var onFinishLoading: () -> Void
         var onError: () -> Void
@@ -232,6 +240,7 @@ struct NativeWebView: UIViewRepresentable {
         private var pendingLocationRequestId: String?
         private var locationTimeoutTask: Task<Void, Never>?
         private var kakaoLoginTask: Task<Void, Never>?
+        private var appleLoginTask: Task<Void, Never>?
         private var filePickerCompletion: (([URL]?) -> Void)?
 
         init(
@@ -242,6 +251,7 @@ struct NativeWebView: UIViewRepresentable {
             onOverlayChange: @escaping (Bool) -> Void,
             onScrollTopChange: @escaping (Bool) -> Void,
             onKakaoLoginSuccess: @escaping (SessionState, String?) -> String,
+            onAppleLoginSuccess: @escaping (SessionState, String?) -> String,
             onStartLoading: @escaping () -> Void,
             onFinishLoading: @escaping () -> Void,
             onError: @escaping () -> Void
@@ -253,6 +263,7 @@ struct NativeWebView: UIViewRepresentable {
             self.onOverlayChange = onOverlayChange
             self.onScrollTopChange = onScrollTopChange
             self.onKakaoLoginSuccess = onKakaoLoginSuccess
+            self.onAppleLoginSuccess = onAppleLoginSuccess
             self.onStartLoading = onStartLoading
             self.onFinishLoading = onFinishLoading
             self.onError = onError
@@ -310,6 +321,11 @@ struct NativeWebView: UIViewRepresentable {
                 return
             }
 
+            if type == "appleLogin" {
+                startAppleLogin(nextPath: normalizeNextPath(payload["next"] as? String))
+                return
+            }
+
             if type == "overlayState" {
                 let isPresented = (payload["isPresented"] as? Bool) ?? false
                 onOverlayChange(isPresented)
@@ -352,6 +368,11 @@ struct NativeWebView: UIViewRepresentable {
             kakaoLoginTask = nil
         }
 
+        func cancelAppleLogin() {
+            appleLoginTask?.cancel()
+            appleLoginTask = nil
+        }
+
         private func startKakaoLogin(nextPath: String?) {
             guard kakaoLoginTask == nil else { return }
             kakaoLoginTask = Task { @MainActor [weak self] in
@@ -362,9 +383,26 @@ struct NativeWebView: UIViewRepresentable {
                     let accessToken = try await KakaoLoginManager.shared.loginWithKakaoTalk()
                     let session = try await APIClient.shared.signInWithKakaoNative(accessToken: accessToken)
                     let destinationPath = self.onKakaoLoginSuccess(session, nextPath)
-                    self.dispatchKakaoLoginEvent(ok: true, destinationPath: destinationPath)
+                    self.dispatchSocialLoginEvent(name: "manwonKakaoLogin", ok: true, destinationPath: destinationPath)
                 } catch {
-                    self.dispatchKakaoLoginEvent(ok: false, error: error.localizedDescription)
+                    self.dispatchSocialLoginEvent(name: "manwonKakaoLogin", ok: false, error: error.localizedDescription)
+                }
+            }
+        }
+
+        private func startAppleLogin(nextPath: String?) {
+            guard appleLoginTask == nil else { return }
+            appleLoginTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                defer { self.appleLoginTask = nil }
+
+                do {
+                    let loginResult = try await AppleLoginManager.shared.loginWithApple()
+                    let session = try await APIClient.shared.signInWithAppleNative(identityToken: loginResult.identityToken, fullName: loginResult.fullName)
+                    let destinationPath = self.onAppleLoginSuccess(session, nextPath)
+                    self.dispatchSocialLoginEvent(name: "manwonAppleLogin", ok: true, destinationPath: destinationPath)
+                } catch {
+                    self.dispatchSocialLoginEvent(name: "manwonAppleLogin", ok: false, error: error.localizedDescription)
                 }
             }
         }
@@ -374,7 +412,7 @@ struct NativeWebView: UIViewRepresentable {
             return value
         }
 
-        private func dispatchKakaoLoginEvent(ok: Bool, error: String? = nil, destinationPath: String? = nil) {
+        private func dispatchSocialLoginEvent(name: String, ok: Bool, error: String? = nil, destinationPath: String? = nil) {
             let payload = KakaoLoginEventPayload(ok: ok, error: error, destinationPath: destinationPath)
             guard
                 let data = try? JSONEncoder().encode(payload),
@@ -382,7 +420,7 @@ struct NativeWebView: UIViewRepresentable {
             else {
                 return
             }
-            webView?.evaluateJavaScript("window.dispatchEvent(new CustomEvent('manwonKakaoLogin', { detail: \(json) }));")
+            webView?.evaluateJavaScript("window.dispatchEvent(new CustomEvent('\(name)', { detail: \(json) }));")
         }
 
         private func requestCurrentLocation(requestId: String) {

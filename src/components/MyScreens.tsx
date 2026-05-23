@@ -228,6 +228,13 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
   }
 
   const userGender = toProfileGender(myPage?.gender)
+  const profileDefaults = useMemo(() => {
+    const profile = myPage ?? {}
+    return {
+      nickname: getString(profile, 'nickname') || getString(profile, 'displayName'),
+      avatarUrl: getString(profile, 'avatarUrl') || null,
+    }
+  }, [myPage])
 
   if (section === 'activity' || section === 'requests' || section === 'helped') {
     return withWithdrawOverlay(
@@ -283,6 +290,7 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
       <ActivityProfilesScreen
         onboarding
         userGender={userGender}
+        profileDefaults={profileDefaults}
         onComplete={() => {
           router.replace('/')
           router.refresh()
@@ -527,6 +535,10 @@ type ActivityProfileFormState = {
 }
 
 type ProfileExtraModalKind = 'career' | 'link' | 'sample'
+type ActivityProfileDefaults = {
+  nickname?: string
+  avatarUrl?: string | null
+}
 
 const defaultProfileAvatars = ['default-1', 'default-2', 'default-3', 'default-4']
 
@@ -534,25 +546,40 @@ function ActivityProfilesScreen({
   onBack,
   onboarding = false,
   userGender,
+  profileDefaults,
   onComplete,
 }: {
   onBack?: () => void
   onboarding?: boolean
   userGender?: ActivityProfile['gender']
+  profileDefaults?: ActivityProfileDefaults
   onComplete?: () => void
 }) {
   const [profiles, setProfiles] = useState<ActivityProfile[]>([])
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>(onboarding ? 'ready' : 'loading')
   const [formState, setFormState] = useState<ActivityProfileFormState | null>(
-    onboarding ? createEmptyActivityProfileForm(userGender) : null,
+    onboarding ? createEmptyActivityProfileForm(userGender, profileDefaults) : null,
   )
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'error'>('idle')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [message, setMessage] = useState('')
   const activeFormState = useMemo(() => {
-    if (!formState || formState.id || formState.gender || !userGender) return formState
-    return { ...formState, gender: userGender }
-  }, [formState, userGender])
+    if (!formState) return formState
+
+    let nextForm = formState
+    if (onboarding && !nextForm.id && profileDefaults) {
+      const nickname = nextForm.nickname || normalizeProfileDefaultNickname(profileDefaults.nickname)
+      const avatarUrl = nextForm.avatarUrl ?? profileDefaults.avatarUrl ?? null
+      if (nickname !== nextForm.nickname || avatarUrl !== nextForm.avatarUrl) {
+        nextForm = { ...nextForm, nickname, avatarUrl }
+      }
+    }
+
+    if (!nextForm.id && !nextForm.gender && userGender) {
+      return { ...nextForm, gender: userGender }
+    }
+    return nextForm
+  }, [formState, onboarding, profileDefaults, userGender])
 
   useEffect(() => {
     if (onboarding) return
@@ -2213,12 +2240,17 @@ function toProfileGender(value: unknown): ActivityProfile['gender'] {
   return null
 }
 
-function createEmptyActivityProfileForm(gender?: ActivityProfile['gender']): ActivityProfileFormState {
+function normalizeProfileDefaultNickname(value?: string) {
+  const nickname = value?.trim().replace(/\s+/g, '').slice(0, 12) ?? ''
+  return nickname.length >= 2 ? nickname : ''
+}
+
+function createEmptyActivityProfileForm(gender?: ActivityProfile['gender'], defaults?: ActivityProfileDefaults): ActivityProfileFormState {
   return {
-    avatarUrl: null,
+    avatarUrl: defaults?.avatarUrl ?? null,
     defaultAvatarKey: defaultProfileAvatars[0],
     gender: gender ?? null,
-    nickname: '',
+    nickname: normalizeProfileDefaultNickname(defaults?.nickname),
     bio: '',
     activityMode: '',
     addressText: '',

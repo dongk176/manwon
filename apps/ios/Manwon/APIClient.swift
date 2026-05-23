@@ -45,6 +45,11 @@ private struct KakaoNativeLoginPayload: Encodable {
     let accessToken: String
 }
 
+private struct AppleNativeLoginPayload: Encodable {
+    let identityToken: String
+    let fullName: String?
+}
+
 private struct ReportPayload: Encodable {
     let targetUserId: String?
     let postId: String?
@@ -312,6 +317,33 @@ final class APIClient {
         let envelope = try decoder.decode(APIEnvelope<SessionState>.self, from: data)
         guard (200..<300).contains(httpResponse.statusCode), envelope.ok else {
             throw APIClientError.server(envelope.error ?? "카카오 로그인에 실패했습니다.")
+        }
+        guard envelope.data != nil else {
+            throw APIClientError.invalidResponse
+        }
+
+        await storeResponseCookies(from: httpResponse)
+        return try await fetchSession()
+    }
+
+    func signInWithAppleNative(identityToken: String, fullName: String?) async throws -> SessionState {
+        var request = URLRequest(url: AppConfig.webURL(path: "/api/auth/apple/native"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(AppleNativeLoginPayload(identityToken: identityToken, fullName: fullName))
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIClientError.invalidResponse
+        }
+        if httpResponse.statusCode == 401 {
+            throw APIClientError.unauthenticated
+        }
+
+        let envelope = try decoder.decode(APIEnvelope<SessionState>.self, from: data)
+        guard (200..<300).contains(httpResponse.statusCode), envelope.ok else {
+            throw APIClientError.server(envelope.error ?? "Apple 로그인에 실패했습니다.")
         }
         guard envelope.data != nil else {
             throw APIClientError.invalidResponse
