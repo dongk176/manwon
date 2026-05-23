@@ -4,10 +4,11 @@ import { useEffect, useMemo, useRef, useState, type TouchEvent as ReactTouchEven
 import { ChevronDown } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { setNativeOverlayState } from '@/components/NativeIOSBridge'
+import { PhoneVerificationOverlay } from '@/components/PhoneVerificationOverlay'
 import { NeighborhoodSelectSheet } from '@/components/location/LocationSheets'
 import { ActionGuideOverlay, AppHeader, CategoryScroller, ReportConfirmSheet, RequestCard, SegmentedControl } from '@/components/ui/Common'
 import { categoryDetailOptions, customCategoryDetailOption, getCategoryLabel, type RequestPost } from '@/data/mockData'
-import { createReport, fetchAuthSession, fetchMyPage, fetchTaskPosts, mapApiPostToRequestPost, saveMyLocationPreference, type ApiTaskPost } from '@/lib/manwonApi'
+import { createReport, fetchAuthSession, fetchMyPage, fetchTaskPosts, isPhoneVerificationRequired, mapApiPostToRequestPost, saveMyLocationPreference, type ApiTaskPost } from '@/lib/manwonApi'
 import {
   formatRegionFull,
   formatRegionShort,
@@ -51,6 +52,7 @@ export function HomeScreen() {
   const [reportSheetError, setReportSheetError] = useState('')
   const [reportMessage, setReportMessage] = useState('')
   const [reportError, setReportError] = useState(false)
+  const [reportVerificationInput, setReportVerificationInput] = useState<{ reason: string; description: string } | null>(null)
   const [guideOverlay, setGuideOverlay] = useState<{ title: string; description: string; note: string } | null>(null)
   const regionMenuRef = useRef<HTMLDivElement | null>(null)
   const feedScrollRef = useRef<HTMLDivElement | null>(null)
@@ -311,6 +313,12 @@ export function HomeScreen() {
         note: '신고 내역은 마이페이지 차단/신고 관리에서 확인할 수 있습니다.',
       })
     } catch (error) {
+      if (isPhoneVerificationRequired(error)) {
+        setReportError(false)
+        setReportSheetError('')
+        setReportVerificationInput(input)
+        return
+      }
       setReportError(true)
       setReportSheetError(error instanceof Error ? error.message : '신고에 실패했습니다.')
     } finally {
@@ -448,6 +456,16 @@ export function HomeScreen() {
             setReportSheetError('')
           }}
           onSubmit={(input) => void reportPost(input)}
+        />
+      )}
+      {reportVerificationInput && (
+        <PhoneVerificationOverlay
+          onClose={() => setReportVerificationInput(null)}
+          onVerified={() => {
+            const input = reportVerificationInput
+            setReportVerificationInput(null)
+            if (input) void reportPost(input)
+          }}
         />
       )}
       {guideOverlay && (

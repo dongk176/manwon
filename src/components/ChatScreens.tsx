@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/Common'
 import { Avatar } from '@/components/ui/Illustration'
 import { UserProfileSheet } from '@/components/UserProfileSheet'
+import { PhoneVerificationOverlay } from '@/components/PhoneVerificationOverlay'
 import {
   chats as mockChats,
   getRequest,
@@ -31,6 +32,7 @@ import {
   createReport,
   createReview,
   getCurrentUserId,
+  isPhoneVerificationRequired,
   scheduleReviewReminder,
   sendConversationMessage,
   updateApplicationStatus,
@@ -241,6 +243,7 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
   const [showReportSheet, setShowReportSheet] = useState(false)
   const [showBlockConfirm, setShowBlockConfirm] = useState(false)
   const [showReviewPrompt, setShowReviewPrompt] = useState(false)
+  const [reportVerificationInput, setReportVerificationInput] = useState<{ reason: string; description: string; blockAfterReport: boolean } | null>(null)
   const [messages, setMessages] = useState<UiMessage[]>([])
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [moderationStatus, setModerationStatus] = useState('')
@@ -468,6 +471,11 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
       setShowMore(false)
       setModerationStatus(input.blockAfterReport ? '신고를 접수하고 사용자를 차단했습니다.' : '신고가 접수되었습니다.')
     } catch (error) {
+      if (isPhoneVerificationRequired(error)) {
+        setModerationError('')
+        setReportVerificationInput(input)
+        return
+      }
       setModerationError(error instanceof Error ? error.message : '신고를 접수하지 못했습니다.')
     }
   }
@@ -586,6 +594,16 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
           error={moderationError}
           onClose={() => setShowReportSheet(false)}
           onSubmit={(input) => void submitReport(input)}
+        />
+      )}
+      {reportVerificationInput && (
+        <PhoneVerificationOverlay
+          onClose={() => setReportVerificationInput(null)}
+          onVerified={() => {
+            const input = reportVerificationInput
+            setReportVerificationInput(null)
+            if (input) void submitReport(input)
+          }}
         />
       )}
       {showProfileSheet && <UserProfileSheet user={chat.user} onClose={() => setShowProfileSheet(false)} />}
@@ -858,6 +876,7 @@ function TradeActionPanel({
 }) {
   const [pendingAction, setPendingAction] = useState<TradeActionId | null>(null)
   const [confirmAction, setConfirmAction] = useState<TradeActionConfirmation | null>(null)
+  const [phoneVerificationAction, setPhoneVerificationAction] = useState<TradeActionConfirmation | null>(null)
   const [error, setError] = useState('')
   const busy = pendingAction !== null
   const postCreatorId = chat.postCreatorId ?? chat.requesterId
@@ -880,6 +899,11 @@ function TradeActionPanel({
       await action()
       await onRefresh()
     } catch (nextError) {
+      if (actionId === 'dispute' && isPhoneVerificationRequired(nextError)) {
+        setError('')
+        setPhoneVerificationAction({ id: actionId, action })
+        return
+      }
       setError(nextError instanceof Error ? nextError.message : '상태를 변경하지 못했습니다.')
     } finally {
       setPendingAction(null)
@@ -907,6 +931,16 @@ function TradeActionPanel({
             actionId={confirmAction.id}
             onCancel={() => setConfirmAction(null)}
             onConfirm={() => void confirmTradeAction()}
+          />
+        )}
+        {phoneVerificationAction && (
+          <PhoneVerificationOverlay
+            onClose={() => setPhoneVerificationAction(null)}
+            onVerified={() => {
+              const nextAction = phoneVerificationAction
+              setPhoneVerificationAction(null)
+              if (nextAction) void run(nextAction.id, nextAction.action)
+            }}
           />
         )}
       </>
@@ -1110,6 +1144,7 @@ function MessageComposer({
   const [body, setBody] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [showPhoneVerification, setShowPhoneVerification] = useState(false)
   const disabled = Boolean(disabledReason)
 
   async function send() {
@@ -1125,6 +1160,11 @@ function MessageComposer({
       await onSent(message, clientMessageId)
     } catch (nextError) {
       onFailed(clientMessageId)
+      if (isPhoneVerificationRequired(nextError)) {
+        setBody(text)
+        setShowPhoneVerification(true)
+        return
+      }
       setError(nextError instanceof Error ? nextError.message : '메시지를 보내지 못했습니다.')
     } finally {
       setBusy(false)
@@ -1159,6 +1199,12 @@ function MessageComposer({
           </>
         )}
       </div>
+      {showPhoneVerification && (
+        <PhoneVerificationOverlay
+          onClose={() => setShowPhoneVerification(false)}
+          onVerified={() => void send()}
+        />
+      )}
     </div>
   )
 }

@@ -1271,6 +1271,10 @@ export async function updateApplicationStatus(userId: string, applicationId: str
 }
 
 export async function updateDealStatus(userId: string, dealId: string, input: UpdateDealStatusInput) {
+  if (input.status === 'disputed') {
+    await assertPhoneVerified(userId)
+  }
+
   const sql = getSql()
   const canStoreCancelledBy = input.status === 'cancelled' && await hasDealsCancelledByColumn(sql)
   const timestampColumn = {
@@ -2459,6 +2463,8 @@ export async function withdrawMyAccount(userId: string) {
 }
 
 export async function createReport(userId: string, input: ReportInput) {
+  await assertPhoneVerified(userId)
+
   const sql = getSql()
   return sql.begin(async (tx) => {
     let targetUserId = input.targetUserId ?? null
@@ -2537,6 +2543,7 @@ export async function createReport(userId: string, input: ReportInput) {
 }
 
 export async function createSupportInquiry(userId: string, input: SupportInquiryInput) {
+  await assertPhoneVerified(userId)
   const sql = getSql()
   const descriptionLines = [`문의 유형: ${input.type}`]
   if (input.contact) descriptionLines.push(`답변 연락처: ${input.contact}`)

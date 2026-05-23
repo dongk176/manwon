@@ -239,6 +239,21 @@ export interface ApiMessage {
 const userIdStorageKey = 'manwon_user_id'
 const nicknameStorageKey = 'manwon_nickname'
 const accessTokenStorageKey = 'manwon_access_token'
+const phoneVerificationRequiredMessage = '휴대폰 인증 후 이용할 수 있습니다.'
+
+export class ApiError extends Error {
+  status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
+export function isPhoneVerificationRequired(error: unknown) {
+  return error instanceof ApiError && error.status === 403 && error.message === phoneVerificationRequiredMessage
+}
 
 export function getCurrentUserId() {
   if (typeof window === 'undefined') return null
@@ -323,7 +338,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   })
   const payload = (await response.json()) as { ok: boolean; data?: T; error?: string }
   if (!response.ok || !payload.ok) {
-    throw new Error(payload.error ?? 'API 요청에 실패했습니다.')
+    throw new ApiError(payload.error ?? 'API 요청에 실패했습니다.', response.status)
   }
   return payload.data as T
 }

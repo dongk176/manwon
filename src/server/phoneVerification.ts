@@ -246,13 +246,13 @@ export async function confirmPhoneOtp(userId: string, phoneInput: string, codeIn
 export async function assertPhoneVerified(userId: string) {
   const sql = getSql()
   const [user] = await sql`
-    select phone_verified
+    select phone, phone_verified
     from ${sql(schema)}.users
     where id = ${userId}
     limit 1
   `
 
-  if (!user?.phoneVerified) {
+  if (!user?.phone || !user.phoneVerified) {
     throw new HttpError('휴대폰 인증 후 이용할 수 있습니다.', 403)
   }
 }

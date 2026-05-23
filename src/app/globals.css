@@ -15,6 +15,118 @@
   --shadow-soft: 0 6px 18px rgba(15, 15, 15, 0.05);
 }
 
+.phone-verification-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.phone-verification-card {
+  position: relative;
+  width: min(100%, 380px);
+  border-radius: 20px;
+  background: #fff;
+  padding: 26px 22px 22px;
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.22);
+}
+
+.phone-verification-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 18px;
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.phone-verification-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  background: #fff7ed;
+  color: #f97316;
+}
+
+.phone-verification-card h2 {
+  margin: 18px 0 8px;
+  font-size: 20px;
+  line-height: 1.35;
+  letter-spacing: 0;
+  color: #111827;
+}
+
+.phone-verification-card p {
+  margin: 0 0 18px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #6b7280;
+}
+
+.phone-verification-card label {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #374151;
+}
+
+.phone-verification-card input {
+  width: 100%;
+  min-width: 0;
+  height: 48px;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 0 14px;
+  font-size: 16px;
+  color: #111827;
+  background: #fff;
+}
+
+.phone-verification-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 92px;
+  gap: 8px;
+}
+
+.phone-verification-row button,
+.phone-verification-submit {
+  height: 48px;
+  border: 0;
+  border-radius: 14px;
+  background: #111827;
+  color: #fff;
+  font-weight: 900;
+}
+
+.phone-verification-row button:disabled,
+.phone-verification-submit:disabled {
+  background: #d1d5db;
+  color: #fff;
+}
+
+.phone-verification-submit {
+  width: 100%;
+  margin-top: 18px;
+}
+
+.phone-verification-error {
+  margin: 12px 0 0 !important;
+  color: #dc2626 !important;
+  font-weight: 800;
+}
+
 * {
   box-sizing: border-box;
   scrollbar-width: none;
@@ -6073,6 +6185,28 @@ html.native-ios-shell [role="button"] {
   line-height: 1;
 }
 
+.auth-brand-with-logo {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  margin-top: 106px;
+}
+
+.auth-brand-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 58px;
+  height: 58px;
+  border-radius: 18px;
+  background: linear-gradient(145deg, #ff6a2d, var(--brand));
+  box-shadow: 0 16px 32px rgba(255, 72, 0, 0.22);
+  color: #fff;
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1;
+}
+
 .auth-brand-message {
   font-size: 20px;
   text-align: center;
@@ -6273,7 +6407,7 @@ html.native-ios-shell .auth-ios-only-button {
   align-items: center;
   justify-content: center;
   gap: 14px;
-  margin-top: auto;
+  margin-top: 4px;
   padding-bottom: 2px;
   color: #a8a8ae;
   font-size: 12px;
@@ -6870,6 +7004,10 @@ html.native-ios-shell .auth-ios-only-button {
 @media (max-height: 720px) {
   .auth-brand {
     margin-top: 96px;
+  }
+
+  .auth-brand-with-logo {
+    margin-top: 78px;
   }
 
   .auth-form-panel {

@@ -241,8 +241,9 @@ export function LoginScreen() {
           <X size={24} />
         </button>
 
-        <div className="auth-brand" aria-label="뭐든해줌">
-          뭐든해줌
+        <div className="auth-brand auth-brand-with-logo" aria-label="뭐든해줌">
+          <span className="auth-brand-logo" aria-hidden="true">만</span>
+          <span>뭐든해줌</span>
         </div>
 
         {methodMode === 'choices' ? (
@@ -307,18 +308,18 @@ export function LoginScreen() {
             </div>
 
             {message && <p className={`inline-status ${status === 'error' ? 'is-error' : ''}`}>{message}</p>}
+
+            <div className="auth-help-links" aria-label="계정 찾기">
+              <button type="button" onClick={() => setRecoverySheet('findId')}>
+                아이디 찾기
+              </button>
+              <i />
+              <button type="button" onClick={() => setRecoverySheet('resetPassword')}>
+                비밀번호 찾기
+              </button>
+            </div>
           </div>
         )}
-
-        <div className="auth-help-links" aria-label="계정 찾기">
-          <button type="button" onClick={() => setRecoverySheet('findId')}>
-            아이디 찾기
-          </button>
-          <i />
-          <button type="button" onClick={() => setRecoverySheet('resetPassword')}>
-            비밀번호 찾기
-          </button>
-        </div>
       </div>
       {recoverySheet && (
         <AccountRecoverySheet

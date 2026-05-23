@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
     authorizationUrl.searchParams.set('redirect_uri', getKakaoRedirectUri(request))
     authorizationUrl.searchParams.set('response_type', 'code')
     authorizationUrl.searchParams.set('state', state)
-    authorizationUrl.searchParams.set('scope', 'profile_nickname,profile_image,account_email')
+    authorizationUrl.searchParams.set('scope', 'profile_nickname,profile_image,account_email,name,gender,birthday,birthyear,phone_number')
 
     const response = NextResponse.redirect(authorizationUrl)
     setOAuthCookies(response, state, nextPath)

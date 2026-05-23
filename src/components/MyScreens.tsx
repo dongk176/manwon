@@ -44,6 +44,7 @@ import {
 import { ActionGuideOverlay, AppHeader, BrandButton, RatingStars } from '@/components/ui/Common'
 import { NeighborhoodSelectSheet } from '@/components/location/LocationSheets'
 import { notifyNativeProfileOnboardingCompleted } from '@/components/NativeIOSBridge'
+import { PhoneVerificationOverlay } from '@/components/PhoneVerificationOverlay'
 import {
   createSupportInquiry,
   createActivityProfile,
@@ -56,6 +57,7 @@ import {
   fetchSettlementSummary,
   getDefaultProfileImageByGender,
   getDisplayImageUrl,
+  isPhoneVerificationRequired,
   isDefaultActivityProfile,
   logout,
   updateActivityProfile,
@@ -1628,6 +1630,7 @@ function SupportScreen({ onBack }: { onBack: () => void }) {
   const [submitState, setSubmitState] = useState<'idle' | 'saving' | 'done' | 'error'>('idle')
   const [submitError, setSubmitError] = useState('')
   const [typePickerOpen, setTypePickerOpen] = useState(false)
+  const [showPhoneVerification, setShowPhoneVerification] = useState(false)
   const canSubmitInquiry = inquiryBody.trim().length >= 10
 
   function openInquirySheet() {
@@ -1640,7 +1643,10 @@ function SupportScreen({ onBack }: { onBack: () => void }) {
   async function submitInquiry(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!canSubmitInquiry) return
+    await submitInquiryFromState()
+  }
 
+  async function submitInquiryFromState() {
     setSubmitState('saving')
     setSubmitError('')
     try {
@@ -1653,6 +1659,11 @@ function SupportScreen({ onBack }: { onBack: () => void }) {
       setInquiryContact('')
       setSubmitState('done')
     } catch (error) {
+      if (isPhoneVerificationRequired(error)) {
+        setSubmitState('idle')
+        setShowPhoneVerification(true)
+        return
+      }
       setSubmitState('error')
       setSubmitError(error instanceof Error ? error.message : '문의 접수에 실패했습니다.')
     }
@@ -1722,6 +1733,12 @@ function SupportScreen({ onBack }: { onBack: () => void }) {
             </BrandButton>
           </form>
         </SupportBottomSheet>
+      )}
+      {showPhoneVerification && (
+        <PhoneVerificationOverlay
+          onClose={() => setShowPhoneVerification(false)}
+          onVerified={() => void submitInquiryFromState()}
+        />
       )}
       {activeSheet === 'faq' && (
         <SupportBottomSheet title="자주 묻는 질문" onClose={() => setActiveSheet(null)}>

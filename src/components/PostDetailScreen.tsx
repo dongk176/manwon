@@ -7,6 +7,7 @@ import { Check, CheckCircle2, ChevronLeft, ChevronRight, Clock, Clock3, Globe2, 
 import { ActionGuideOverlay, BrandButton, CategoryImageFrame, MoreMenu, RatingStars, ReportConfirmSheet } from '@/components/ui/Common'
 import { UserProfileSheet } from '@/components/UserProfileSheet'
 import { Avatar } from '@/components/ui/Illustration'
+import { PhoneVerificationOverlay } from '@/components/PhoneVerificationOverlay'
 import {
   categoryDetailOptions,
   customCategoryDetailMaxLength,
@@ -32,6 +33,7 @@ import {
   fetchTaskPost,
   getDefaultProfileImageByGender,
   getDisplayImageUrl,
+  isPhoneVerificationRequired,
   mapApiPostToRequestPost,
   removeFavorite,
   reopenTaskPost,
@@ -128,7 +130,7 @@ const capacityTypeOptions: Array<{ value: CapacityType; label: string }> = [
   { value: 'limited', label: '인원 제한' },
 ]
 const customCategoryMaxLength = 9
-const availableTimeMaxLength = 80
+const availableTimeMaxLength = 8
 const requiredFieldMessage = '필수 항목이에요.'
 const offerMinPrice = 1000
 const offerMaxPrice = 10000
@@ -157,6 +159,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
   const [showReportSheet, setShowReportSheet] = useState(false)
   const [showCreatorProfileSheet, setShowCreatorProfileSheet] = useState(false)
   const [reportSheetError, setReportSheetError] = useState('')
+  const [reportVerificationInput, setReportVerificationInput] = useState<{ reason: string; description: string } | null>(null)
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const [editMode, setEditMode] = useState(false)
   const [editDraft, setEditDraft] = useState<DetailEditDraft | null>(null)
@@ -167,6 +170,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
   const [locationError, setLocationError] = useState('')
   const [showLocationPrompt, setShowLocationPrompt] = useState(false)
   const [showNeighborhoodSheet, setShowNeighborhoodSheet] = useState(false)
+  const [phoneVerificationProfileId, setPhoneVerificationProfileId] = useState<string | null>(null)
   const [showReopenNotice, setShowReopenNotice] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [showRemovedPostNotice, setShowRemovedPostNotice] = useState(false)
@@ -394,6 +398,11 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
       requestIOSPushPermission('conversation_started')
       router.push(`/chat/${encodeURIComponent(conversation.id)}`)
     } catch (error) {
+      if (isPhoneVerificationRequired(error)) {
+        setActionState('idle')
+        setPhoneVerificationProfileId(profileId)
+        return
+      }
       setActionState('error')
       setMessage(error instanceof Error ? error.message : '채팅을 시작하지 못했습니다.')
     }
@@ -506,6 +515,12 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
         note: '신고 내역은 마이페이지 차단/신고 관리에서 확인할 수 있습니다.',
       })
     } catch (error) {
+      if (isPhoneVerificationRequired(error)) {
+        setActionState('idle')
+        setReportSheetError('')
+        setReportVerificationInput(input)
+        return
+      }
       setActionState('error')
       setReportSheetError(error instanceof Error ? error.message : '신고에 실패했습니다.')
     }
@@ -919,6 +934,16 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
               onSubmit={(input) => void handleReport(input)}
             />
           )}
+          {reportVerificationInput && (
+            <PhoneVerificationOverlay
+              onClose={() => setReportVerificationInput(null)}
+              onVerified={() => {
+                const input = reportVerificationInput
+                setReportVerificationInput(null)
+                if (input) void handleReport(input)
+              }}
+            />
+          )}
           {showCreatorProfileSheet && creatorProfile && <UserProfileSheet user={creatorProfile} onClose={() => setShowCreatorProfileSheet(false)} />}
           {guideOverlay && (
             <ActionGuideOverlay
@@ -965,6 +990,16 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
                 setShowNeighborhoodSheet(false)
               }}
               onClose={() => setShowNeighborhoodSheet(false)}
+            />
+          )}
+          {phoneVerificationProfileId && (
+            <PhoneVerificationOverlay
+              onClose={() => setPhoneVerificationProfileId(null)}
+              onVerified={() => {
+                const profileId = phoneVerificationProfileId
+                setPhoneVerificationProfileId(null)
+                if (profileId) void handleStartChat(profileId)
+              }}
             />
           )}
         </div>
@@ -1714,7 +1749,7 @@ function PostDetailEditForm({
           value={draft.availableTimeOption === 'custom' ? draft.customAvailableTime : ''}
           placeholder="예: 언제든지 가능"
           maxLength={availableTimeMaxLength}
-          helperText="80자 이내로 입력해주세요."
+          helperText={`${availableTimeMaxLength}자 이내로 입력해주세요.`}
           onClose={() => onSheetChange(null)}
           onSave={(customAvailableTime) => {
             update({ availableTimeOption: 'custom', customAvailableTime })
@@ -1990,8 +2025,8 @@ function validateEditDraft(draft: DetailEditDraft, postType: 'request' | 'offer'
       errors.availableTimeOption = requiredFieldMessage
       errors.customAvailableTime = requiredFieldMessage
     } else if (draft.availableTimeOption === 'custom' && draft.customAvailableTime.trim().length > availableTimeMaxLength) {
-      errors.availableTimeOption = '가능 시간은 80자 이내로 입력해주세요.'
-      errors.customAvailableTime = '가능 시간은 80자 이내로 입력해주세요.'
+      errors.availableTimeOption = `가능 시간은 ${availableTimeMaxLength}자 이내로 입력해주세요.`
+      errors.customAvailableTime = `가능 시간은 ${availableTimeMaxLength}자 이내로 입력해주세요.`
     }
     if (draft.capacityType === 'limited') {
       const capacityLimit = getCapacityLimitValue(draft.capacityLimit)

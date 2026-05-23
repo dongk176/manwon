@@ -8,6 +8,11 @@ export interface KakaoProfile {
   email: string | null
   nickname: string | null
   avatarUrl: string | null
+  name: string | null
+  gender: 'male' | 'female' | null
+  birthday: string | null
+  birthyear: string | null
+  phoneNumber: string | null
 }
 
 interface KakaoUserResponse {
@@ -19,6 +24,11 @@ interface KakaoUserResponse {
   }
   kakao_account?: {
     email?: string
+    name?: string
+    gender?: string
+    birthday?: string
+    birthyear?: string
+    phone_number?: string
     profile?: {
       nickname?: string
       profile_image_url?: string
@@ -28,7 +38,20 @@ interface KakaoUserResponse {
 }
 
 function fallbackDisplayName(profile: KakaoProfile) {
-  return profile.nickname?.trim() || `카카오 사용자 ${profile.kakaoId.slice(-4)}`
+  return profile.nickname?.trim() || profile.name?.trim() || `카카오 사용자 ${profile.kakaoId.slice(-4)}`
+}
+
+function normalizeKakaoGender(value?: string) {
+  if (value === 'male' || value === 'female') return value
+  return null
+}
+
+function normalizeKakaoPhone(value?: string) {
+  if (!value) return null
+  const compact = value.replace(/[\s-]/g, '')
+  const local = compact.startsWith('+82') ? `0${compact.slice(3)}` : compact.startsWith('82') ? `0${compact.slice(2)}` : compact
+  const digits = local.replace(/\D/g, '')
+  return /^01[016789]\d{7,8}$/.test(digits) ? digits : null
 }
 
 export async function getKakaoProfile(accessToken: string): Promise<KakaoProfile> {
@@ -48,6 +71,11 @@ export async function getKakaoProfile(accessToken: string): Promise<KakaoProfile
     email: user.kakao_account?.email ?? null,
     nickname: user.kakao_account?.profile?.nickname ?? user.properties?.nickname ?? null,
     avatarUrl: user.kakao_account?.profile?.profile_image_url ?? user.properties?.profile_image ?? null,
+    name: user.kakao_account?.name ?? null,
+    gender: normalizeKakaoGender(user.kakao_account?.gender),
+    birthday: user.kakao_account?.birthday ?? null,
+    birthyear: user.kakao_account?.birthyear ?? null,
+    phoneNumber: normalizeKakaoPhone(user.kakao_account?.phone_number),
   }
 }
 
@@ -56,6 +84,24 @@ export async function signInWithKakao(profile: KakaoProfile) {
 
   const sql = getSql()
   const displayName = fallbackDisplayName(profile)
+  const [existingUser] = await sql`
+    select id
+    from ${sql(schema)}.users
+    where kakao_id = ${profile.kakaoId}
+      and withdrawn_at is null
+    limit 1
+  `
+  const [phoneOwner] = profile.phoneNumber
+    ? await sql`
+        select id
+        from ${sql(schema)}.users
+        where phone = ${profile.phoneNumber}
+          and withdrawn_at is null
+        limit 1
+      `
+    : []
+  const canUsePhoneForVerification = Boolean(profile.phoneNumber && (!phoneOwner || String(phoneOwner.id) === String(existingUser?.id)))
+  const verifiedPhone = canUsePhoneForVerification ? profile.phoneNumber : null
 
   const [user] = await sql`
     insert into ${sql(schema)}.users (
@@ -63,9 +109,16 @@ export async function signInWithKakao(profile: KakaoProfile) {
       kakao_email,
       kakao_nickname,
       kakao_avatar_url,
+      kakao_name,
+      kakao_gender,
+      kakao_birthday,
+      kakao_birthyear,
+      kakao_phone_number,
       nickname,
       display_name,
       avatar_url,
+      gender,
+      phone,
       phone_verified,
       phone_verified_at,
       last_login_at
@@ -75,17 +128,29 @@ export async function signInWithKakao(profile: KakaoProfile) {
       ${profile.email},
       ${profile.nickname},
       ${profile.avatarUrl},
+      ${profile.name},
+      ${profile.gender},
+      ${profile.birthday},
+      ${profile.birthyear},
+      ${profile.phoneNumber},
       ${displayName},
       ${displayName},
       ${profile.avatarUrl},
-      false,
-      null,
+      ${profile.gender ?? 'unknown'},
+      ${verifiedPhone},
+      ${Boolean(verifiedPhone)},
+      ${verifiedPhone ? new Date() : null},
       now()
     )
     on conflict (kakao_id) where kakao_id is not null and withdrawn_at is null do update
     set kakao_email = excluded.kakao_email,
         kakao_nickname = excluded.kakao_nickname,
         kakao_avatar_url = excluded.kakao_avatar_url,
+        kakao_name = excluded.kakao_name,
+        kakao_gender = excluded.kakao_gender,
+        kakao_birthday = excluded.kakao_birthday,
+        kakao_birthyear = excluded.kakao_birthyear,
+        kakao_phone_number = excluded.kakao_phone_number,
         nickname = case
           when ${sql(schema)}.users.profile_onboarding_completed then ${sql(schema)}.users.nickname
           else coalesce(excluded.kakao_nickname, ${sql(schema)}.users.nickname)
@@ -97,6 +162,22 @@ export async function signInWithKakao(profile: KakaoProfile) {
         avatar_url = case
           when ${sql(schema)}.users.profile_onboarding_completed then ${sql(schema)}.users.avatar_url
           else coalesce(excluded.kakao_avatar_url, ${sql(schema)}.users.avatar_url)
+        end,
+        gender = case
+          when ${sql(schema)}.users.profile_onboarding_completed then ${sql(schema)}.users.gender
+          else coalesce(excluded.gender, ${sql(schema)}.users.gender)
+        end,
+        phone = case
+          when ${verifiedPhone}::text is not null and (${sql(schema)}.users.phone is null or ${sql(schema)}.users.phone = ${verifiedPhone}) then ${verifiedPhone}
+          else ${sql(schema)}.users.phone
+        end,
+        phone_verified = case
+          when ${verifiedPhone}::text is not null and (${sql(schema)}.users.phone is null or ${sql(schema)}.users.phone = ${verifiedPhone}) then true
+          else ${sql(schema)}.users.phone_verified
+        end,
+        phone_verified_at = case
+          when ${verifiedPhone}::text is not null and (${sql(schema)}.users.phone is null or ${sql(schema)}.users.phone = ${verifiedPhone}) then coalesce(${sql(schema)}.users.phone_verified_at, now())
+          else ${sql(schema)}.users.phone_verified_at
         end,
         last_login_at = now(),
         updated_at = now()

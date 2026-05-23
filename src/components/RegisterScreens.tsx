@@ -20,6 +20,7 @@ import {
 import { AppHeader } from '@/components/ui/Common'
 import { NeighborhoodSelectSheet } from '@/components/location/LocationSheets'
 import { requestIOSPushPermission } from '@/components/NativeIOSBridge'
+import { PhoneVerificationOverlay } from '@/components/PhoneVerificationOverlay'
 import {
   categoryDetailOptions,
   customCategoryDetailMaxLength,
@@ -33,6 +34,7 @@ import {
   createTaskPost,
   fetchActivityProfiles,
   fetchMyPage,
+  isPhoneVerificationRequired,
   saveMyLocationPreference,
   uploadImageFile,
   type ActivityProfile,
@@ -103,7 +105,7 @@ const deadlineOptions = [
 const requestMinPrice = 1000
 const requestMaxPrice = 10000
 const customCategoryMaxLength = 9
-const availableTimeMaxLength = 80
+const availableTimeMaxLength = 8
 const requiredFieldMessage = '필수 항목이에요.'
 const maxImageUploadSizeBytes = 5 * 1024 * 1024
 const maxImageUploadSizeLabel = '5MB'
@@ -186,6 +188,7 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
   const [locationBusy, setLocationBusy] = useState(false)
   const [locationError, setLocationError] = useState('')
   const [showNeighborhoodSheet, setShowNeighborhoodSheet] = useState(false)
+  const [showPhoneVerification, setShowPhoneVerification] = useState(false)
   const [selectedProfileId, setSelectedProfileId] = useState('')
   const [profileLoadState, setProfileLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
 
@@ -317,6 +320,11 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
       requestIOSPushPermission('post_created')
       if (onRegistered) window.setTimeout(onRegistered, 350)
     } catch (error) {
+      if (isPhoneVerificationRequired(error)) {
+        setSaveState('idle')
+        setShowPhoneVerification(true)
+        return
+      }
       setSaveState('error')
       setErrors({ submit: error instanceof Error ? error.message : '등록에 실패했습니다.' })
     }
@@ -616,6 +624,12 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
           onClose={() => setShowNeighborhoodSheet(false)}
         />
       )}
+      {showPhoneVerification && (
+        <PhoneVerificationOverlay
+          onClose={() => setShowPhoneVerification(false)}
+          onVerified={() => void submitPost()}
+        />
+      )}
       {showLeaveConfirm && <ConfirmLeaveDialog onCancel={() => setShowLeaveConfirm(false)} onConfirm={onExit} />}
     </section>
   )
@@ -631,6 +645,7 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
   const [locationBusy, setLocationBusy] = useState(false)
   const [locationError, setLocationError] = useState('')
   const [showNeighborhoodSheet, setShowNeighborhoodSheet] = useState(false)
+  const [showPhoneVerification, setShowPhoneVerification] = useState(false)
   const [selectedProfileId, setSelectedProfileId] = useState('')
   const [profileLoadState, setProfileLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
 
@@ -820,6 +835,11 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
       requestIOSPushPermission('post_created')
       if (onRegistered) window.setTimeout(onRegistered, 350)
     } catch (error) {
+      if (isPhoneVerificationRequired(error)) {
+        setSaveState('idle')
+        setShowPhoneVerification(true)
+        return
+      }
       setSaveState('error')
       setErrors({ submit: error instanceof Error ? error.message : '등록에 실패했습니다.' })
     }
@@ -1163,7 +1183,7 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
           value={availableTimeOption === 'custom' ? customAvailableTime : ''}
           placeholder="예: 언제든지 가능"
           maxLength={availableTimeMaxLength}
-          helperText="80자 이내로 입력해주세요."
+          helperText={`${availableTimeMaxLength}자 이내로 입력해주세요.`}
           onClose={() => setSheet(null)}
           onSave={(nextValue) => {
             setAvailableTimeOption('custom')
@@ -1185,6 +1205,12 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
             setShowNeighborhoodSheet(false)
           }}
           onClose={() => setShowNeighborhoodSheet(false)}
+        />
+      )}
+      {showPhoneVerification && (
+        <PhoneVerificationOverlay
+          onClose={() => setShowPhoneVerification(false)}
+          onVerified={() => void submitPost()}
         />
       )}
       {showLeaveConfirm && <ConfirmLeaveDialog onCancel={() => setShowLeaveConfirm(false)} onConfirm={onExit} />}
@@ -2343,8 +2369,8 @@ function validateOfferStep(
       errors.availableTimeOption = requiredFieldMessage
       errors.customAvailableTime = requiredFieldMessage
     } else if (input.availableTimeOption === 'custom' && input.customAvailableTime.trim().length > availableTimeMaxLength) {
-      errors.availableTimeOption = '가능한 시간은 80자 이내로 입력해주세요.'
-      errors.customAvailableTime = '가능한 시간은 80자 이내로 입력해주세요.'
+      errors.availableTimeOption = `가능한 시간은 ${availableTimeMaxLength}자 이내로 입력해주세요.`
+      errors.customAvailableTime = `가능한 시간은 ${availableTimeMaxLength}자 이내로 입력해주세요.`
     }
     if (input.capacityType === 'limited') {
       const capacityLimit = getCapacityLimitValue(input.capacityLimit)
