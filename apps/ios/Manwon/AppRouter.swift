@@ -21,6 +21,7 @@ final class AppRouter: ObservableObject {
     @Published var chatDetailActive = false
     @Published var chatUnreadCount = 0
     @Published var nearbySheetCoversBottomNav = false
+    @Published private var webSplashCoversBottomNav: [AppTab: Bool] = [:]
     @Published private var webOverlayCoversBottomNav: [AppTab: Bool] = [:]
     @Published var homeIsAtTop = true
     @Published var mapUnavailableNoticeVisible = false
@@ -36,6 +37,7 @@ final class AppRouter: ObservableObject {
         if onboardingRequired { return true }
         if selectedTab == .chat && chatDetailActive { return true }
         if selectedTab == .nearby && nearbySheetCoversBottomNav { return true }
+        if webSplashCoversBottomNav[selectedTab] == true { return true }
         if webOverlayCoversBottomNav[selectedTab] == true { return true }
 
         guard let path = displayedWebPaths[selectedTab] else { return false }
@@ -52,6 +54,7 @@ final class AppRouter: ObservableObject {
         if selectedTab != .home { return true }
         if onboardingRequired { return true }
         if mapUnavailableNoticeVisible { return true }
+        if webSplashCoversBottomNav[.home] == true { return true }
         if webOverlayCoversBottomNav[.home] == true { return true }
 
         guard let path = displayedWebPaths[.home] else { return false }
@@ -244,6 +247,13 @@ final class AppRouter: ObservableObject {
         var nextState = webOverlayCoversBottomNav
         nextState[tab] = isPresented
         webOverlayCoversBottomNav = nextState
+    }
+
+    func webSplashDidChange(isPresented: Bool, for tab: AppTab) {
+        guard webSplashCoversBottomNav[tab] != isPresented else { return }
+        var nextState = webSplashCoversBottomNav
+        nextState[tab] = isPresented
+        webSplashCoversBottomNav = nextState
     }
 
     func showMapUnavailableNotice() {

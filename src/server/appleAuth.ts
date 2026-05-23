@@ -183,7 +183,7 @@ export async function signInWithApple(profile: AppleProfile) {
       null,
       now()
     )
-    on conflict (apple_id) where withdrawn_at is null do update
+    on conflict (apple_id) where apple_id is not null and withdrawn_at is null do update
     set apple_email = coalesce(excluded.apple_email, ${sql(schema)}.users.apple_email),
         apple_full_name = coalesce(${sql(schema)}.users.apple_full_name, excluded.apple_full_name),
         apple_email_verified = coalesce(excluded.apple_email_verified, ${sql(schema)}.users.apple_email_verified),

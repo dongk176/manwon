@@ -56,7 +56,7 @@ struct WebTabView: View {
                     router.webOverlayDidChange(isPresented: false, for: tab)
                     errorMessage = nil
                     if !initialLoadFinished {
-                        isShowingSplash = true
+                        setSplashVisible(true)
                         startSplashFallback()
                     }
                 },
@@ -66,7 +66,7 @@ struct WebTabView: View {
                 },
                 onError: {
                     splashFallbackTask?.cancel()
-                    isShowingSplash = false
+                    setSplashVisible(false)
                     errorMessage = "네트워크 상태를 확인한 뒤 다시 시도해주세요."
                 }
             )
@@ -81,7 +81,7 @@ struct WebTabView: View {
                 ErrorContent(message: errorMessage) {
                     self.errorMessage = nil
                     initialLoadFinished = false
-                    isShowingSplash = true
+                    setSplashVisible(true)
                     reloadToken = UUID()
                 }
                 .transition(.opacity)
@@ -90,10 +90,12 @@ struct WebTabView: View {
         .animation(.easeInOut(duration: 0.18), value: isShowingSplash)
         .animation(.easeInOut(duration: 0.18), value: errorMessage)
         .onAppear {
+            router.webSplashDidChange(isPresented: isShowingSplash && errorMessage == nil, for: tab)
             startSplashFallback()
         }
         .onDisappear {
             splashFallbackTask?.cancel()
+            router.webSplashDidChange(isPresented: false, for: tab)
         }
         .onChange(of: router.selectedTab) { selectedTab in
             guard tab == .nearby, selectedTab == .nearby else { return }
@@ -105,7 +107,7 @@ struct WebTabView: View {
         splashFallbackTask?.cancel()
         initialLoadFinished = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
-            isShowingSplash = false
+            setSplashVisible(false)
         }
     }
 
@@ -115,8 +117,15 @@ struct WebTabView: View {
             try? await Task.sleep(nanoseconds: 1_200_000_000)
             guard !Task.isCancelled, errorMessage == nil else { return }
             initialLoadFinished = true
-            isShowingSplash = false
+            setSplashVisible(false)
         }
+    }
+
+    private func setSplashVisible(_ isVisible: Bool) {
+        if isShowingSplash != isVisible {
+            isShowingSplash = isVisible
+        }
+        router.webSplashDidChange(isPresented: isVisible && errorMessage == nil, for: tab)
     }
 }
 

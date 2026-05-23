@@ -82,7 +82,7 @@ export async function signInWithKakao(profile: KakaoProfile) {
       null,
       now()
     )
-    on conflict (kakao_id) where withdrawn_at is null do update
+    on conflict (kakao_id) where kakao_id is not null and withdrawn_at is null do update
     set kakao_email = excluded.kakao_email,
         kakao_nickname = excluded.kakao_nickname,
         kakao_avatar_url = excluded.kakao_avatar_url,
