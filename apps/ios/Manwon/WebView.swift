@@ -15,6 +15,7 @@ struct WebTabView: View {
     @State private var isShowingSplash = true
     @State private var errorMessage: String?
     @State private var splashFallbackTask: Task<Void, Never>?
+    @State private var initialLoadFinished = false
 
     var body: some View {
         ZStack {
@@ -48,8 +49,10 @@ struct WebTabView: View {
                 onStartLoading: {
                     router.webOverlayDidChange(isPresented: false, for: tab)
                     errorMessage = nil
-                    isShowingSplash = true
-                    startSplashFallback()
+                    if !initialLoadFinished {
+                        isShowingSplash = true
+                        startSplashFallback()
+                    }
                 },
                 onFinishLoading: {
                     PushManager.shared.submitPendingToken()
@@ -71,6 +74,7 @@ struct WebTabView: View {
             if let errorMessage {
                 ErrorContent(message: errorMessage) {
                     self.errorMessage = nil
+                    initialLoadFinished = false
                     isShowingSplash = true
                     reloadToken = UUID()
                 }
@@ -93,6 +97,7 @@ struct WebTabView: View {
 
     private func hideSplashSoon() {
         splashFallbackTask?.cancel()
+        initialLoadFinished = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
             isShowingSplash = false
         }
@@ -101,8 +106,9 @@ struct WebTabView: View {
     private func startSplashFallback() {
         splashFallbackTask?.cancel()
         splashFallbackTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
             guard !Task.isCancelled, errorMessage == nil else { return }
+            initialLoadFinished = true
             isShowingSplash = false
         }
     }
@@ -480,7 +486,7 @@ struct NativeWebView: UIViewRepresentable {
                     return
                 }
 
-                guard let data = image?.jpegData(compressionQuality: 0.86),
+                guard let data = image?.jpegData(compressionQuality: 0.94),
                       let url = self?.temporaryImageURL(data: data, fileExtension: "jpg")
                 else {
                     self?.finishFilePicker(with: nil)
@@ -504,7 +510,7 @@ struct NativeWebView: UIViewRepresentable {
                     guard let data = await self.loadImageData(from: result.itemProvider) else {
                         continue
                     }
-                    let uploadData = UIImage(data: data)?.jpegData(compressionQuality: 0.86) ?? data
+                    let uploadData = UIImage(data: data)?.jpegData(compressionQuality: 0.94) ?? data
                     guard let url = self.temporaryImageURL(data: uploadData, fileExtension: "jpg")
                     else {
                         continue

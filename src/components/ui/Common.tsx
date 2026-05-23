@@ -372,7 +372,7 @@ export function CategoryCard({ category, selected, onSelect }: CategoryCardProps
   return (
     <button className={`category-card ${selected ? 'is-active' : ''}`} type="button" onClick={onSelect}>
       <span className="category-icon-shell">
-        <Image className="category-icon-image" src={category.iconSrc} width={52} height={42} alt="" aria-hidden="true" />
+        <Image className="category-icon-image" src={category.iconSrc} width={52} height={42} alt="" aria-hidden="true" quality={100} unoptimized />
       </span>
       <span>{category.label}</span>
     </button>
@@ -465,7 +465,7 @@ export function CategoryImageFrame({
   const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null)
   const isUploadedImage = Boolean(imageUrl && failedImageUrl !== imageUrl)
   const src = getCategoryIconSrc(categoryId)
-  const sizes = size === 'lg' ? '(max-width: 430px) 100vw, 430px' : size === 'sm' ? '42px' : '84px'
+  const sizes = size === 'lg' ? '(max-width: 430px) 100vw, 430px' : size === 'sm' ? '42px' : '(max-width: 370px) 104px, 112px'
 
   return (
     <div
@@ -479,8 +479,9 @@ export function CategoryImageFrame({
         aria-hidden="true"
         fill
         sizes={sizes}
+        quality={100}
         loading={size === 'sm' ? 'lazy' : 'eager'}
-        unoptimized={isUploadedImage}
+        unoptimized
         onError={() => {
           if (imageUrl) setFailedImageUrl(imageUrl)
         }}

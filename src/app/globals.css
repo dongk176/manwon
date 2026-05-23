@@ -701,6 +701,10 @@ html.native-ios-shell [role="button"] {
   padding-top: 2px;
 }
 
+.home-screen .request-list {
+  gap: 0;
+}
+
 .home-screen {
   display: flex;
   height: 100dvh;
@@ -844,7 +848,42 @@ html.native-ios-shell [role="button"] {
 }
 
 .request-card-home {
-  grid-template-columns: 84px minmax(0, 1fr) auto;
+  grid-template-columns: 112px minmax(0, 1fr) auto;
+}
+
+.home-screen .request-card-home {
+  grid-template-columns: 112px minmax(0, 1fr) auto;
+  padding: 10px 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.home-screen .request-card-home .mock-image-md {
+  width: 112px;
+  height: 112px;
+  border-radius: 14px;
+}
+
+.home-screen .request-card-home .request-meta-line {
+  position: absolute;
+  z-index: 2;
+  top: 16px;
+  left: 6px;
+  margin: 0;
+  padding: 0;
+}
+
+.home-screen .request-card-home .request-category {
+  max-width: 96px;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #111115;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .request-card-preview {
@@ -889,6 +928,11 @@ html.native-ios-shell [role="button"] {
   min-width: 0;
 }
 
+.home-screen .request-card-home .request-info {
+  align-self: start;
+  padding-top: 2px;
+}
+
 .request-meta-line {
   display: flex;
   align-items: center;
@@ -926,6 +970,7 @@ html.native-ios-shell [role="button"] {
 
 .home-screen .request-card:not(.request-card-preview) .request-info h3 {
   display: -webkit-box;
+  font-weight: 700;
   white-space: normal;
   word-break: keep-all;
   overflow-wrap: anywhere;
@@ -961,7 +1006,12 @@ html.native-ios-shell [role="button"] {
 
 .home-screen .request-card-home .request-location {
   align-items: flex-start;
+  font-weight: 400;
   white-space: normal;
+}
+
+.home-screen .request-card-home .request-deadline {
+  font-weight: 400;
 }
 
 .home-screen .request-card-home .request-location svg {
@@ -10604,6 +10654,19 @@ button.my-activity-card:focus-visible {
 
   .request-card {
     grid-template-columns: 72px minmax(0, 1fr);
+  }
+
+  .home-screen .request-card-home {
+    grid-template-columns: 104px minmax(0, 1fr);
+  }
+
+  .home-screen .request-card-home .mock-image-md {
+    width: 104px;
+    height: 104px;
+  }
+
+  .home-screen .request-card-home .request-category {
+    max-width: 88px;
   }
 
   .request-side {

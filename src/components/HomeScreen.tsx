@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { setNativeOverlayState } from '@/components/NativeIOSBridge'
 import { ActionGuideOverlay, AppHeader, CategoryScroller, MapUnavailableOverlay, ReportConfirmSheet, RequestCard, SegmentedControl } from '@/components/ui/Common'
 import { categoryDetailOptions, customCategoryDetailOption, getCategoryLabel, requests, type RequestPost } from '@/data/mockData'
-import { createReport, fetchAuthSession, fetchMyPage, fetchTaskPosts, mapApiPostToRequestPost } from '@/lib/manwonApi'
+import { createReport, fetchAuthSession, fetchMyPage, fetchTaskPosts, mapApiPostToRequestPost, type ApiTaskPost } from '@/lib/manwonApi'
 import {
   formatRegionFull,
   formatRegionShort,
@@ -409,7 +409,24 @@ async function fetchHomePosts(mode: HomeMode, categoryId: string, detailCategory
     categoryDetail: detailCategory || undefined,
   })
 
-  return posts.map(mapApiPostToRequestPost)
+  return posts.map(mapApiPostToHomeRequestPost)
+}
+
+function mapApiPostToHomeRequestPost(post: ApiTaskPost): RequestPost {
+  const request = mapApiPostToRequestPost(post)
+  return {
+    ...request,
+    deadline: getHomeDeadlineText(post, request.deadline),
+  }
+}
+
+function getHomeDeadlineText(post: ApiTaskPost, fallback: string) {
+  if (post.deadlineAt) {
+    const date = new Date(post.deadlineAt)
+    if (!Number.isNaN(date.getTime())) return `${date.getMonth() + 1}.${date.getDate()} 까지`
+  }
+
+  return post.deadlineText ?? post.availableTimeText ?? fallback
 }
 
 function sleep(ms: number) {
