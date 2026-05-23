@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import Image from 'next/image'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { ArrowLeft, Check, ChevronRight, X } from 'lucide-react'
 import { isManwonIOS, requestNativeAppleLogin, requestNativeKakaoLogin } from '@/components/NativeIOSBridge'
@@ -270,7 +271,7 @@ export function LoginScreen() {
         </button>
 
         <div className="auth-brand auth-brand-with-logo" aria-label="뭐든해줌">
-          <span className="auth-brand-logo" aria-hidden="true">만</span>
+          <Image className="auth-brand-logo" src="/brand/launch-logo.png" width={64} height={64} alt="" aria-hidden="true" priority />
           <span>뭐든해줌</span>
         </div>
 

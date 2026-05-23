@@ -6197,18 +6197,10 @@ html.native-ios-shell [role="button"] {
 }
 
 .auth-brand-logo {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 58px;
-  height: 58px;
-  border-radius: 18px;
-  background: linear-gradient(145deg, #ff6a2d, var(--brand));
-  box-shadow: 0 16px 32px rgba(255, 72, 0, 0.22);
-  color: #fff;
-  font-size: 24px;
-  font-weight: 900;
-  line-height: 1;
+  display: block;
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
 }
 
 .auth-brand-message {
