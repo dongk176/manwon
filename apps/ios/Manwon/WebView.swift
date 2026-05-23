@@ -14,6 +14,7 @@ struct WebTabView: View {
     @State private var reloadToken = UUID()
     @State private var isShowingSplash = true
     @State private var errorMessage: String?
+    @State private var splashFallbackTask: Task<Void, Never>?
 
     var body: some View {
         ZStack {
@@ -47,14 +48,15 @@ struct WebTabView: View {
                 onStartLoading: {
                     router.webOverlayDidChange(isPresented: false, for: tab)
                     errorMessage = nil
+                    isShowingSplash = true
+                    startSplashFallback()
                 },
                 onFinishLoading: {
                     PushManager.shared.submitPendingToken()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
-                        isShowingSplash = false
-                    }
+                    hideSplashSoon()
                 },
                 onError: {
+                    splashFallbackTask?.cancel()
                     isShowingSplash = false
                     errorMessage = "네트워크 상태를 확인한 뒤 다시 시도해주세요."
                 }
@@ -77,9 +79,31 @@ struct WebTabView: View {
         }
         .animation(.easeInOut(duration: 0.18), value: isShowingSplash)
         .animation(.easeInOut(duration: 0.18), value: errorMessage)
+        .onAppear {
+            startSplashFallback()
+        }
+        .onDisappear {
+            splashFallbackTask?.cancel()
+        }
         .onChange(of: router.selectedTab) { selectedTab in
             guard tab == .nearby, selectedTab == .nearby else { return }
             reloadToken = UUID()
+        }
+    }
+
+    private func hideSplashSoon() {
+        splashFallbackTask?.cancel()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+            isShowingSplash = false
+        }
+    }
+
+    private func startSplashFallback() {
+        splashFallbackTask?.cancel()
+        splashFallbackTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled, errorMessage == nil else { return }
+            isShowingSplash = false
         }
     }
 }
@@ -536,6 +560,10 @@ struct NativeWebView: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             onStartLoading()
+        }
+
+        func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+            onFinishLoading()
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

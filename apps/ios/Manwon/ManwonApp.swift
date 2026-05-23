@@ -151,8 +151,9 @@ struct RootTabView: View {
     }
 
     private func resolveInitialSessionGate() async {
-        let session = await fetchSessionForInitialGate()
         initialSessionChecked = true
+
+        let session = await fetchSessionForInitialGate()
 
         if session?.authenticated == true {
             await openDueReviewReminderIfNeeded()
