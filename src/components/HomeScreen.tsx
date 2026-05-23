@@ -4,13 +4,20 @@ import { useEffect, useMemo, useRef, useState, type TouchEvent as ReactTouchEven
 import { ChevronDown } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { setNativeOverlayState } from '@/components/NativeIOSBridge'
-import { ActionGuideOverlay, AppHeader, CategoryScroller, MapUnavailableOverlay, ReportConfirmSheet, RequestCard, SegmentedControl } from '@/components/ui/Common'
+import { NeighborhoodSelectSheet } from '@/components/location/LocationSheets'
+import { ActionGuideOverlay, AppHeader, CategoryScroller, ReportConfirmSheet, RequestCard, SegmentedControl } from '@/components/ui/Common'
 import { categoryDetailOptions, customCategoryDetailOption, getCategoryLabel, type RequestPost } from '@/data/mockData'
-import { createReport, fetchAuthSession, fetchMyPage, fetchTaskPosts, mapApiPostToRequestPost, type ApiTaskPost } from '@/lib/manwonApi'
+import { createReport, fetchAuthSession, fetchMyPage, fetchTaskPosts, mapApiPostToRequestPost, saveMyLocationPreference, type ApiTaskPost } from '@/lib/manwonApi'
 import {
   formatRegionFull,
   formatRegionShort,
+  getLocationPermissionState,
   getStoredLocationRegion,
+  requestBrowserLocation,
+  reverseGeocode,
+  storeLocationRegion,
+  toNeighborhoodRegion,
+  type LocationPermissionState,
   type LocationRegion,
 } from '@/lib/location'
 
@@ -27,8 +34,11 @@ export function HomeScreen() {
   const router = useRouter()
   const [mode, setMode] = useState<HomeMode>('ask')
   const [showRegionMenu, setShowRegionMenu] = useState(false)
-  const [showMapUnavailableNotice, setShowMapUnavailableNotice] = useState(false)
+  const [showNeighborhoodSheet, setShowNeighborhoodSheet] = useState(false)
   const [currentRegion, setCurrentRegion] = useState<LocationRegion | null>(null)
+  const [permissionState, setPermissionState] = useState<LocationPermissionState>('unknown')
+  const [locationBusy, setLocationBusy] = useState(false)
+  const [locationError, setLocationError] = useState('')
   const [hasCheckedStoredRegion, setHasCheckedStoredRegion] = useState(false)
   const [categoryId, setCategoryId] = useState('all')
   const [detailCategory, setDetailCategory] = useState('')
@@ -94,6 +104,10 @@ export function HomeScreen() {
   }, [])
 
   useEffect(() => {
+    getLocationPermissionState().then(setPermissionState).catch(() => setPermissionState('unknown'))
+  }, [])
+
+  useEffect(() => {
     if (!hasCheckedStoredRegion || currentRegion) return
 
     let cancelled = false
@@ -131,11 +145,11 @@ export function HomeScreen() {
   }, [showRegionMenu])
 
   useEffect(() => {
-    setNativeOverlayState(Boolean(reportTarget || guideOverlay))
+    setNativeOverlayState(Boolean(reportTarget || guideOverlay || showNeighborhoodSheet))
     return () => {
       setNativeOverlayState(false)
     }
-  }, [guideOverlay, reportTarget])
+  }, [guideOverlay, reportTarget, showNeighborhoodSheet])
 
   async function refreshHomePosts() {
     if (isRefreshing || loadState === 'loading') return
@@ -209,6 +223,42 @@ export function HomeScreen() {
   function handleCategorySelect(nextCategoryId: string) {
     setCategoryId(nextCategoryId)
     setDetailCategory('')
+  }
+
+  async function requestCurrentRegionFromUser() {
+    setLocationBusy(true)
+    setLocationError('')
+    try {
+      const current = await requestBrowserLocation()
+      const region = await reverseGeocode(current.latitude, current.longitude, 'gps', 'region')
+      applyHomeRegion(region, 'granted')
+      return region
+    } catch (error) {
+      const nextPermission = await getLocationPermissionState()
+      setPermissionState(nextPermission)
+      setLocationError(error instanceof Error ? error.message : '현재 위치를 가져오지 못했습니다.')
+      return undefined
+    } finally {
+      setLocationBusy(false)
+    }
+  }
+
+  function applyHomeRegion(region: LocationRegion, nextPermissionState = permissionState) {
+    const neighborhood = toNeighborhoodRegion(region)
+    setCurrentRegion(neighborhood)
+    storeLocationRegion(neighborhood)
+    setPermissionState(nextPermissionState)
+    setLocationError('')
+    setShowNeighborhoodSheet(false)
+
+    void saveMyLocationPreference({
+      latitude: neighborhood.latitude,
+      longitude: neighborhood.longitude,
+      region1Depth: neighborhood.region1Depth,
+      region2Depth: neighborhood.region2Depth,
+      region3Depth: neighborhood.region3Depth,
+      permissionStatus: nextPermissionState,
+    }).catch(() => undefined)
   }
 
   const filteredRequests = useMemo(() => {
@@ -291,7 +341,7 @@ export function HomeScreen() {
                   role="menuitem"
                   onClick={() => {
                     setShowRegionMenu(false)
-                    setShowMapUnavailableNotice(true)
+                    setShowNeighborhoodSheet(true)
                   }}
                 >
                   동네 변경하기
@@ -370,7 +420,23 @@ export function HomeScreen() {
           ))}
         </div>
       </div>
-      {showMapUnavailableNotice && <MapUnavailableOverlay onClose={() => setShowMapUnavailableNotice(false)} />}
+      {showNeighborhoodSheet && (
+        <NeighborhoodSelectSheet
+          searchMode="region"
+          presentation="modal"
+          showCurrentLocation
+          promptContext="nearby"
+          permissionState={permissionState}
+          busy={locationBusy}
+          error={locationError}
+          onUseCurrent={requestCurrentRegionFromUser}
+          onSelect={(region) => applyHomeRegion(region, permissionState === 'granted' ? 'granted' : 'prompt')}
+          onClose={() => {
+            setShowNeighborhoodSheet(false)
+            setLocationError('')
+          }}
+        />
+      )}
       {reportTarget && (
         <ReportConfirmSheet
           targetLabel={reportTarget.title}

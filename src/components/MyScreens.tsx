@@ -782,6 +782,7 @@ function ActivityProfileFormScreen({
   const avatarInputRef = useRef<HTMLInputElement>(null)
   const isOffline = form.activityMode === 'nearby' || form.activityMode === 'both'
   const title = titleOverride ?? (form.id ? '프로필 수정' : '프로필 만들기')
+  const hasRequiredProfileFields = hasRequiredActivityProfileFields(form)
 
   useEffect(() => {
     getLocationPermissionState().then(setPermissionState).catch(() => setPermissionState('unknown'))
@@ -882,6 +883,7 @@ function ActivityProfileFormScreen({
   }
 
   function saveProfile() {
+    if (!hasRequiredProfileFields) return
     const nextErrors = validateActivityProfileForm(form)
     onErrorsChange(nextErrors)
     const errorKeys = Object.keys(nextErrors)
@@ -930,7 +932,7 @@ function ActivityProfileFormScreen({
         <ProfileOptionalBoost onOpen={setActiveExtraModal} />
         <ProfileExtraSummaryRows form={form} onOpen={setActiveExtraModal} />
         <div className="profile-flow-fixed-action">
-          <button className="profile-flow-primary" type="button" disabled={saveState === 'saving'} onClick={saveProfile}>
+          <button className="profile-flow-primary" type="button" disabled={saveState === 'saving' || !hasRequiredProfileFields} onClick={saveProfile}>
             {saveState === 'saving' ? '저장 중' : '저장하기'}
           </button>
         </div>
@@ -2319,6 +2321,11 @@ function validateActivityProfileForm(form: ActivityProfileFormState) {
     errors.linkUrl = 'http 또는 https 링크를 입력해주세요.'
   }
   return errors
+}
+
+function hasRequiredActivityProfileFields(form: ActivityProfileFormState) {
+  const nickname = form.nickname.trim().replace(/\s+/g, '')
+  return nickname.length >= 2 && Boolean(form.bio.trim()) && Boolean(form.activityMode)
 }
 
 function activityProfileFormToPayload(form: ActivityProfileFormState): ActivityProfilePayload {
