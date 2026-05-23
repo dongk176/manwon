@@ -11,6 +11,7 @@ import {
   confirmLoginIdRecovery,
   checkSignupLoginId,
   completeSignup,
+  fetchAuthSession,
   requestLoginIdRecovery,
   requestPasswordRecovery,
   resetPasswordWithRecovery,
@@ -106,6 +107,7 @@ export function LoginScreen() {
   const hasKakaoOAuthError = oauthError === 'kakao'
   const hasAppleOAuthError = oauthError === 'apple'
   const [methodMode, setMethodMode] = useState<LoginMethodMode>('choices')
+  const [sessionCheckState, setSessionCheckState] = useState<'checking' | 'ready'>('checking')
   const [loginId, setLoginId] = useState('')
   const [loginIdInputHint, setLoginIdInputHint] = useState('')
   const [password, setPassword] = useState('')
@@ -124,6 +126,28 @@ export function LoginScreen() {
   const loginIdHint = loginIdInputHint || (loginId.length > 0 && loginId.length < LOGIN_ID_MIN_LENGTH ? `${LOGIN_ID_MIN_LENGTH}자 이상` : '')
   const passwordHint = password.length > 0 && password.length < PASSWORD_MIN_LENGTH ? `${PASSWORD_MIN_LENGTH}자 이상` : ''
   const canSubmitCredentials = loginId.length >= LOGIN_ID_MIN_LENGTH && password.length >= PASSWORD_MIN_LENGTH && !loginIdInputHint
+
+  useEffect(() => {
+    let cancelled = false
+
+    void fetchAuthSession()
+      .then((session) => {
+        if (cancelled) return
+        if (session.authenticated) {
+          router.replace(isProfileOnboardingCompleted(session.profile) ? requestedNextPath : '/profile-onboarding')
+          router.refresh()
+          return
+        }
+        setSessionCheckState('ready')
+      })
+      .catch(() => {
+        if (!cancelled) setSessionCheckState('ready')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [requestedNextPath, router])
 
   useEffect(() => {
     if (!isManwonIOS()) return undefined
@@ -232,6 +256,10 @@ export function LoginScreen() {
   function updateLoginId(value: string) {
     setLoginId(normalizeLoginIdInput(value))
     setLoginIdInputHint(unsupportedLoginIdPattern.test(value) ? '영문/숫자만' : '')
+  }
+
+  if (sessionCheckState === 'checking') {
+    return <section className="screen login-screen auth-entry-screen" />
   }
 
   return (

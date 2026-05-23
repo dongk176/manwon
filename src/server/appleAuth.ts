@@ -162,7 +162,6 @@ export async function signInWithApple(profile: AppleProfile) {
     insert into ${sql(schema)}.users (
       apple_id,
       apple_email,
-      apple_full_name,
       apple_email_verified,
       apple_is_private_email,
       nickname,
@@ -174,7 +173,6 @@ export async function signInWithApple(profile: AppleProfile) {
     values (
       ${profile.appleId},
       ${profile.email},
-      ${profile.fullName},
       ${profile.emailVerified},
       ${profile.isPrivateEmail},
       ${displayName},
@@ -185,16 +183,15 @@ export async function signInWithApple(profile: AppleProfile) {
     )
     on conflict (apple_id) where apple_id is not null and withdrawn_at is null do update
     set apple_email = coalesce(excluded.apple_email, ${sql(schema)}.users.apple_email),
-        apple_full_name = coalesce(${sql(schema)}.users.apple_full_name, excluded.apple_full_name),
         apple_email_verified = coalesce(excluded.apple_email_verified, ${sql(schema)}.users.apple_email_verified),
         apple_is_private_email = coalesce(excluded.apple_is_private_email, ${sql(schema)}.users.apple_is_private_email),
         nickname = case
           when ${sql(schema)}.users.profile_onboarding_completed then ${sql(schema)}.users.nickname
-          else coalesce(excluded.apple_full_name, ${sql(schema)}.users.apple_full_name, ${sql(schema)}.users.nickname)
+          else coalesce(${sql(schema)}.users.nickname, excluded.nickname)
         end,
         display_name = case
           when ${sql(schema)}.users.profile_onboarding_completed then ${sql(schema)}.users.display_name
-          else coalesce(excluded.display_name, ${sql(schema)}.users.display_name)
+          else coalesce(${sql(schema)}.users.display_name, excluded.display_name)
         end,
         last_login_at = now(),
         updated_at = now()

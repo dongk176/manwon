@@ -2668,18 +2668,19 @@ html.native-ios-shell [role="button"] {
 
 .register-type-stack {
   display: grid;
-  gap: clamp(12px, 2.2dvh, 18px);
-  margin-top: clamp(18px, 9dvh, 86px);
+  gap: clamp(12px, 2.2svh, 18px);
+  margin-top: clamp(18px, 9svh, 86px);
 }
 
 .register-type-card {
   position: relative;
   display: grid;
-  grid-template-columns: 1fr 110px 30px;
+  grid-template-columns: minmax(0, 1fr) 118px 30px;
   gap: 14px;
   align-items: center;
-  min-height: clamp(154px, 22dvh, 190px);
-  padding: clamp(18px, 2.8dvh, 24px);
+  height: clamp(154px, 22svh, 190px);
+  min-height: 154px;
+  padding: clamp(18px, 2.8svh, 24px);
   border: 0;
   border-radius: 24px;
   background: var(--brand-soft);
@@ -2706,9 +2707,12 @@ html.native-ios-shell [role="button"] {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 118px;
+  height: 118px;
 }
 
 .register-type-visual img {
+  display: block;
   width: 118px;
   height: 118px;
   object-fit: contain;

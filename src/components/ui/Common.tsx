@@ -163,6 +163,7 @@ export function BottomNav() {
           <Link
             key={item.key}
             href={item.href}
+            prefetch={false}
             className={className}
             aria-current={active ? 'page' : undefined}
             aria-label={unreadLabel ? `채팅, 읽지 않은 메시지 ${formatUnreadAriaCount(chatUnreadCount)}` : item.label}
