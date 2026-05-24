@@ -28,15 +28,15 @@ type LoginMethodMode = 'choices' | 'credentials'
 const agreementItems = [
   {
     key: 'terms',
-    title: '서비스 이용약관 및 유해 콘텐츠 무관용 동의',
-    description: '부적절한 콘텐츠와 악성 이용자를 허용하지 않는 약관이에요.',
+    title: '서비스 이용약관 동의',
+    description: '중개 서비스, 거래 안전, 유해 콘텐츠 기준을 확인해요.',
     required: true,
     slug: 'service',
   },
   {
     key: 'privacy',
-    title: '개인정보 수집·이용 및 본인 확인 동의',
-    description: '회원 식별, 휴대폰 인증, 거래 안전을 위해 필요해요.',
+    title: '개인정보 처리방침 및 수집·이용 동의',
+    description: '회원 식별, 휴대폰 인증, 알림 처리 기준을 확인해요.',
     required: true,
     slug: 'privacy',
   },

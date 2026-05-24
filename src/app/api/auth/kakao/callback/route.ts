@@ -79,6 +79,16 @@ function isProfileOnboardingCompleted(profile: Record<string, unknown>) {
   return profile.profileOnboardingCompleted === true
 }
 
+function hasRequiredLegalAgreements(profile: Record<string, unknown>) {
+  return Boolean(profile.termsAgreedAt && profile.privacyAgreedAt)
+}
+
+function termsConsentPath(nextPath: string) {
+  if (nextPath === '/') return '/terms-consent'
+  const params = new URLSearchParams({ next: nextPath })
+  return `/terms-consent?${params.toString()}`
+}
+
 export async function GET(request: NextRequest) {
   const nextPath = normalizeNextPath(request.cookies.get(kakaoNextCookieName)?.value)
 
@@ -95,7 +105,11 @@ export async function GET(request: NextRequest) {
     const accessToken = await exchangeCodeForToken(request, code)
     const profile = await getKakaoProfile(accessToken)
     const user = await signInWithKakao(profile)
-    const destinationPath = isProfileOnboardingCompleted(user) ? nextPath : '/profile-onboarding'
+    const destinationPath = hasRequiredLegalAgreements(user)
+      ? isProfileOnboardingCompleted(user)
+        ? nextPath
+        : '/profile-onboarding'
+      : termsConsentPath(nextPath)
     const response = NextResponse.redirect(new URL(destinationPath, getAppOrigin(request)))
     setAuthCookies(response, String(user.id))
     clearOAuthCookies(response)

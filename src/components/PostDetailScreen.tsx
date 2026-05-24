@@ -1407,7 +1407,7 @@ function PostDetailEngagementStats({
         {formatCount(messageCount)}
       </span>
       <span className="is-favorite">
-        <MessageCircle size={15} />
+        <Heart size={15} fill="none" />
         {formatCount(favoriteCount)}
       </span>
     </div>

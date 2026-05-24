@@ -14,6 +14,7 @@ import type {
   imageRecordSchema,
   listPostsSchema,
   reportSchema,
+  requiredLegalAgreementsSchema,
   supportInquirySchema,
   updateApplicationStatusSchema,
   updateActivityProfileSchema,
@@ -38,6 +39,7 @@ type CreateMessageInput = z.infer<typeof createMessageSchema>
 type CreateReviewInput = z.infer<typeof createReviewSchema>
 type ReviewReminderInput = z.infer<typeof reviewReminderSchema>
 type ReportInput = z.infer<typeof reportSchema>
+type RequiredLegalAgreementsInput = z.infer<typeof requiredLegalAgreementsSchema>
 type SupportInquiryInput = z.infer<typeof supportInquirySchema>
 type BlockInput = z.infer<typeof blockSchema>
 type FavoriteInput = z.infer<typeof favoriteSchema>
@@ -2822,6 +2824,26 @@ export async function getMyPage(userId: string) {
   `
 
   return rows[0] ?? null
+}
+
+export async function acceptRequiredLegalAgreements(userId: string, input: RequiredLegalAgreementsInput) {
+  if (!input.terms || !input.privacy) {
+    throw new HttpError('필수 약관에 동의해주세요.', 400)
+  }
+
+  const sql = getSql()
+  const [updated] = await sql`
+    update manwon_happiness.users
+    set terms_agreed_at = coalesce(terms_agreed_at, now()),
+        privacy_agreed_at = coalesce(privacy_agreed_at, now()),
+        updated_at = now()
+    where id = ${userId}
+      and withdrawn_at is null
+    returning *
+  `
+
+  if (!updated) throw new HttpError('회원 정보를 찾을 수 없습니다.', 404)
+  return getMyPage(userId)
 }
 
 export async function updateLocationPreference(

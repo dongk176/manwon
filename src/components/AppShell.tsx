@@ -7,13 +7,17 @@ import { isManwonIOS } from '@/components/NativeIOSBridge'
 import { fetchAuthSession, fetchDueReviewReminder } from '@/lib/manwonApi'
 
 type AppGateState =
-  | { status: 'checking'; onboardingCompleted: null }
-  | { status: 'anonymous'; onboardingCompleted: null }
-  | { status: 'allowed'; onboardingCompleted: boolean }
-  | { status: 'redirecting'; onboardingCompleted: boolean | null }
+  | { status: 'checking'; onboardingCompleted: null; legalAgreementsCompleted: null }
+  | { status: 'anonymous'; onboardingCompleted: null; legalAgreementsCompleted: null }
+  | { status: 'allowed'; onboardingCompleted: boolean; legalAgreementsCompleted: boolean }
+  | { status: 'redirecting'; onboardingCompleted: boolean | null; legalAgreementsCompleted: boolean | null }
 
 function isProfileOnboardingCompleted(profile: Record<string, unknown> | null | undefined) {
   return profile?.profileOnboardingCompleted === true
+}
+
+function hasRequiredLegalAgreements(profile: Record<string, unknown> | null | undefined) {
+  return Boolean(profile?.termsAgreedAt && profile?.privacyAgreedAt)
 }
 
 function isPublicAppPath(pathname: string) {
@@ -22,6 +26,10 @@ function isPublicAppPath(pathname: string) {
 
 function isProfileOnboardingPath(pathname: string) {
   return pathname === '/profile-onboarding'
+}
+
+function isTermsConsentPath(pathname: string) {
+  return pathname === '/terms-consent'
 }
 
 function useOverlayScrollLock() {
@@ -84,14 +92,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
   const overlayVisible = useOverlayScrollLock()
-  const [gateState, setGateState] = useState<AppGateState>({ status: 'checking', onboardingCompleted: null })
+  const [gateState, setGateState] = useState<AppGateState>({ status: 'checking', onboardingCompleted: null, legalAgreementsCompleted: null })
   const publicPath = isPublicAppPath(pathname)
   const profileOnboardingPath = isProfileOnboardingPath(pathname)
+  const termsConsentPath = isTermsConsentPath(pathname)
   const contentAllowed =
     publicPath ||
     (gateState.status === 'allowed' &&
-      (gateState.onboardingCompleted ? !profileOnboardingPath : profileOnboardingPath))
+      (gateState.legalAgreementsCompleted
+        ? gateState.onboardingCompleted
+          ? !profileOnboardingPath && !termsConsentPath
+          : profileOnboardingPath
+        : termsConsentPath))
   const onboardingCompleted = gateState.status === 'allowed' ? gateState.onboardingCompleted : false
+  const legalAgreementsCompleted = gateState.status === 'allowed' ? gateState.legalAgreementsCompleted : false
   const hideBottomNav =
     !contentAllowed ||
     overlayVisible ||
@@ -100,6 +114,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     pathname.startsWith('/nearby/') ||
     pathname.startsWith('/my/profiles') ||
     pathname === '/profile-onboarding' ||
+    pathname === '/terms-consent' ||
     pathname === '/register/request' ||
     pathname === '/register/offer'
 
@@ -112,47 +127,67 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       router.replace(`/login?next=${encodeURIComponent(nextPath)}`)
     }
 
+    function redirectToTermsConsent() {
+      const queryString = typeof window === 'undefined' ? '' : window.location.search.replace(/^\?/, '')
+      const nextPath = queryString ? `${pathname}?${queryString}` : pathname
+      const normalizedNextPath = nextPath === '/terms-consent' ? '/' : nextPath
+      router.replace(`/terms-consent?next=${encodeURIComponent(normalizedNextPath)}`)
+    }
+
     void fetchAuthSession()
       .then((session) => {
         if (cancelled) return
 
         if (!session.authenticated) {
-          setGateState({ status: 'anonymous', onboardingCompleted: null })
+          setGateState({ status: 'anonymous', onboardingCompleted: null, legalAgreementsCompleted: null })
           if (!publicPath) redirectToLogin()
           return
         }
 
         const nextOnboardingCompleted = isProfileOnboardingCompleted(session.profile)
+        const nextLegalAgreementsCompleted = hasRequiredLegalAgreements(session.profile)
 
-        if (!nextOnboardingCompleted && !publicPath && !profileOnboardingPath) {
-          setGateState({ status: 'redirecting', onboardingCompleted: false })
+        if (!nextLegalAgreementsCompleted && !termsConsentPath) {
+          setGateState({ status: 'redirecting', onboardingCompleted: nextOnboardingCompleted, legalAgreementsCompleted: false })
+          redirectToTermsConsent()
+          return
+        }
+
+        if (nextLegalAgreementsCompleted && termsConsentPath) {
+          setGateState({ status: 'redirecting', onboardingCompleted: nextOnboardingCompleted, legalAgreementsCompleted: true })
+          router.replace(nextOnboardingCompleted ? '/' : '/profile-onboarding')
+          return
+        }
+
+        if (nextLegalAgreementsCompleted && !nextOnboardingCompleted && !publicPath && !profileOnboardingPath) {
+          setGateState({ status: 'redirecting', onboardingCompleted: false, legalAgreementsCompleted: true })
           router.replace('/profile-onboarding')
           return
         }
 
-        if (nextOnboardingCompleted && profileOnboardingPath) {
-          setGateState({ status: 'redirecting', onboardingCompleted: true })
+        if (nextLegalAgreementsCompleted && nextOnboardingCompleted && profileOnboardingPath) {
+          setGateState({ status: 'redirecting', onboardingCompleted: true, legalAgreementsCompleted: true })
           router.replace('/')
           return
         }
 
-        setGateState({ status: 'allowed', onboardingCompleted: nextOnboardingCompleted })
+        setGateState({ status: 'allowed', onboardingCompleted: nextOnboardingCompleted, legalAgreementsCompleted: nextLegalAgreementsCompleted })
       })
       .catch(() => {
         if (cancelled) return
-        setGateState({ status: 'anonymous', onboardingCompleted: null })
+        setGateState({ status: 'anonymous', onboardingCompleted: null, legalAgreementsCompleted: null })
         if (!publicPath) redirectToLogin()
       })
 
     return () => {
       cancelled = true
     }
-  }, [pathname, profileOnboardingPath, publicPath, router])
+  }, [pathname, profileOnboardingPath, publicPath, router, termsConsentPath])
 
   useEffect(() => {
-    if (!contentAllowed || !onboardingCompleted) return
+    if (!contentAllowed || !onboardingCompleted || !legalAgreementsCompleted) return
     if (isManwonIOS()) return
-    if (pathname.startsWith('/login') || pathname.startsWith('/signup') || pathname.startsWith('/chat/') || pathname === '/profile-onboarding') return
+    if (pathname.startsWith('/login') || pathname.startsWith('/signup') || pathname.startsWith('/chat/') || pathname === '/profile-onboarding' || pathname === '/terms-consent') return
 
     let cancelled = false
     void fetchAuthSession()
@@ -169,7 +204,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [contentAllowed, onboardingCompleted, pathname, router])
+  }, [contentAllowed, legalAgreementsCompleted, onboardingCompleted, pathname, router])
 
   return (
     <main className="app-shell">

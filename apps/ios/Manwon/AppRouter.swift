@@ -89,6 +89,7 @@ final class AppRouter: ObservableObject {
         return matchesPath(path, "/login")
             || matchesPath(path, "/signup")
             || matchesPath(path, "/profile-onboarding")
+            || matchesPath(path, "/terms-consent")
             || matchesPath(path, "/posts")
             || matchesPath(path, "/my/profiles")
             || matchesPath(path, "/register/request")
@@ -106,6 +107,7 @@ final class AppRouter: ObservableObject {
         return matchesPath(path, "/login")
             || matchesPath(path, "/signup")
             || matchesPath(path, "/profile-onboarding")
+            || matchesPath(path, "/terms-consent")
             || matchesPath(path, "/posts")
             || matchesPath(path, "/register")
             || matchesPath(path, "/my")
@@ -256,7 +258,7 @@ final class AppRouter: ObservableObject {
             }
             return
         }
-        if onboardingRequired {
+        if onboardingRequired && !matchesPath(normalized, "/terms-consent") {
             if routeCameFromActiveTab {
                 routeToProfileOnboarding()
             }
@@ -392,7 +394,7 @@ final class AppRouter: ObservableObject {
     }
 
     private func shouldBlockForOnboarding(_ path: String) -> Bool {
-        onboardingRequired && requiresAuthentication(path) && path != "/profile-onboarding"
+        onboardingRequired && requiresAuthentication(path) && path != "/profile-onboarding" && !matchesPath(path, "/terms-consent")
     }
 
     private func resolveAndOpenPushTarget(
@@ -554,5 +556,6 @@ final class AppRouter: ObservableObject {
             || matchesPath(path, "/activity")
             || matchesPath(path, "/my")
             || matchesPath(path, "/profile-onboarding")
+            || matchesPath(path, "/terms-consent")
     }
 }

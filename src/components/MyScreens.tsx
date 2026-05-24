@@ -409,6 +409,10 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
           <Shield size={17} />
           개인정보 처리방침
         </button>
+        <button className="support-link-button" type="button" onClick={() => router.push('/terms/location?returnTo=/my')}>
+          <MapPin size={17} />
+          위치기반서비스 약관
+        </button>
       </div>
       <button className="withdraw-cta my-main-withdraw-button" type="button" disabled={withdrawBusy} onClick={openWithdrawConfirm}>
         <UserMinus size={18} />
@@ -1594,6 +1598,7 @@ function AccountScreen({
       <div className="settings-card">
         <SettingsRow icon={<FileText />} title="서비스 이용약관" subtitle="뭐든해줌 서비스 이용약관을 확인하세요." href="/terms/service?returnTo=/my" />
         <SettingsRow icon={<Shield />} title="개인정보 처리방침" subtitle="개인정보 처리방침을 확인하세요." href="/terms/privacy?returnTo=/my" />
+        <SettingsRow icon={<MapPin />} title="위치기반서비스 약관" subtitle="위치정보 처리 기준을 확인하세요." href="/terms/location?returnTo=/my" />
         <SettingsRow icon={<Headphones />} title="문의하기" subtitle="자주 묻는 질문과 1:1 문의를 이용하세요." href="/my/support" />
       </div>
       <div className="settings-card danger">

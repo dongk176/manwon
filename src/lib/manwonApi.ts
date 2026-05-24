@@ -743,6 +743,13 @@ export async function confirmSignupOtp(input: SignupOnboardingPayload & { code: 
   return profile
 }
 
+export async function acceptRequiredLegalAgreements(input: { terms: boolean; privacy: boolean }) {
+  return apiFetch<Record<string, unknown>>('/api/me/legal-agreements', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
 export async function fetchAuthSession() {
   const headers = getAuthHeaders()
   headers.set('content-type', 'application/json')

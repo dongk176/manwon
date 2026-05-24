@@ -73,6 +73,9 @@ export default function SupportPage() {
             <p>
               <Link href="/terms/privacy?returnTo=/support">개인정보 처리방침</Link>
             </p>
+            <p>
+              <Link href="/terms/location?returnTo=/support">위치기반서비스 이용약관</Link>
+            </p>
           </section>
         </div>
       </article>
