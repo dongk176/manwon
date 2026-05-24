@@ -12,7 +12,6 @@ import {
   ChevronRight,
   Flag,
   Funnel,
-  Heart,
   Home,
   ListChecks,
   MapPin,
@@ -437,7 +436,7 @@ export function RequestCard({ request, onPrimary, onOpen, onReport, reportDisabl
               <span className="request-stat-label">{messageCount}</span>
             </span>
             <span className="request-stat-item is-favorite">
-              <Heart size={13} fill="currentColor" />
+              <MessageCircle size={13} />
               <span className="request-stat-label">{favoriteCount}</span>
             </span>
           </p>

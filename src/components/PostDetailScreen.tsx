@@ -87,7 +87,6 @@ interface DetailEditDraft {
   availableTimeOption: AvailableTimeOption
   customAvailableTime: string
   genderVisibility: GenderVisibility
-  serviceIntro: string
   serviceScope: string[]
   careerSummary: string
   portfolioTitle: string
@@ -654,7 +653,6 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
         deadlineText: isRequest ? getRequestDeadlineText(editDraft.deadlineOption, editDraft.customDeadlineText) : null,
         availableTimeText: isRequest ? null : getAvailableTimeText(editDraft.availableTimeOption, editDraft.customAvailableTime),
         genderVisibility: isRequest ? post.genderVisibility : editDraft.genderVisibility,
-        serviceIntro: isRequest ? null : nullableText(editDraft.serviceIntro),
         serviceScope: [],
         experienceSummary: isRequest ? null : nullableText(editDraft.careerSummary),
         careerSummary: isRequest ? null : nullableText(editDraft.careerSummary),
@@ -1409,7 +1407,7 @@ function PostDetailEngagementStats({
         {formatCount(messageCount)}
       </span>
       <span className="is-favorite">
-        <Heart size={15} fill="currentColor" />
+        <MessageCircle size={15} />
         {formatCount(favoriteCount)}
       </span>
     </div>
@@ -2102,7 +2100,6 @@ function createEditDraft(post: ApiTaskPost, displayPost: RequestPost): DetailEdi
     availableTimeOption,
     customAvailableTime: availableTimeOption === 'custom' ? post.availableTimeText ?? displayPost.deadline : '',
     genderVisibility: post.genderVisibility,
-    serviceIntro: post.serviceIntro ?? '',
     serviceScope: Array.isArray(post.serviceScope) ? post.serviceScope : [],
     careerSummary: post.careerSummary ?? post.experienceSummary ?? '',
     portfolioTitle: firstPortfolio?.title ?? '',

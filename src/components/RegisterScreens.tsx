@@ -638,7 +638,6 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
   const [categoryId, setCategoryId] = useState('')
   const [customCategory, setCustomCategory] = useState('')
   const [categoryDetail, setCategoryDetail] = useState('')
-  const [serviceIntro, setServiceIntro] = useState('')
   const [mode, setMode] = useState<RequestMode | null>(null)
   const [activityRegion, setActivityRegion] = useState<LocationRegion | null>(null)
   const [availableTimeOption, setAvailableTimeOption] = useState<AvailableTimeOption | null>(null)
@@ -663,7 +662,7 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
   const price = getPriceValue(priceOption, customPrice)
   const availableTimeText = getAvailableTimeText(availableTimeOption, customAvailableTime)
   const portfolioLinks = getPortfolioLinks(portfolioTitle, portfolioUrl)
-  const isDirty = hasOfferInput({ title, categoryId, customCategory, categoryDetail, serviceIntro, mode, customAvailableTime, customPrice, description, careerSummary, portfolioUrl, postImages, sampleImages, responseTime })
+  const isDirty = hasOfferInput({ title, categoryId, customCategory, categoryDetail, mode, customAvailableTime, customPrice, description, careerSummary, portfolioUrl, postImages, sampleImages, responseTime })
 
   useImagePreviewCleanup(postImages)
   useImagePreviewCleanup(sampleImages)
@@ -733,7 +732,6 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
       categoryId,
       customCategory,
       categoryDetail,
-      serviceIntro,
       mode,
       activityRegion,
       availableTimeOption,
@@ -760,7 +758,6 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
       categoryId,
       customCategory,
       categoryDetail,
-      serviceIntro,
       mode,
       activityRegion,
       availableTimeOption,
@@ -790,7 +787,6 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
         mode: mode ?? 'online',
         price,
         availableTimeText,
-        serviceIntro: serviceIntro.trim(),
         serviceScope: [],
         experienceSummary: nullableText(careerSummary),
         careerSummary: nullableText(careerSummary),
@@ -918,14 +914,6 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
               />
             )}
             <InlineTextField
-              label="서비스 소개"
-              value={serviceIntro}
-              onChange={setServiceIntro}
-              placeholder="한 줄로 간단히 소개해주세요"
-              maxLength={50}
-              error={errors.serviceIntro}
-            />
-            <InlineTextField
               label="금액"
               value={customPrice}
               onChange={handleOfferCustomPriceChange}
@@ -1031,7 +1019,6 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
                 { label: '활동 지역', value: isOffline && activityRegion ? activityRegion.addressText : '온라인', icon: <MapPin size={18} />, onEdit: () => setStep(2) },
                 { label: '가능한 시간', value: availableTimeText || '-', icon: <CalendarClock size={18} />, onEdit: () => setStep(2) },
                 { label: '받을 금액', value: formatWon(price), accent: true, onEdit: () => setStep(1) },
-                { label: '서비스 소개', value: serviceIntro, onEdit: () => setStep(1) },
                 { label: '상세 설명', value: getFirstLine(description) || '-', onEdit: () => setStep(1) },
                 { label: '경력', value: careerSummary || '미입력', onEdit: () => setStep(3) },
                 { label: '포트폴리오 링크', value: portfolioLinks[0]?.url ?? '미입력', link: Boolean(portfolioLinks[0]?.url), onEdit: () => setStep(3) },
@@ -2041,7 +2028,6 @@ function hasOfferInput(input: {
   categoryId: string
   customCategory: string
   categoryDetail: string
-  serviceIntro: string
   mode: RequestMode | null
   customAvailableTime: string
   customPrice: string
@@ -2057,7 +2043,6 @@ function hasOfferInput(input: {
       input.categoryId ||
       input.customCategory.trim() ||
       input.categoryDetail ||
-      input.serviceIntro.trim() ||
       input.mode ||
       input.customAvailableTime.trim() ||
       input.customPrice.trim() ||
@@ -2138,7 +2123,6 @@ function validateOfferStep(
     categoryId: string
     customCategory: string
     categoryDetail: string
-    serviceIntro: string
     mode: RequestMode | null
     activityRegion: LocationRegion | null
     availableTimeOption: AvailableTimeOption | null
@@ -2166,7 +2150,6 @@ function validateOfferStep(
         if (detailError) errors.categoryDetail = detailError
       }
     }
-    if (!input.serviceIntro.trim()) errors.serviceIntro = requiredFieldMessage
     const price = getPriceValue(input.priceOption, input.customPrice)
     if (price <= 0) errors.customPrice = '금액을 입력해주세요.'
     else if (price < requestMinPrice) errors.customPrice = '최소 1,000원'

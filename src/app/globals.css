@@ -1141,10 +1141,6 @@ html.native-ios-shell [role="button"] {
   color: #85858a;
 }
 
-.request-stats .request-stat-item.is-favorite svg {
-  color: var(--brand);
-}
-
 .home-screen .request-card-home .request-location {
   align-items: flex-start;
   font-weight: 400;
@@ -5919,10 +5915,6 @@ html.native-ios-shell [role="button"] {
 
 .post-detail-engagement-stats svg {
   color: #85858a;
-}
-
-.post-detail-engagement-stats .is-favorite svg {
-  color: var(--brand);
 }
 
 .favorite-button {

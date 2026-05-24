@@ -21,7 +21,6 @@ export interface ApiTaskPost {
   receiptRequired?: boolean
   photoProofRequired?: boolean
   locationSource?: 'gps' | 'manual' | null
-  serviceIntro?: string | null
   serviceScope?: string[]
   experienceSummary?: string | null
   careerSummary?: string | null
@@ -91,7 +90,6 @@ export interface CreateTaskPostPayload {
   receiptRequired?: boolean
   photoProofRequired?: boolean
   locationSource?: 'gps' | 'manual' | null
-  serviceIntro?: string | null
   serviceScope?: string[]
   experienceSummary?: string | null
   careerSummary?: string | null

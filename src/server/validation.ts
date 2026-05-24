@@ -68,7 +68,6 @@ const createPostBaseSchema = z.object({
   genderVisibility: genderVisibilitySchema.default('private'),
   receiptRequired: z.boolean().default(false),
   photoProofRequired: z.boolean().default(false),
-  serviceIntro: z.string().trim().max(80).nullable().optional(),
   serviceScope: z.array(z.string().trim().min(1).max(60)).max(12).default([]),
   experienceSummary: z.string().trim().max(160).nullable().optional(),
   careerSummary: z.string().trim().max(160).nullable().optional(),
