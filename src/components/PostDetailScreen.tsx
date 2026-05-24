@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
-import { Check, CheckCircle2, ChevronLeft, ChevronRight, Clock, Clock3, Globe2, Heart, MapPin, MoreHorizontal, Navigation, Share2, ShieldCheck, Trash2, UsersRound, X } from 'lucide-react'
+import { Check, CheckCircle2, ChevronLeft, ChevronRight, Clock, Clock3, Globe2, Heart, MapPin, MessageCircle, MoreHorizontal, Navigation, Share2, ShieldCheck, Trash2, UsersRound, X } from 'lucide-react'
 import { ActionGuideOverlay, BrandButton, CategoryImageFrame, MoreMenu, RatingStars, ReportConfirmSheet } from '@/components/ui/Common'
 import { UserProfileSheet } from '@/components/UserProfileSheet'
 import { Avatar } from '@/components/ui/Illustration'
@@ -421,9 +421,11 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
       if (favorite) {
         await removeFavorite(displayPost.id)
         setFavorite(false)
+        setPost((current) => updatePostFavoriteCount(current, -1, false))
       } else {
         await addFavorite(displayPost.id)
         setFavorite(true)
+        setPost((current) => updatePostFavoriteCount(current, 1, true))
       }
       setActionState('done')
     } catch (error) {
@@ -828,6 +830,11 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
                 </div>
                 <h2>{displayPost.title}</h2>
                 <strong className="detail-price">{formatPrice(displayPost.price)}</strong>
+                <PostDetailEngagementStats
+                  postType={displayPost.postType}
+                  messageCount={displayPost.activeChatCount}
+                  favoriteCount={displayPost.favoriteCount}
+                />
               </article>
 
               <section className="post-detail-info-grid" aria-label="게시글 정보">
@@ -1383,6 +1390,34 @@ function Info({ icon, label, value }: { icon: React.ReactNode; label: string; va
       <strong className={isFastDeadlineText(value) ? 'hot-deadline-text' : undefined}>{value}</strong>
     </span>
   )
+}
+
+function PostDetailEngagementStats({
+  postType,
+  messageCount,
+  favoriteCount,
+}: {
+  postType?: RequestPost['postType']
+  messageCount?: number | null
+  favoriteCount?: number | null
+}) {
+  const interactionLabel = postType === 'offer' ? '문의' : '제가 할게요'
+  return (
+    <div className="post-detail-engagement-stats" aria-label={`${interactionLabel} ${formatCount(messageCount)}개, 찜 ${formatCount(favoriteCount)}개`}>
+      <span>
+        <MessageCircle size={15} />
+        {interactionLabel} {formatCount(messageCount)}
+      </span>
+      <span className="is-favorite">
+        <Heart size={15} fill="currentColor" />
+        찜 {formatCount(favoriteCount)}
+      </span>
+    </div>
+  )
+}
+
+function formatCount(value?: number | null) {
+  return String(Math.max(0, Number(value ?? 0)))
 }
 
 function ExtraPostSections({ post }: { post: ApiTaskPost }) {
@@ -2133,6 +2168,15 @@ function mergeUpdatedPost(current: ApiTaskPost | null, updated: ApiTaskPost): Ap
     creatorAvatarUrl: current.creatorAvatarUrl,
     creatorRatingAvg: current.creatorRatingAvg,
     creatorCompletedCount: current.creatorCompletedCount,
+  }
+}
+
+function updatePostFavoriteCount(current: ApiTaskPost | null, delta: number, isFavorited: boolean): ApiTaskPost | null {
+  if (!current) return current
+  return {
+    ...current,
+    isFavorited,
+    favoriteCount: Math.max(0, Number(current.favoriteCount ?? 0) + delta),
   }
 }
 

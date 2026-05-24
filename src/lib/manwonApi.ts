@@ -37,6 +37,7 @@ export interface ApiTaskPost {
   closedReason?: 'capacity_full' | 'manual' | null
   occupiedCount?: number | null
   activeChatCount?: number | null
+  favoriteCount?: number | null
   remainingCount?: number | null
   recruitmentRound?: number | null
   latestDealId?: string | null
@@ -967,6 +968,7 @@ export function mapApiPostToRequestPost(post: ApiTaskPost): RequestPost {
     capacityLimit: post.capacityLimit ?? null,
     occupiedCount: Number(post.occupiedCount ?? 0),
     activeChatCount: Number(post.activeChatCount ?? 0),
+    favoriteCount: Number(post.favoriteCount ?? 0),
     remainingCount: post.remainingCount ?? null,
     status: mapApiStatus(post.status),
     description: post.description,

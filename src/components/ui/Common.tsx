@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Flag,
   Funnel,
+  Heart,
   Home,
   ListChecks,
   MapPin,
@@ -402,6 +403,9 @@ export function RequestCard({ request, onPrimary, onOpen, onReport, reportDisabl
   const showPrimaryAction = variant !== 'preview' && Boolean(onPrimary)
   const locationText = variant === 'home' ? request.listLocation ?? trimLocationToNeighborhood(request.location) : request.location
   const statusBadge = variant === 'home' ? getPostStatusBadge(request.postStatus) : null
+  const interactionLabel = getPostInteractionLabel(request.postType)
+  const messageCount = formatCount(request.activeChatCount)
+  const favoriteCount = formatCount(request.favoriteCount)
 
   return (
     <article className={`request-card request-card-${variant} ${statusBadge ? 'has-post-status-badge' : ''}`} onClick={onOpen}>
@@ -426,6 +430,18 @@ export function RequestCard({ request, onPrimary, onOpen, onReport, reportDisabl
           {variant !== 'home' && <CheckCircle2 size={14} />}
           <span className={isFastDeadlineText(request.deadline) ? 'hot-deadline-text' : undefined}>{request.deadline}</span>
         </p>
+        {variant !== 'preview' && (
+          <p className="request-sub request-stats" aria-label={`${interactionLabel} ${messageCount}개, 찜 ${favoriteCount}개`}>
+            <span className="request-stat-item">
+              <MessageCircle size={13} />
+              <span className="request-stat-label">{interactionLabel} {messageCount}</span>
+            </span>
+            <span className="request-stat-item is-favorite">
+              <Heart size={13} fill="currentColor" />
+              <span className="request-stat-label">찜 {favoriteCount}</span>
+            </span>
+          </p>
+        )}
       </div>
       <div className="request-side">
         <span className="request-price">{formatPrice(request.price)}</span>
@@ -451,6 +467,14 @@ function getPostStatusBadge(status?: PostStatus) {
   if (status === 'completed') return { label: '거래 완료', className: 'is-completed' }
   if (status === 'closed') return { label: '마감', className: 'is-closed' }
   return null
+}
+
+function getPostInteractionLabel(postType?: RequestPost['postType']) {
+  return postType === 'offer' ? '문의' : '제가 할게요'
+}
+
+function formatCount(value?: number | null) {
+  return String(Math.max(0, Number(value ?? 0)))
 }
 
 export function CategoryImageFrame({

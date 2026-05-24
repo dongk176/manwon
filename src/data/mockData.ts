@@ -79,6 +79,7 @@ export interface RequestPost {
   capacityLimit?: number | null
   occupiedCount?: number
   activeChatCount?: number
+  favoriteCount?: number
   remainingCount?: number | null
   status: TradeStatus
   description: string

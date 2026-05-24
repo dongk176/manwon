@@ -1116,6 +1116,35 @@ html.native-ios-shell [role="button"] {
   white-space: nowrap;
 }
 
+.request-stats {
+  gap: 10px;
+  overflow: visible;
+  color: #707078;
+}
+
+.request-stats .request-stat-item,
+.request-stats .request-stat-label {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+.request-stats .request-stat-item {
+  flex: 0 0 auto;
+}
+
+.request-stats .request-stat-item svg {
+  color: #85858a;
+}
+
+.request-stats .request-stat-item.is-favorite svg {
+  color: var(--brand);
+}
+
 .home-screen .request-card-home .request-location {
   align-items: flex-start;
   font-weight: 400;
@@ -5870,6 +5899,30 @@ html.native-ios-shell [role="button"] {
 
 .post-detail-main-card .detail-price {
   margin-bottom: 0;
+}
+
+.post-detail-engagement-stats {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: #66666c;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.post-detail-engagement-stats span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.post-detail-engagement-stats svg {
+  color: #85858a;
+}
+
+.post-detail-engagement-stats .is-favorite svg {
+  color: var(--brand);
 }
 
 .favorite-button {

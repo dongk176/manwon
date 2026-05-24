@@ -333,6 +333,7 @@ export async function listTaskPosts(input: ListPostsInput, viewerId?: string | n
       creator.completed_count as creator_completed_count,
       capacity_stats.occupied_count as occupied_count,
       chat_stats.active_chat_count as active_chat_count,
+      favorite_stats.favorite_count as favorite_count,
       case
         when p.capacity_type = 'limited' and p.capacity_limit is not null then greatest(p.capacity_limit - capacity_stats.occupied_count, 0)
         else null
@@ -379,6 +380,11 @@ export async function listTaskPosts(input: ListPostsInput, viewerId?: string | n
       from manwon_happiness.applications a
       where a.post_id = p.id
     ) chat_stats on true
+    left join lateral (
+      select count(*)::integer as favorite_count
+      from manwon_happiness.favorites f
+      where f.post_id = p.id
+    ) favorite_stats on true
     where (
         (${publicStatusScope}::boolean = false and p.status = 'open')
         or (
@@ -418,7 +424,7 @@ export async function listTaskPosts(input: ListPostsInput, viewerId?: string | n
              or (b.blocker_id = p.creator_id and b.blocked_user_id = ${currentUserId}::uuid)
         )
       )
-    group by p.id, creator.nickname, creator.avatar_url, creator.gender, creator.phone_verified, creator.identity_verified, creator.rating_avg, creator.review_count, creator.completed_count, creator_profile.id, creator_profile.nickname, creator_profile.avatar_url, creator_profile.bio, capacity_stats.occupied_count, chat_stats.active_chat_count
+    group by p.id, creator.nickname, creator.avatar_url, creator.gender, creator.phone_verified, creator.identity_verified, creator.rating_avg, creator.review_count, creator.completed_count, creator_profile.id, creator_profile.nickname, creator_profile.avatar_url, creator_profile.bio, capacity_stats.occupied_count, chat_stats.active_chat_count, favorite_stats.favorite_count
     order by
       case
         when ${publicStatusScope}::boolean = true and p.status = 'open' then 0
@@ -458,6 +464,7 @@ export async function getTaskPost(postId: string, viewerId?: string | null, opti
       creator.completed_count as creator_completed_count,
       capacity_stats.occupied_count as occupied_count,
       chat_stats.active_chat_count as active_chat_count,
+      favorite_stats.favorite_count as favorite_count,
       case
         when p.capacity_type = 'limited' and p.capacity_limit is not null then greatest(p.capacity_limit - capacity_stats.occupied_count, 0)
         else null
@@ -517,6 +524,11 @@ export async function getTaskPost(postId: string, viewerId?: string | null, opti
       where a.post_id = p.id
     ) chat_stats on true
     left join lateral (
+      select count(*)::integer as favorite_count
+      from manwon_happiness.favorites f
+      where f.post_id = p.id
+    ) favorite_stats on true
+    left join lateral (
       select d.id, d.status, ${cancelledByColumn} as cancelled_by, d.cancelled_at, d.completed_at, d.updated_at, d.created_at
       from manwon_happiness.deals d
       where d.post_id = p.id
@@ -546,7 +558,7 @@ export async function getTaskPost(postId: string, viewerId?: string | null, opti
       limit 1
     ) viewer_application on true
     where p.id = ${postId}
-    group by p.id, creator.nickname, creator.avatar_url, creator.gender, creator.phone_verified, creator.identity_verified, creator.rating_avg, creator.review_count, creator.completed_count, creator.trust_career_summary, creator.trust_portfolio_links, creator.trust_work_sample_images, creator.trust_response_time, creator.trust_response_time_text, creator_profile.id, creator_profile.nickname, creator_profile.avatar_url, creator_profile.default_avatar_key, creator_profile.bio, creator_profile.career_summary, creator_profile.career_description, creator_profile.portfolio_links, creator_profile.work_sample_images, creator_profile.available_time_text, capacity_stats.occupied_count, chat_stats.active_chat_count, latest_deal.id, latest_deal.status, latest_deal.cancelled_by, viewer_application.id, viewer_application.status, viewer_application.conversation_id, viewer_application.deal_id, viewer_application.deal_status
+    group by p.id, creator.nickname, creator.avatar_url, creator.gender, creator.phone_verified, creator.identity_verified, creator.rating_avg, creator.review_count, creator.completed_count, creator.trust_career_summary, creator.trust_portfolio_links, creator.trust_work_sample_images, creator.trust_response_time, creator.trust_response_time_text, creator_profile.id, creator_profile.nickname, creator_profile.avatar_url, creator_profile.default_avatar_key, creator_profile.bio, creator_profile.career_summary, creator_profile.career_description, creator_profile.portfolio_links, creator_profile.work_sample_images, creator_profile.available_time_text, capacity_stats.occupied_count, chat_stats.active_chat_count, favorite_stats.favorite_count, latest_deal.id, latest_deal.status, latest_deal.cancelled_by, viewer_application.id, viewer_application.status, viewer_application.conversation_id, viewer_application.deal_id, viewer_application.deal_status
     limit 1
   `
 
