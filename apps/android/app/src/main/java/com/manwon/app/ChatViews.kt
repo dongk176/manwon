@@ -18,6 +18,8 @@ import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import java.util.Locale
@@ -31,6 +33,15 @@ private data class ChatActionConfirmation(
     val title: String,
     val message: String,
     val confirmTitle: String
+)
+
+private val chatReportReasons = arrayOf(
+    "부적절한 메시지",
+    "거래와 무관한 연락",
+    "사기 의심",
+    "욕설/괴롭힘",
+    "개인정보 요구",
+    "기타"
 )
 
 class ChatListView(
@@ -214,6 +225,8 @@ class ChatDetailView(
     }
     private val titleView = TextView(context)
     private val draft = EditText(context)
+    private var attachmentButton: TextView? = null
+    private var sendButton: TextView? = null
 
     private val pollRunnable = object : Runnable {
         override fun run() {
@@ -266,14 +279,19 @@ class ChatDetailView(
                     messages = output.third.toMutableList()
                     titleView.text = conversation?.otherNickname ?: "채팅"
                     renderMessages()
+                    updateComposerState()
                 }
                 .onFailure { showError(it.message ?: "채팅방을 불러오지 못했습니다.") }
         }
     }
 
     private fun sendText() {
+        composerBlockedReason()?.let {
+            showToastLike(it)
+            return
+        }
         val text = draft.text.toString().trim()
-        if (text.isBlank() || conversation?.isClosed == true) return
+        if (text.isBlank()) return
         draft.setText("")
         val clientMessageId = UUID.randomUUID().toString()
         val pending = Message(
@@ -303,6 +321,10 @@ class ChatDetailView(
     }
 
     private fun sendImage(data: ByteArray) {
+        composerBlockedReason()?.let {
+            showToastLike(it)
+            return
+        }
         val clientMessageId = UUID.randomUUID().toString()
         runAsync({
             val upload = api.uploadImage(data, "chat-$clientMessageId.jpg", "image/jpeg", "chat-message")
@@ -318,9 +340,9 @@ class ChatDetailView(
         }
     }
 
-    private fun updateDealStatus(status: String) {
+    private fun updateDealStatus(status: String, reportReason: String? = null, reportDescription: String? = null) {
         val dealId = conversation?.dealId ?: return
-        runAsync({ api.updateDealStatus(dealId, status) }) { result ->
+        runAsync({ api.updateDealStatus(dealId, status, reportReason, reportDescription) }) { result ->
             result.onSuccess { load() }.onFailure { showToastLike(it.message ?: "상태 변경에 실패했습니다.") }
         }
     }
@@ -333,6 +355,10 @@ class ChatDetailView(
     }
 
     private fun confirmDealStatus(status: String) {
+        if (status == "disputed") {
+            showCompletionReportDialog()
+            return
+        }
         showActionConfirmation(dealStatusConfirmation(status)) {
             updateDealStatus(status)
         }
@@ -351,6 +377,60 @@ class ChatDetailView(
             .setMessage(confirmation.message)
             .setNegativeButton("돌아가기", null)
             .setPositiveButton(confirmation.confirmTitle) { _, _ -> action() }
+            .show()
+    }
+
+    private fun showCompletionReportDialog() {
+        hideKeyboard()
+        var selectedReason = chatReportReasons.first()
+        val content = LinearLayout(context).apply {
+            orientation = VERTICAL
+            setPadding(context.dp(4), context.dp(4), context.dp(4), 0)
+        }
+        content.addView(TextView(context).apply {
+            text = "신고하면 거래는 완료 처리되고 이 채팅방에서 양쪽 모두 메시지를 보낼 수 없습니다."
+            styleText(14f, ManwonColors.MUTED, Typeface.NORMAL)
+        })
+        val group = RadioGroup(context).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        chatReportReasons.forEachIndexed { index, reason ->
+            val id = View.generateViewId()
+            group.addView(RadioButton(context).apply {
+                this.id = id
+                text = reason
+                textSize = 14f
+                setTextColor(ManwonColors.TEXT)
+                if (index == 0) isChecked = true
+            })
+        }
+        group.setOnCheckedChangeListener { radioGroup, checkedId ->
+            selectedReason = radioGroup.findViewById<RadioButton>(checkedId)?.text?.toString() ?: selectedReason
+        }
+        content.addView(group, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+            topMargin = context.dp(10)
+        })
+        val descriptionInput = EditText(context).apply {
+            hint = "상세 내용 (선택)"
+            minLines = 2
+            maxLines = 4
+            textSize = 14f
+            setTextColor(ManwonColors.TEXT)
+            setHintTextColor(ManwonColors.MUTED)
+            setPadding(context.dp(12), context.dp(10), context.dp(12), context.dp(10))
+            background = rounded(0xFFF5F5F6.toInt(), 12, context = context)
+        }
+        content.addView(descriptionInput, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+            topMargin = context.dp(8)
+        })
+        AlertDialog.Builder(context)
+            .setTitle("완료 요청 신고하기")
+            .setView(content)
+            .setNegativeButton("돌아가기", null)
+            .setPositiveButton("신고하고 완료 처리") { _, _ ->
+                val description = descriptionInput.text.toString().trim().takeIf { it.isNotBlank() }
+                updateDealStatus("disputed", selectedReason, description)
+            }
             .show()
     }
 
@@ -412,6 +492,7 @@ class ChatDetailView(
     private fun renderMessages() {
         messageList.removeAllViews()
         renderActionPanel()
+        updateComposerState()
         if (conversation == null) {
             messageList.addView(centerMessage(context, "채팅방을 찾지 못했어요"))
         } else {
@@ -432,13 +513,14 @@ class ChatDetailView(
         val isApplicant = currentUserId != null && postCreatorId != null && currentUserId != postCreatorId
         val hasPendingApplication = conversation.applicationId != null && conversation.applicationStatus == "applied" && conversation.dealId == null
         val hasChatAfterStarted = conversation.hasChatAfterStarted == true
+        val blockedMessage = if (conversation.dealChatBlockedAt != null) conversation.chatBlockedMessage(currentUserId) else null
         val panel = LinearLayout(context).apply {
             orientation = VERTICAL
             setPadding(context.dp(14), context.dp(14), context.dp(14), context.dp(14))
             background = rounded(ManwonColors.SURFACE, 14, ManwonColors.LINE, 1, context)
         }
         panel.addView(TextView(context).apply {
-            text = when (conversation.dealStatus) {
+            text = blockedMessage ?: when (conversation.dealStatus) {
                 "completed" -> "거래가 완료되었어요."
                 "cancelled" -> "거래가 취소되었어요."
                 "complete_requested" -> if (isPostWriter) "지원자가 완료 요청을 보냈어요." else "완료 요청을 보냈어요."
@@ -459,6 +541,9 @@ class ChatDetailView(
             gravity = Gravity.CENTER
         }
         when {
+            blockedMessage != null -> {
+                helperText = conversation.chatBlockedDetail(currentUserId)
+            }
             conversation.dealStatus == "complete_requested" && isPostWriter && hasChatAfterStarted -> {
                 actions.addView(actionButton("완료 승인") { confirmDealStatus("completed") }, LinearLayout.LayoutParams(0, context.dp(44), 1f))
                 actions.addView(actionButton("문제 신고", secondary = true) { confirmDealStatus("disputed") }, LinearLayout.LayoutParams(0, context.dp(44), 1f).apply { leftMargin = context.dp(8) })
@@ -969,11 +1054,14 @@ class ChatDetailView(
                 styleText(25f, ManwonColors.BRAND, Typeface.BOLD)
                 background = circle(ManwonColors.BRAND_SOFT, context = context)
                 setOnClickListener {
-                    if (conversation?.isClosed != true) {
-                        imagePickerHost.pickImage { data -> if (data != null) sendImage(data) }
+                    composerBlockedReason()?.let {
+                        showToastLike(it)
+                        return@setOnClickListener
                     }
+                    imagePickerHost.pickImage { data -> if (data != null) sendImage(data) }
                 }
             }
+            attachmentButton = add
             pressFeedback(add)
             addView(add, LinearLayout.LayoutParams(context.dp(38), context.dp(38)))
 
@@ -1001,9 +1089,30 @@ class ChatDetailView(
                 background = rounded(ManwonColors.BRAND, 999, context = context)
                 setOnClickListener { sendText() }
             }
+            sendButton = send
             pressFeedback(send)
             addView(send, LinearLayout.LayoutParams(context.dp(58), context.dp(38)))
+            updateComposerState()
         }
+    }
+
+    private fun composerBlockedReason(): String? {
+        val current = conversation ?: return "채팅방을 불러오는 중입니다."
+        if (current.dealChatBlockedAt != null) return current.chatBlockedMessage(currentUserId)
+        if (current.isClosed) return "종료된 거래라 메시지를 보낼 수 없습니다."
+        return null
+    }
+
+    private fun updateComposerState() {
+        val blockedReason = composerBlockedReason()
+        val disabled = blockedReason != null
+        draft.isEnabled = !disabled
+        draft.hint = blockedReason ?: "메시지를 입력하세요"
+        if (disabled) draft.setText("")
+        attachmentButton?.isEnabled = !disabled
+        sendButton?.isEnabled = !disabled
+        attachmentButton?.alpha = if (disabled) 0.42f else 1f
+        sendButton?.alpha = if (disabled) 0.42f else 1f
     }
 
     private fun showLoading() {

@@ -133,6 +133,12 @@ struct Conversation: Codable, Identifiable, Hashable {
     let postCreatorId: String?
     let postType: String?
     let dealStatus: DealStatus?
+    let dealReportedAt: String?
+    let dealReportedBy: String?
+    let dealReportedUserId: String?
+    let dealReportReason: String?
+    let dealReportDescription: String?
+    let dealChatBlockedAt: String?
     let requesterProfileId: String?
     let helperProfileId: String?
     let applicationId: String?

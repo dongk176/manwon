@@ -127,56 +127,80 @@ struct PermissionPromptOverlay: View {
     let prompt: PermissionPromptManager.Prompt
 
     var body: some View {
-        ZStack {
-            Color.black.opacity(0.42)
-                .ignoresSafeArea()
-                .onTapGesture(perform: prompt.secondaryAction)
-
-            VStack(spacing: 18) {
+        VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 12) {
                 Image(systemName: prompt.iconName)
-                    .font(.system(size: 30, weight: .bold))
+                    .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(ManwonColor.brand)
-                    .frame(width: 58, height: 58)
+                    .frame(width: 38, height: 38)
                     .background(ManwonColor.brandSoft)
                     .clipShape(Circle())
 
-                VStack(spacing: 8) {
-                    Text(prompt.title)
-                        .font(.system(size: 19, weight: .bold))
-                        .foregroundStyle(ManwonColor.text)
-                        .multilineTextAlignment(.center)
+                VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(prompt.title)
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(ManwonColor.text)
+                            .lineLimit(2)
 
-                    Text(prompt.message)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(ManwonColor.muted)
-                        .multilineTextAlignment(.center)
-                        .lineSpacing(3)
-                }
-
-                VStack(spacing: 9) {
-                    Button(action: prompt.primaryAction) {
-                        Text(prompt.primaryTitle)
-                    }
-                    .buttonStyle(PrimaryButtonStyle())
-
-                    Button(action: prompt.secondaryAction) {
-                        Text(prompt.secondaryTitle)
-                            .font(.system(size: 14, weight: .bold))
+                        Text(prompt.message)
+                            .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(ManwonColor.muted)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 42)
+                            .lineLimit(2)
+                            .lineSpacing(2)
                     }
-                    .buttonStyle(PressableScaleButtonStyle(scale: 0.98, pressedOpacity: 0.86))
+
+                    HStack(spacing: 8) {
+                        Button(action: prompt.primaryAction) {
+                            Text(prompt.primaryTitle)
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(Color.white)
+                                .padding(.horizontal, 12)
+                                .frame(height: 34)
+                                .background(ManwonColor.brand)
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(PressableScaleButtonStyle(scale: 0.97, pressedOpacity: 0.88))
+
+                        Button(action: prompt.secondaryAction) {
+                            Text(prompt.secondaryTitle)
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(ManwonColor.muted)
+                                .padding(.horizontal, 8)
+                                .frame(height: 34)
+                        }
+                        .buttonStyle(PressableScaleButtonStyle(scale: 0.97, pressedOpacity: 0.86))
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Button(action: prompt.secondaryAction) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(ManwonColor.muted)
+                        .frame(width: 30, height: 30)
+                        .background(Color(red: 0.95, green: 0.95, blue: 0.955))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(PressableScaleButtonStyle(scale: 0.94, pressedOpacity: 0.84))
+                .accessibilityLabel(prompt.secondaryTitle)
             }
-            .padding(22)
-            .frame(maxWidth: 350)
-            .padding(.horizontal, 20)
+            .padding(14)
+            .frame(maxWidth: 390)
             .background(ManwonColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .shadow(color: Color.black.opacity(0.14), radius: 22, x: 0, y: 12)
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(ManwonColor.line.opacity(0.9), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .shadow(color: Color.black.opacity(0.12), radius: 18, x: 0, y: 8)
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
+
+            Spacer(minLength: 0)
         }
-        .transition(.opacity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
 }
 
@@ -391,6 +415,7 @@ private func parseAPIDate(_ value: String) -> Date? {
 }
 
 func statusText(_ conversation: Conversation) -> String {
+    if conversation.dealChatBlockedAt != nil { return "완료·신고" }
     if conversation.dealStatus == .completed { return "거래완료" }
     if conversation.dealStatus == .cancelled { return "취소됨" }
     if conversation.dealStatus == .inProgress { return "진행중" }

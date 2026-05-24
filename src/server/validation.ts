@@ -219,6 +219,8 @@ export const updateApplicationStatusSchema = z.object({
 
 export const updateDealStatusSchema = z.object({
   status: dealStatusSchema,
+  reportReason: z.string().trim().min(1).max(80).nullable().optional(),
+  reportDescription: z.string().trim().max(1000).nullable().optional(),
 })
 
 export const createReviewSchema = z.object({

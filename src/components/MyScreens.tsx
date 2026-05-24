@@ -99,6 +99,7 @@ type ActivityRecord = Record<string, unknown>
 type ActivityPost = ApiTaskPost & ActivityRecord
 type MyActivity = {
   myPosts: ActivityPost[]
+  requestDeals: ActivityRecord[]
   helpedDeals: ActivityRecord[]
   favorites: ActivityRecord[]
   receivedReviews: ActivityRecord[]
@@ -127,6 +128,7 @@ type TaskItem = {
 
 const emptyActivity: MyActivity = {
   myPosts: [],
+  requestDeals: [],
   helpedDeals: [],
   favorites: [],
   receivedReviews: [],
@@ -242,8 +244,8 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
   if (section === 'activity' || section === 'requests' || section === 'helped') {
     return withWithdrawOverlay(
       <MyActivityScreen
-        posts={activity.myPosts}
-        deals={activity.helpedDeals}
+        requestDeals={activity.requestDeals}
+        helpedDeals={activity.helpedDeals}
         loading={loadState === 'loading'}
         initialTab={section === 'helped' ? '내가 해준 일' : '내 부탁'}
       />
@@ -418,13 +420,13 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
 type MyActivityTab = '내 부탁' | '내가 해준 일'
 
 function MyActivityScreen({
-  posts,
-  deals,
+  requestDeals,
+  helpedDeals,
   loading,
   initialTab,
 }: {
-  posts: ActivityPost[]
-  deals: ActivityRecord[]
+  requestDeals: ActivityRecord[]
+  helpedDeals: ActivityRecord[]
   loading: boolean
   initialTab: MyActivityTab
 }) {
@@ -433,13 +435,13 @@ function MyActivityScreen({
   const [selectedItem, setSelectedItem] = useState<TaskItem | null>(null)
   const [postGuide, setPostGuide] = useState<{ title: string; description: string } | null>(null)
   const router = useRouter()
-  const postItems = useMemo(() => posts.map(postToTaskItem), [posts])
-  const dealItems = useMemo(() => deals.map(dealToTaskItem), [deals])
-  const activeItems = activeTab === '내 부탁' ? postItems : dealItems
+  const requestDealItems = useMemo(() => requestDeals.map(dealToTaskItem), [requestDeals])
+  const helpedDealItems = useMemo(() => helpedDeals.map(dealToTaskItem), [helpedDeals])
+  const activeItems = activeTab === '내 부탁' ? requestDealItems : helpedDealItems
   const filteredItems = filterTaskItems(activeItems, activeStatus)
-  const emptyTitle = activeTab === '내 부탁' ? '아직 등록한 부탁이 없어요' : '아직 해준 일이 없어요'
+  const emptyTitle = activeTab === '내 부탁' ? '아직 진행한 부탁 거래가 없어요' : '아직 해준 일이 없어요'
   const emptyText = activeTab === '내 부탁'
-    ? '부탁을 등록하면 이곳에서 상태를 확인할 수 있습니다.'
+    ? '내가 올린 해주세요 게시물에서 거래가 시작되면 이곳에서 확인할 수 있습니다.'
     : '거래를 수락하면 이곳에서 진행 상황을 볼 수 있습니다.'
 
   return (
@@ -2195,6 +2197,11 @@ function postToTaskItem(post: ActivityPost): TaskItem {
 
 function dealToTaskItem(deal: ActivityRecord): TaskItem {
   const status = getString(deal, 'status')
+  const reported = Boolean(deal.reportedAt || deal.chatBlockedAt || getString(deal, 'reportReason'))
+  const activityRole = getString(deal, 'activityRole')
+  const counterpartName = getString(deal, 'counterpartNickname')
+    || (activityRole === 'requester' ? getString(deal, 'helperNickname') : getString(deal, 'requesterNickname'))
+    || (activityRole === 'requester' ? '수행자' : '요청자')
   return {
     id: getString(deal, 'id'),
     postId: getString(deal, 'postId'),
@@ -2205,9 +2212,11 @@ function dealToTaskItem(deal: ActivityRecord): TaskItem {
     mode: getString(deal, 'postMode') || 'nearby',
     location: formatLocation(deal, 'post'),
     deadline: formatDeadline(deal.postDeadlineAt, deal.postDeadlineText, deal.postAvailableTimeText),
-    statusLabel: mapDealStatus(status),
+    statusLabel: reported && status === 'completed' ? '완료 · 신고' : mapDealStatus(status),
     filterStatus: toDealFilterStatus(status),
-    note: `${getString(deal, 'requesterNickname') || '요청자'}님과의 거래`,
+    note: reported
+      ? `${counterpartName}님과의 거래 · ${getString(deal, 'reportReason') || '신고 접수'}`
+      : `${counterpartName}님과의 거래`,
   }
 }
 

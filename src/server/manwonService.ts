@@ -401,7 +401,7 @@ export async function listTaskPosts(input: ListPostsInput, viewerId?: string | n
   `
 }
 
-export async function getTaskPost(postId: string, viewerId?: string | null) {
+export async function getTaskPost(postId: string, viewerId?: string | null, options?: { incrementView?: boolean }) {
   const sql = getSql()
   const currentUserId = viewerId ?? null
   const cancelledByColumn = (await hasDealsCancelledByColumn(sql))
@@ -534,11 +534,13 @@ export async function getTaskPost(postId: string, viewerId?: string | null) {
     }
   }
 
-  await sql`
-    update manwon_happiness.task_posts
-    set view_count = view_count + 1
-    where id = ${postId}
-  `
+  if (options?.incrementView !== false) {
+    await sql`
+      update manwon_happiness.task_posts
+      set view_count = view_count + 1
+      where id = ${postId}
+    `
+  }
 
   return rows[0]
 }
@@ -800,24 +802,30 @@ function canTransitionDealStatus(current: string, next: string) {
   return transitions[current]?.includes(next) ?? false
 }
 
-function getDealStatusSystemMessage(status: string) {
+function getDealStatusSystemMessage(status: string, reportReason?: string | null) {
   if (status === 'accepted') return '거래가 수락되었어요.'
   if (status === 'in_progress') return '거래가 진행 중으로 변경되었어요.'
   if (status === 'complete_requested') return '완료 요청이 도착했어요.'
   if (status === 'completed') return '거래가 완료되었어요.'
   if (status === 'cancelled') return '거래가 취소되었어요.'
-  if (status === 'disputed') return '문제 신고가 접수되었어요.'
+  if (status === 'disputed') return reportReason
+    ? `‘${reportReason}’ 문제 신고가 접수되어 거래가 완료 처리되었어요.`
+    : '문제 신고가 접수되어 거래가 완료 처리되었어요.'
   return null
 }
 
-function getDealStatusNotification(status: string, postTitle: string | null) {
+function getDealStatusNotification(status: string, postTitle: string | null, reportReason?: string | null) {
   const title = postTitle ? `"${postTitle}"` : '거래'
   if (status === 'accepted') return { type: 'deal.accepted', title: '거래가 수락됐어요', body: `${title} 거래가 수락됐습니다.` }
   if (status === 'in_progress') return { type: 'deal.in_progress', title: '거래가 시작됐어요', body: `${title} 거래가 진행 중으로 바뀌었습니다.` }
   if (status === 'complete_requested') return { type: 'deal.complete_requested', title: '완료 요청이 도착했어요', body: `${title} 거래를 확인하고 완료 승인해주세요.` }
   if (status === 'completed') return { type: 'deal.completed', title: '거래가 완료됐어요', body: `${title} 거래가 완료되었습니다.` }
   if (status === 'cancelled') return { type: 'deal.cancelled', title: '거래가 취소됐어요', body: `${title} 거래가 취소되었습니다.` }
-  if (status === 'disputed') return { type: 'deal.disputed', title: '문제 신고가 접수됐어요', body: `${title} 거래가 분쟁 상태로 변경되었습니다.` }
+  if (status === 'disputed') return {
+    type: 'deal.disputed',
+    title: '문제 신고가 접수됐어요',
+    body: reportReason ? `${title} 거래가 ‘${reportReason}’ 문제로 신고되어 완료 처리됐습니다.` : `${title} 거래가 신고되어 완료 처리됐습니다.`,
+  }
   return null
 }
 
@@ -835,6 +843,31 @@ function getApplicationStatusNotification(status: string, postTitle?: string | n
   if (status === 'cancelled') return { type: 'application.cancelled', title: '지원이 취소됐어요', body: `${title} 지원자가 지원을 취소했습니다.` }
   if (status === 'auto_rejected') return { type: 'application.rejected', title: '모집이 마감됐어요', body: `${title}에서 다른 지원자가 수락되어 이번 지원은 마감되었습니다.` }
   return null
+}
+
+function chatRoute(conversationId?: string | null, postId?: string | null) {
+  if (conversationId) return `/chat/${conversationId}`
+  if (postId) return `/posts/${postId}`
+  return null
+}
+
+function chatNotificationData(input: {
+  type: string
+  conversationId?: string | null
+  postId?: string | null
+  dealId?: string | null
+  applicationId?: string | null
+  messageId?: string | null
+}) {
+  return {
+    type: input.type,
+    conversationId: input.conversationId ?? null,
+    route: chatRoute(input.conversationId, input.postId),
+    postId: input.postId ?? null,
+    dealId: input.dealId ?? null,
+    applicationId: input.applicationId ?? null,
+    messageId: input.messageId ?? null,
+  }
 }
 
 function getApplicationFromStatusResult(result: unknown): Record<string, unknown> | null {
@@ -900,51 +933,73 @@ export async function updateTaskPost(userId: string, postId: string, input: Upda
     nextClosedReason = 'capacity_full'
   }
 
-  const rows = await sql`
-    update manwon_happiness.task_posts
-    set creator_profile_id = ${input.profileId !== undefined ? input.profileId : existing.creatorProfileId},
-        post_type = ${nextPostType},
-        title = ${input.title !== undefined ? input.title : existing.title},
-        category = ${input.category !== undefined ? input.category : existing.category},
-        category_detail = ${input.categoryDetail !== undefined ? input.categoryDetail : existing.categoryDetail},
-        description = ${input.description !== undefined ? input.description : existing.description},
-        mode = ${input.mode !== undefined ? input.mode : existing.mode},
-        price = ${input.price !== undefined ? input.price : existing.price},
-        deadline_at = ${input.deadlineAt !== undefined ? input.deadlineAt : existing.deadlineAt},
-        deadline_text = ${input.deadlineText !== undefined ? input.deadlineText : existing.deadlineText},
-        available_time_text = ${input.availableTimeText !== undefined ? input.availableTimeText : existing.availableTimeText},
-        gender_visibility = ${input.genderVisibility !== undefined ? input.genderVisibility : existing.genderVisibility},
-        receipt_required = ${input.receiptRequired !== undefined ? input.receiptRequired : existing.receiptRequired},
-        photo_proof_required = ${input.photoProofRequired !== undefined ? input.photoProofRequired : existing.photoProofRequired},
-        service_intro = ${input.serviceIntro !== undefined ? input.serviceIntro : existing.serviceIntro},
-        service_scope = ${sql.json(jsonArray(input.serviceScope !== undefined ? input.serviceScope : existing.serviceScope))}::jsonb,
-        experience_summary = ${input.experienceSummary !== undefined ? input.experienceSummary : existing.experienceSummary},
-        career_summary = ${input.careerSummary !== undefined ? input.careerSummary : existing.careerSummary},
-        portfolio_url = ${input.portfolioUrl !== undefined ? input.portfolioUrl : existing.portfolioUrl},
-        portfolio_links = ${sql.json(jsonArray(input.portfolioLinks !== undefined ? input.portfolioLinks : existing.portfolioLinks))}::jsonb,
-        response_time_text = ${input.responseTimeText !== undefined ? input.responseTimeText : existing.responseTimeText},
-        response_time = ${input.responseTime !== undefined ? input.responseTime : existing.responseTime},
-        capacity_type = ${capacity.capacityType},
-        capacity_limit = ${capacity.capacityLimit},
-        closed_reason = ${nextClosedReason},
-        trust_example_images = ${sql.json(jsonArray(input.trustExampleImages !== undefined ? input.trustExampleImages : existing.trustExampleImages))}::jsonb,
-        work_sample_images = ${sql.json(jsonArray(input.workSampleImages !== undefined ? input.workSampleImages : existing.workSampleImages))}::jsonb,
-        status = ${nextStatus},
-        address_text = ${input.addressText !== undefined ? input.addressText : existing.addressText},
-        region_1depth = ${input.region1Depth !== undefined ? input.region1Depth : existing.region1depth},
-        region_2depth = ${input.region2Depth !== undefined ? input.region2Depth : existing.region2depth},
-        region_3depth = ${input.region3Depth !== undefined ? input.region3Depth : existing.region3depth},
-        region_code = ${input.regionCode !== undefined ? input.regionCode : existing.regionCode},
-        location_source = ${input.locationSource !== undefined ? input.locationSource : existing.locationSource},
-        latitude = ${input.latitude !== undefined ? input.latitude : existing.latitude},
-        longitude = ${input.longitude !== undefined ? input.longitude : existing.longitude},
-        distance_visible = ${input.distanceVisible !== undefined ? input.distanceVisible : existing.distanceVisible},
-        updated_at = now()
-    where id = ${postId} and creator_id = ${userId}
-    returning *
-  `
+  const updatedPost = await sql.begin(async (tx) => {
+    const rows = await tx`
+      update manwon_happiness.task_posts
+      set creator_profile_id = ${input.profileId !== undefined ? input.profileId : existing.creatorProfileId},
+          post_type = ${nextPostType},
+          title = ${input.title !== undefined ? input.title : existing.title},
+          category = ${input.category !== undefined ? input.category : existing.category},
+          category_detail = ${input.categoryDetail !== undefined ? input.categoryDetail : existing.categoryDetail},
+          description = ${input.description !== undefined ? input.description : existing.description},
+          mode = ${input.mode !== undefined ? input.mode : existing.mode},
+          price = ${input.price !== undefined ? input.price : existing.price},
+          deadline_at = ${input.deadlineAt !== undefined ? input.deadlineAt : existing.deadlineAt},
+          deadline_text = ${input.deadlineText !== undefined ? input.deadlineText : existing.deadlineText},
+          available_time_text = ${input.availableTimeText !== undefined ? input.availableTimeText : existing.availableTimeText},
+          gender_visibility = ${input.genderVisibility !== undefined ? input.genderVisibility : existing.genderVisibility},
+          receipt_required = ${input.receiptRequired !== undefined ? input.receiptRequired : existing.receiptRequired},
+          photo_proof_required = ${input.photoProofRequired !== undefined ? input.photoProofRequired : existing.photoProofRequired},
+          service_intro = ${input.serviceIntro !== undefined ? input.serviceIntro : existing.serviceIntro},
+          service_scope = ${sql.json(jsonArray(input.serviceScope !== undefined ? input.serviceScope : existing.serviceScope))}::jsonb,
+          experience_summary = ${input.experienceSummary !== undefined ? input.experienceSummary : existing.experienceSummary},
+          career_summary = ${input.careerSummary !== undefined ? input.careerSummary : existing.careerSummary},
+          portfolio_url = ${input.portfolioUrl !== undefined ? input.portfolioUrl : existing.portfolioUrl},
+          portfolio_links = ${sql.json(jsonArray(input.portfolioLinks !== undefined ? input.portfolioLinks : existing.portfolioLinks))}::jsonb,
+          response_time_text = ${input.responseTimeText !== undefined ? input.responseTimeText : existing.responseTimeText},
+          response_time = ${input.responseTime !== undefined ? input.responseTime : existing.responseTime},
+          capacity_type = ${capacity.capacityType},
+          capacity_limit = ${capacity.capacityLimit},
+          closed_reason = ${nextClosedReason},
+          trust_example_images = ${sql.json(jsonArray(input.trustExampleImages !== undefined ? input.trustExampleImages : existing.trustExampleImages))}::jsonb,
+          work_sample_images = ${sql.json(jsonArray(input.workSampleImages !== undefined ? input.workSampleImages : existing.workSampleImages))}::jsonb,
+          status = ${nextStatus},
+          address_text = ${input.addressText !== undefined ? input.addressText : existing.addressText},
+          region_1depth = ${input.region1Depth !== undefined ? input.region1Depth : existing.region1depth},
+          region_2depth = ${input.region2Depth !== undefined ? input.region2Depth : existing.region2depth},
+          region_3depth = ${input.region3Depth !== undefined ? input.region3Depth : existing.region3depth},
+          region_code = ${input.regionCode !== undefined ? input.regionCode : existing.regionCode},
+          location_source = ${input.locationSource !== undefined ? input.locationSource : existing.locationSource},
+          latitude = ${input.latitude !== undefined ? input.latitude : existing.latitude},
+          longitude = ${input.longitude !== undefined ? input.longitude : existing.longitude},
+          distance_visible = ${input.distanceVisible !== undefined ? input.distanceVisible : existing.distanceVisible},
+          updated_at = now()
+      where id = ${postId} and creator_id = ${userId}
+      returning *
+    `
 
-  return rows[0] ?? null
+    const post = rows[0]
+    if (!post) return null
+
+    if (input.images !== undefined) {
+      await tx`
+        delete from manwon_happiness.task_post_images
+        where post_id = ${postId}
+      `
+
+      for (const image of input.images) {
+        await tx`
+          insert into manwon_happiness.task_post_images (post_id, uploader_id, image_url, storage_key, sort_order)
+          values (${postId}, ${userId}, ${image.imageUrl}, ${image.storageKey}, ${image.sortOrder})
+        `
+      }
+    }
+
+    return post
+  })
+
+  if (!updatedPost) return null
+  return getTaskPost(postId, userId, { incrementView: false })
 }
 
 export async function deleteTaskPost(userId: string, postId: string) {
@@ -1241,17 +1296,18 @@ export async function updateApplicationStatus(userId: string, applicationId: str
     const targetUserId = input.status === 'cancelled' ? application.creatorId : application.applicantId
     const postTitle = application.postTitle ? String(application.postTitle) : null
     const conversationId = 'conversationId' in application && application.conversationId ? String(application.conversationId) : null
+    const postId = application.postId ? String(application.postId) : null
     const notification = getApplicationStatusNotification(input.status, postTitle)
     if (targetUserId && notification) {
       void createNotificationEvent(String(targetUserId), {
         ...notification,
-        data: {
+        data: chatNotificationData({
           type: notification.type,
-          postId: application.postId ? String(application.postId) : null,
+          postId,
           applicationId,
           conversationId,
           dealId: getDealIdFromStatusResult(result),
-        },
+        }),
       }).catch(() => undefined)
     }
   }
@@ -1261,14 +1317,16 @@ export async function updateApplicationStatus(userId: string, applicationId: str
       if (!item || typeof item !== 'object' || !('userId' in item)) continue
       const notification = getApplicationStatusNotification('auto_rejected', application?.postTitle ? String(application.postTitle) : null)
       if (!notification) continue
+      const postId = application?.postId ? String(application.postId) : null
+      const conversationId = 'conversationId' in item && item.conversationId ? String(item.conversationId) : null
       void createNotificationEvent(String(item.userId), {
         ...notification,
-        data: {
+        data: chatNotificationData({
           type: notification.type,
-          postId: application?.postId ? String(application.postId) : null,
+          postId,
           applicationId: 'applicationId' in item ? String(item.applicationId) : null,
-          conversationId: 'conversationId' in item && item.conversationId ? String(item.conversationId) : null,
-        },
+          conversationId,
+        }),
       }).catch(() => undefined)
     }
   }
@@ -1277,7 +1335,11 @@ export async function updateApplicationStatus(userId: string, applicationId: str
 }
 
 export async function updateDealStatus(userId: string, dealId: string, input: UpdateDealStatusInput) {
-  if (input.status === 'disputed') {
+  const isReportCompletion = input.status === 'disputed'
+  const reportReason = input.reportReason?.trim() || '문제 신고'
+  const reportDescription = input.reportDescription?.trim() || null
+
+  if (isReportCompletion) {
     await assertPhoneVerified(userId)
   }
 
@@ -1308,6 +1370,7 @@ export async function updateDealStatus(userId: string, dealId: string, input: Up
     if (!canTransitionDealStatus(existing.status, input.status)) return null
     const isPostCreator = String(existing.postCreatorId) === userId
     const isApplicant = Boolean(existing.postCreatorId) && !isPostCreator
+    const reportTargetUserId = String(existing.requesterId) === userId ? String(existing.helperId) : String(existing.requesterId)
     if (input.status === 'in_progress' && !isPostCreator) return null
     if (input.status === 'complete_requested' && !isApplicant) return null
     if ((input.status === 'completed' || input.status === 'disputed') && !isPostCreator) return null
@@ -1333,7 +1396,21 @@ export async function updateDealStatus(userId: string, dealId: string, input: Up
       if (Number(turnRows[0]?.senderCount ?? 0) < 2) return null
     }
 
-    const rows = input.status === 'cancelled'
+    const rows = isReportCompletion
+      ? await tx`
+          update manwon_happiness.deals
+          set status = 'completed',
+              completed_at = coalesce(completed_at, now()),
+              reported_at = now(),
+              reported_by = ${userId},
+              reported_user_id = ${reportTargetUserId},
+              report_reason = ${reportReason},
+              report_description = ${reportDescription},
+              chat_blocked_at = now()
+          where id = ${dealId} and (requester_id = ${userId} or helper_id = ${userId})
+          returning *
+        `
+      : input.status === 'cancelled'
       ? canStoreCancelledBy
         ? await tx`
           update manwon_happiness.deals
@@ -1367,7 +1444,7 @@ export async function updateDealStatus(userId: string, dealId: string, input: Up
     const deal = rows[0]
     if (!deal) return null
 
-    if (input.status === 'completed') {
+    if (input.status === 'completed' || isReportCompletion) {
       await tx`
         update manwon_happiness.users
         set completed_count = completed_count + 1
@@ -1376,7 +1453,7 @@ export async function updateDealStatus(userId: string, dealId: string, input: Up
     }
     await refreshPostCapacity(tx, String(deal.postId))
 
-    const systemMessage = getDealStatusSystemMessage(input.status)
+    const systemMessage = getDealStatusSystemMessage(input.status, isReportCompletion ? reportReason : null)
     const conversationRows = await tx`
       select c.id, p.title as post_title
       from manwon_happiness.conversations c
@@ -1385,6 +1462,28 @@ export async function updateDealStatus(userId: string, dealId: string, input: Up
       limit 1
     `
     const conversation = conversationRows[0] ?? null
+    if (isReportCompletion) {
+      const reportRows = await tx`
+        insert into manwon_happiness.reports (reporter_id, target_user_id, post_id, conversation_id, reason, description)
+        values (
+          ${userId},
+          ${reportTargetUserId},
+          ${deal.postId},
+          ${conversation?.id ?? null},
+          ${reportReason},
+          ${reportDescription}
+        )
+        returning id
+      `
+      if (reportRows[0]?.id) {
+        await tx`
+          update manwon_happiness.deals
+          set reported_report_id = ${reportRows[0].id}
+          where id = ${deal.id}
+        `
+        deal.reportedReportId = reportRows[0].id
+      }
+    }
     if (conversation && systemMessage) {
       await tx`
         insert into manwon_happiness.messages (conversation_id, sender_id, message_type, body)
@@ -1403,22 +1502,23 @@ export async function updateDealStatus(userId: string, dealId: string, input: Up
       conversationId: conversation?.id ? String(conversation.id) : null,
       postTitle: conversation?.postTitle ? String(conversation.postTitle) : null,
       notifyUserId: String(deal.requesterId) === userId ? String(deal.helperId) : String(deal.requesterId),
+      reportReason: isReportCompletion ? reportReason : null,
     }
   })
 
   if (!result) return null
   if ('skipNotification' in result && result.skipNotification) return result.deal
 
-  const notification = getDealStatusNotification(input.status, result.postTitle)
+  const notification = getDealStatusNotification(input.status, result.postTitle, result.reportReason)
   if (notification) {
     void createNotificationEvent(result.notifyUserId, {
       ...notification,
-      data: {
+      data: chatNotificationData({
         type: notification.type,
         conversationId: result.conversationId,
         postId: String(result.deal.postId),
         dealId: String(result.deal.id),
-      },
+      }),
     }).catch(() => undefined)
   }
 
@@ -1437,6 +1537,12 @@ export async function listConversations(userId: string) {
       p.creator_id as post_creator_id,
       p.post_type as post_type,
       d.status as deal_status,
+      d.reported_at as deal_reported_at,
+      d.reported_by as deal_reported_by,
+      d.reported_user_id as deal_reported_user_id,
+      d.report_reason as deal_report_reason,
+      d.report_description as deal_report_description,
+      d.chat_blocked_at as deal_chat_blocked_at,
       coalesce(
         d.requester_profile_id,
         case
@@ -1521,11 +1627,23 @@ export async function listConversations(userId: string) {
         from manwon_happiness.messages m
         where m.conversation_id = c.id
           and m.sender_id <> ${userId}
-          and m.read_at is null
+          and (
+            viewer_read_marker.id is null
+            or m.created_at > viewer_read_marker.created_at
+            or (
+              m.created_at = viewer_read_marker.created_at
+              and m.id::text > viewer_read_marker.id::text
+            )
+          )
       ) as unread_count
     from manwon_happiness.conversations c
     left join manwon_happiness.task_posts p on p.id = c.post_id
     left join manwon_happiness.deals d on d.id = c.deal_id
+    left join manwon_happiness.conversation_read_states viewer_read
+      on viewer_read.conversation_id = c.id
+      and viewer_read.user_id = ${userId}
+    left join manwon_happiness.messages viewer_read_marker
+      on viewer_read_marker.id = viewer_read.last_read_message_id
     left join manwon_happiness.applications a on a.post_id = c.post_id
       and a.recruitment_round = c.recruitment_round
       and (
@@ -1563,6 +1681,93 @@ export async function listConversations(userId: string) {
       )
     order by coalesce(c.last_message_at, c.created_at) desc
   `
+}
+
+export async function resolveConversationTarget(userId: string, input: {
+  conversationId?: string | null
+  dealId?: string | null
+  applicationId?: string | null
+  postId?: string | null
+}) {
+  const sql = getSql()
+
+  if (input.conversationId) {
+    const rows = await sql`
+      select id, post_id
+      from manwon_happiness.conversations
+      where id = ${input.conversationId}
+        and (requester_id = ${userId} or helper_id = ${userId})
+      limit 1
+    `
+    const conversation = rows[0]
+    if (conversation?.id) {
+      const conversationId = String(conversation.id)
+      const postId = conversation.postId ? String(conversation.postId) : input.postId ?? null
+      return { conversationId, postId, route: chatRoute(conversationId, postId) }
+    }
+  }
+
+  if (input.dealId) {
+    const rows = await sql`
+      select id, post_id
+      from manwon_happiness.conversations
+      where deal_id = ${input.dealId}
+        and (requester_id = ${userId} or helper_id = ${userId})
+      order by coalesce(last_message_at, created_at) desc
+      limit 1
+    `
+    const conversation = rows[0]
+    if (conversation?.id) {
+      const conversationId = String(conversation.id)
+      const postId = conversation.postId ? String(conversation.postId) : input.postId ?? null
+      return { conversationId, postId, route: chatRoute(conversationId, postId) }
+    }
+  }
+
+  if (input.applicationId) {
+    const rows = await sql`
+      select c.id, c.post_id
+      from manwon_happiness.applications a
+      join manwon_happiness.task_posts p on p.id = a.post_id
+      join manwon_happiness.conversations c on c.post_id = a.post_id
+        and c.recruitment_round = a.recruitment_round
+        and (
+          (p.post_type = 'request' and c.requester_id = p.creator_id and c.helper_id = a.applicant_id)
+          or (p.post_type = 'offer' and c.requester_id = a.applicant_id and c.helper_id = p.creator_id)
+        )
+        and (c.requester_id = ${userId} or c.helper_id = ${userId})
+      where a.id = ${input.applicationId}
+      order by coalesce(c.last_message_at, c.created_at) desc
+      limit 1
+    `
+    const conversation = rows[0]
+    if (conversation?.id) {
+      const conversationId = String(conversation.id)
+      const postId = conversation.postId ? String(conversation.postId) : input.postId ?? null
+      return { conversationId, postId, route: chatRoute(conversationId, postId) }
+    }
+  }
+
+  if (input.postId) {
+    const rows = await sql`
+      select id, post_id
+      from manwon_happiness.conversations
+      where post_id = ${input.postId}
+        and (requester_id = ${userId} or helper_id = ${userId})
+      order by coalesce(last_message_at, created_at) desc
+      limit 1
+    `
+    const conversation = rows[0]
+    if (conversation?.id) {
+      const conversationId = String(conversation.id)
+      const postId = conversation.postId ? String(conversation.postId) : input.postId
+      return { conversationId, postId, route: chatRoute(conversationId, postId) }
+    }
+
+    return { conversationId: null, postId: input.postId, route: chatRoute(null, input.postId) }
+  }
+
+  return { conversationId: null, postId: null, route: null }
 }
 
 export async function createConversation(userId: string, input: CreateConversationInput) {
@@ -1663,6 +1868,7 @@ export async function startConversationForPost(userId: string, postId: string, p
     const initialLastMessage = post.postType === 'request' ? applicationSystemMessage : message ?? '문의가 시작되었어요.'
 
     let previousApplicationStatus: string | null = null
+    let applicationId: string | null = null
     if (post.postType === 'request' || post.postType === 'offer') {
       const [existingApplication] = await tx`
         select status
@@ -1691,6 +1897,7 @@ export async function startConversationForPost(userId: string, postId: string, p
       if (applicationRows.length === 0) {
         throw new HttpError('이미 보낸 요청입니다. 거절된 경우에만 다시 보낼 수 있습니다.', 409)
       }
+      applicationId = applicationRows[0]?.id ? String(applicationRows[0].id) : null
     }
 
     const insertedRows = await tx`
@@ -1745,6 +1952,7 @@ export async function startConversationForPost(userId: string, postId: string, p
       postType: String(post.postType),
       postTitle: post.title ? String(post.title) : null,
       notifyUserId: String(post.creatorId),
+      applicationId,
     }
   })
 
@@ -1754,11 +1962,12 @@ export async function startConversationForPost(userId: string, postId: string, p
     type: result.postType === 'request' ? 'application.created' : 'conversation.started',
     title: result.postType === 'request' ? '새 지원이 도착했어요' : '새 문의가 도착했어요',
     body: result.postTitle ? `"${result.postTitle}"에서 대화가 시작됐습니다.` : '새 대화가 시작됐습니다.',
-    data: {
+    data: chatNotificationData({
       type: result.postType === 'request' ? 'application.created' : 'conversation.started',
       conversationId: String(result.conversation.id),
       postId,
-    },
+      applicationId: result.applicationId,
+    }),
   }).catch(() => undefined)
 
   return result.conversation
@@ -1789,18 +1998,34 @@ export async function listMessages(userId: string, conversationId: string, optio
 
     if (!conversationRows[0]) return null
 
-    await tx`
-      update manwon_happiness.messages
-      set read_at = coalesce(read_at, now())
-      where conversation_id = ${conversationId}
-        and sender_id <> ${userId}
-        and read_at is null
-    `
-
     if (options.after) {
       return tx`
-        select m.*
+        select
+          m.id,
+          m.conversation_id,
+          m.sender_id,
+          m.message_type,
+          m.body,
+          m.image_url,
+          m.client_message_id,
+          m.delivered_at,
+          case
+            when m.sender_id = ${userId}
+              and other_read_marker.id is not null
+              and (
+                other_read_marker.created_at > m.created_at
+                or (other_read_marker.created_at = m.created_at and other_read_marker.id::text >= m.id::text)
+              )
+              then coalesce(other_read.last_read_at, m.read_at)
+            else m.read_at
+          end as read_at,
+          m.created_at
         from manwon_happiness.messages m
+        left join manwon_happiness.conversation_read_states other_read
+          on other_read.conversation_id = m.conversation_id
+          and other_read.user_id <> ${userId}
+        left join manwon_happiness.messages other_read_marker
+          on other_read_marker.id = other_read.last_read_message_id
         where m.conversation_id = ${conversationId}
           and m.created_at > ${options.after}::timestamptz
         order by m.created_at asc
@@ -1808,15 +2033,39 @@ export async function listMessages(userId: string, conversationId: string, optio
     }
 
     return tx`
-      select m.*
+      select
+        m.id,
+        m.conversation_id,
+        m.sender_id,
+        m.message_type,
+        m.body,
+        m.image_url,
+        m.client_message_id,
+        m.delivered_at,
+        case
+          when m.sender_id = ${userId}
+            and other_read_marker.id is not null
+            and (
+              other_read_marker.created_at > m.created_at
+              or (other_read_marker.created_at = m.created_at and other_read_marker.id::text >= m.id::text)
+            )
+            then coalesce(other_read.last_read_at, m.read_at)
+          else m.read_at
+        end as read_at,
+        m.created_at
       from manwon_happiness.messages m
+      left join manwon_happiness.conversation_read_states other_read
+        on other_read.conversation_id = m.conversation_id
+        and other_read.user_id <> ${userId}
+      left join manwon_happiness.messages other_read_marker
+        on other_read_marker.id = other_read.last_read_message_id
       where m.conversation_id = ${conversationId}
       order by m.created_at asc
     `
   })
 }
 
-export async function markConversationRead(userId: string, conversationId: string) {
+export async function markConversationRead(userId: string, conversationId: string, input: { lastMessageId?: string | null } = {}) {
   const sql = getSql()
   return sql.begin(async (tx) => {
     const conversationRows = await tx`
@@ -1840,16 +2089,72 @@ export async function markConversationRead(userId: string, conversationId: strin
     `
     if (!conversationRows[0]) return null
 
+    const targetRows = input.lastMessageId
+      ? await tx`
+          select id, created_at
+          from manwon_happiness.messages
+          where id = ${input.lastMessageId}
+            and conversation_id = ${conversationId}
+          limit 1
+        `
+      : await tx`
+          select id, created_at
+          from manwon_happiness.messages
+          where conversation_id = ${conversationId}
+          order by created_at desc, id desc
+          limit 1
+        `
+
+    const target = targetRows[0]
+    if (!target) return { readCount: 0, lastReadMessageId: null, lastReadAt: null }
+
+    const currentRows = await tx`
+      select s.*, marker.created_at as marker_created_at
+      from manwon_happiness.conversation_read_states s
+      left join manwon_happiness.messages marker on marker.id = s.last_read_message_id
+      where s.conversation_id = ${conversationId}
+        and s.user_id = ${userId}
+      limit 1
+    `
+    const current = currentRows[0]
+    const currentCreatedAt = current?.markerCreatedAt ? new Date(current.markerCreatedAt).getTime() : 0
+    const targetCreatedAt = new Date(target.createdAt).getTime()
+    const currentMessageId = current?.lastReadMessageId ? String(current.lastReadMessageId) : null
+    const targetMessageId = String(target.id)
+    if (
+      currentMessageId &&
+      (
+        currentCreatedAt > targetCreatedAt ||
+        (currentCreatedAt === targetCreatedAt && currentMessageId >= targetMessageId)
+      )
+    ) {
+      return {
+        readCount: 0,
+        lastReadMessageId: currentMessageId,
+        lastReadAt: current.lastReadAt ? String(current.lastReadAt) : null,
+      }
+    }
+
     const rows = await tx`
-      update manwon_happiness.messages
-      set read_at = coalesce(read_at, now())
-      where conversation_id = ${conversationId}
-        and sender_id <> ${userId}
-        and read_at is null
+      insert into manwon_happiness.conversation_read_states (
+        conversation_id,
+        user_id,
+        last_read_message_id,
+        last_read_at
+      )
+      values (${conversationId}, ${userId}, ${target.id}, now())
+      on conflict (conversation_id, user_id) do update
+        set last_read_message_id = excluded.last_read_message_id,
+            last_read_at = excluded.last_read_at,
+            updated_at = now()
       returning *
     `
 
-    return { readCount: rows.length }
+    return {
+      readCount: 0,
+      lastReadMessageId: rows[0]?.lastReadMessageId ? String(rows[0].lastReadMessageId) : null,
+      lastReadAt: rows[0]?.lastReadAt ? String(rows[0].lastReadAt) : null,
+    }
   })
 }
 
@@ -1863,11 +2168,14 @@ export async function sendMessage(userId: string, conversationId: string, input:
         c.*,
         p.title as post_title,
         p.post_type as post_type,
+        d.chat_blocked_at as deal_chat_blocked_at,
+        d.report_reason as deal_report_reason,
         a.status as application_status,
         sender.nickname as sender_nickname,
         case when c.requester_id = ${userId} then c.helper_id else c.requester_id end as other_user_id
       from manwon_happiness.conversations c
       left join manwon_happiness.task_posts p on p.id = c.post_id
+      left join manwon_happiness.deals d on d.id = c.deal_id
       left join manwon_happiness.applications a on a.post_id = c.post_id
         and a.recruitment_round = c.recruitment_round
         and (
@@ -1884,6 +2192,10 @@ export async function sendMessage(userId: string, conversationId: string, input:
 
     if (conversation.postType === 'request' && !conversation.dealId && conversation.applicationStatus === 'applied') {
       throw new HttpError('지원 요청이 수락되면 채팅을 할 수 있습니다.', 403)
+    }
+    if (conversation.dealChatBlockedAt) {
+      const reason = conversation.dealReportReason ? `‘${String(conversation.dealReportReason)}’ 문제 신고로 ` : ''
+      throw new HttpError(`${reason}이 거래 채팅이 차단되었습니다.`, 403)
     }
 
     const blockedRows = await tx`
@@ -1962,13 +2274,13 @@ export async function sendMessage(userId: string, conversationId: string, input:
     type: 'message.new',
     title: `${result.senderNickname}님의 새 메시지`,
     body: result.lastMessage,
-    data: {
+    data: chatNotificationData({
       type: 'message.new',
       conversationId,
       messageId: String(result.message.id),
       postId: result.postId,
       dealId: result.dealId,
-    },
+    }),
   }).catch(() => undefined)
 
   return result.message
@@ -2043,11 +2355,11 @@ export async function createReview(userId: string, input: CreateReviewInput) {
     type: 'review.created',
     title: '새 후기가 도착했어요',
     body: result.postTitle ? `"${result.postTitle}" 거래 후기가 등록됐습니다.` : '거래 후기가 등록됐습니다.',
-    data: {
+    data: chatNotificationData({
       type: 'review.created',
       conversationId: result.conversationId,
       dealId: String(result.review.dealId),
-    },
+    }),
   }).catch(() => undefined)
 
   return result.review
@@ -2177,11 +2489,11 @@ export async function processDueReviewReminders(limit = 100) {
     type: 'review.reminder',
     title: '거래 후기를 남겨주세요',
     body: reminder.postTitle ? `"${String(reminder.postTitle)}" 거래는 어떠셨나요?` : '완료된 거래는 어떠셨나요?',
-    data: {
+    data: chatNotificationData({
       type: 'review.reminder',
       conversationId: reminder.conversationId ? String(reminder.conversationId) : null,
       dealId: String(reminder.dealId),
-    },
+    }),
   }).catch(() => undefined)))
 
   return { processed: reminders.length }
@@ -2189,7 +2501,7 @@ export async function processDueReviewReminders(limit = 100) {
 
 export async function getMyActivity(userId: string) {
   const sql = getSql()
-  const [myPosts, helpedDeals, favorites, receivedReviews, writtenReviews, reports, blocks] = await Promise.all([
+  const [myPosts, requestDeals, helpedDeals, favorites, receivedReviews, writtenReviews, reports, blocks] = await Promise.all([
     sql`
       select
         p.*,
@@ -2207,6 +2519,7 @@ export async function getMyActivity(userId: string) {
       left join manwon_happiness.favorites f on f.post_id = p.id
       left join manwon_happiness.applications a on a.post_id = p.id
       where p.creator_id = ${userId}
+        and p.post_type = 'request'
         and p.status <> 'hidden'
       group by p.id
       order by p.created_at desc
@@ -2225,13 +2538,61 @@ export async function getMyActivity(userId: string) {
         p.address_text as post_address_text,
         p.region_2depth as post_region_2depth,
         p.region_3depth as post_region_3depth,
+        p.post_type as post_type,
         requester.nickname as requester_nickname,
-        requester.avatar_url as requester_avatar_url
+        requester.avatar_url as requester_avatar_url,
+        helper.nickname as helper_nickname,
+        helper.avatar_url as helper_avatar_url,
+        helper.nickname as counterpart_nickname,
+        helper.avatar_url as counterpart_avatar_url,
+        'requester' as activity_role
       from manwon_happiness.deals d
       join manwon_happiness.task_posts p on p.id = d.post_id
       join manwon_happiness.users requester on requester.id = d.requester_id
+      join manwon_happiness.users helper on helper.id = d.helper_id
+      left join manwon_happiness.conversations c on c.deal_id = d.id
+      where d.requester_id = ${userId}
+        and p.creator_id = ${userId}
+        and p.post_type = 'request'
+      order by d.created_at desc
+      limit 50
+    `,
+    sql`
+      select
+        d.*,
+        c.id as conversation_id,
+        p.title as post_title,
+        p.category as post_category,
+        p.mode as post_mode,
+        p.deadline_at as post_deadline_at,
+        p.deadline_text as post_deadline_text,
+        p.available_time_text as post_available_time_text,
+        p.address_text as post_address_text,
+        p.region_2depth as post_region_2depth,
+        p.region_3depth as post_region_3depth,
+        p.post_type as post_type,
+        requester.nickname as requester_nickname,
+        requester.avatar_url as requester_avatar_url,
+        helper.nickname as helper_nickname,
+        helper.avatar_url as helper_avatar_url,
+        requester.nickname as counterpart_nickname,
+        requester.avatar_url as counterpart_avatar_url,
+        'helper' as activity_role
+      from manwon_happiness.deals d
+      join manwon_happiness.task_posts p on p.id = d.post_id
+      join manwon_happiness.users requester on requester.id = d.requester_id
+      join manwon_happiness.users helper on helper.id = d.helper_id
       left join manwon_happiness.conversations c on c.deal_id = d.id
       where d.helper_id = ${userId}
+        and (
+          (p.post_type = 'offer' and p.creator_id = ${userId})
+          or p.post_type = 'request'
+        )
+        and not (
+          d.requester_id = ${userId}
+          and p.creator_id = ${userId}
+          and p.post_type = 'request'
+        )
       order by d.created_at desc
       limit 50
     `,
@@ -2309,7 +2670,7 @@ export async function getMyActivity(userId: string) {
     `,
   ])
 
-  return { myPosts, helpedDeals, favorites, receivedReviews, writtenReviews, reports, blocks }
+  return { myPosts, requestDeals, helpedDeals, favorites, receivedReviews, writtenReviews, reports, blocks }
 }
 
 export async function getMyPage(userId: string) {

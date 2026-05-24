@@ -1854,6 +1854,44 @@ html.native-ios-shell [role="button"] {
   margin: 10px 0 0;
 }
 
+.chat-blocked-notice {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 72, 0, 0.18);
+  border-radius: 15px;
+  background: #fff4ef;
+  color: var(--brand);
+}
+
+.chat-blocked-notice svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.chat-blocked-notice span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.chat-blocked-notice strong {
+  color: #222226;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.35;
+}
+
+.chat-blocked-notice small {
+  color: #66666c;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
 .chat-detail-header h1 {
   margin: 0;
   overflow: hidden;
@@ -2091,6 +2129,11 @@ html.native-ios-shell [role="button"] {
   text-align: center;
 }
 
+.complete-panel.is-reported {
+  border-color: rgba(255, 72, 0, 0.22);
+  background: #fff8f5;
+}
+
 .complete-icon {
   display: inline-flex;
   align-items: center;
@@ -2253,6 +2296,10 @@ html.native-ios-shell [role="button"] {
   grid-template-columns: 1fr 1.2fr;
   gap: 10px;
   margin-top: 14px;
+}
+
+.report-sheet-actions.is-single {
+  grid-template-columns: 1fr;
 }
 
 .review-prompt-sheet {
@@ -3377,7 +3424,7 @@ html.native-ios-shell [role="button"] {
   overflow-x: auto;
 }
 
-.image-uploader-list button,
+.image-uploader-add-button,
 .image-thumb {
   width: 76px;
   height: 76px;
@@ -3385,18 +3432,37 @@ html.native-ios-shell [role="button"] {
   border-radius: 14px;
 }
 
-.image-uploader-list button {
+.image-uploader-add-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border: 1px dashed #c8c8cd;
+  background: #fff;
   color: #96969c;
+  cursor: pointer;
 }
 
 .image-thumb {
+  position: relative;
   border: 1px solid var(--line);
   background-position: center;
   background-size: cover;
+}
+
+.image-thumb-remove {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(15, 15, 15, 0.72);
+  color: #fff;
+  cursor: pointer;
+  padding: 0;
 }
 
 .image-upload-hint {
@@ -5915,6 +5981,41 @@ html.native-ios-shell [role="button"] {
 
 .detail-extra-row a {
   color: #1677ff;
+}
+
+.detail-work-sample-block {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.detail-work-sample-block > strong {
+  color: #19191d;
+  font-size: 14px;
+  font-weight: 850;
+}
+
+.detail-work-sample-grid {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+}
+
+.detail-work-sample-grid button {
+  position: relative;
+  width: 76px;
+  height: 76px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #f6f6f7;
+  cursor: pointer;
+  padding: 0;
+}
+
+.detail-work-sample-grid img {
+  object-fit: cover;
 }
 
 .post-detail-screen .detail-section-card {

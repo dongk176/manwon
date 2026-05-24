@@ -145,6 +145,7 @@ struct RootTabView: View {
         }
         .onChange(of: scenePhase) { phase in
             guard phase == .active else { return }
+            NotificationCenter.default.post(name: .manwonAppDidBecomeActive, object: nil)
             PushManager.shared.registerForRemoteNotificationsIfAuthorized()
             permissionPrompts.checkUnreadMessagesOnForeground()
             Task {

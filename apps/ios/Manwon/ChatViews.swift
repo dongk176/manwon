@@ -276,6 +276,16 @@ final class ChatDetailViewModel: ObservableObject {
     private var lastTypingBroadcastAt = Date.distantPast
     private var localTypingIdleTask: Task<Void, Never>?
     private var remoteTypingIdleTask: Task<Void, Never>?
+    private var adaptiveFallbackTask: Task<Void, Never>?
+    private var integritySyncTask: Task<Void, Never>?
+    private var realtimeConnected = false
+    private var realtimeStoppedIntentionally = false
+    private let fallbackIntervals: [UInt64] = [
+        3_000_000_000,
+        5_000_000_000,
+        10_000_000_000,
+        30_000_000_000,
+    ]
 
     init(conversationId: String) {
         self.conversationId = conversationId
@@ -293,7 +303,7 @@ final class ChatDetailViewModel: ObservableObject {
             currentUserId = sessionResult.userId
             conversation = conversationList.first { $0.id == conversationId }
             messages = try await messagesTask
-            try? await APIClient.shared.markConversationRead(conversationId: conversationId)
+            await markVisibleMessagesRead()
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
@@ -301,21 +311,20 @@ final class ChatDetailViewModel: ObservableObject {
         isLoading = false
     }
 
-    func poll() async {
-        while !Task.isCancelled {
-            try? await Task.sleep(nanoseconds: 30_000_000_000)
-            await load(silent: true)
+    func startRealtime() async {
+        stopRealtime()
+        realtimeStoppedIntentionally = false
+        await attemptRealtimeConnection()
+        if !realtimeConnected {
+            handleRealtimeDisconnected()
         }
     }
 
-    func startRealtime() async {
-        stopRealtime()
+    private func attemptRealtimeConnection() async {
         let subscription = ConversationRealtimeSubscription(
             conversationId: conversationId,
-            onChange: { [weak self] in
-                Task {
-                    await self?.load(silent: true)
-                }
+            onEvent: { [weak self] event in
+                self?.handleRealtimeEvent(event)
             },
             onTyping: { [weak self] state in
                 self?.handleRemoteTyping(state)
@@ -325,30 +334,222 @@ final class ChatDetailViewModel: ObservableObject {
         do {
             try await subscription.connect()
         } catch {
-            // Polling remains as a fallback if realtime is unavailable.
+            subscription.disconnect()
+            if realtimeSubscription === subscription {
+                realtimeSubscription = nil
+            }
         }
     }
 
     func stopRealtime() {
+        realtimeStoppedIntentionally = true
         if localTypingState {
             broadcastTyping(false)
         }
         localTypingIdleTask?.cancel()
         remoteTypingIdleTask?.cancel()
+        adaptiveFallbackTask?.cancel()
+        integritySyncTask?.cancel()
         otherTyping = false
+        realtimeConnected = false
         realtimeSubscription?.disconnect()
         realtimeSubscription = nil
+        adaptiveFallbackTask = nil
+        integritySyncTask = nil
+    }
+
+    func refreshForPushNotification() async {
+        await loadMessagesAfterLatest()
+    }
+
+    func refreshForForegroundResume() async {
+        await loadMessagesAfterLatest()
+        guard !realtimeConnected else { return }
+        await attemptRealtimeConnection()
+        if !realtimeConnected {
+            handleRealtimeDisconnected()
+        }
+    }
+
+    private func handleRealtimeEvent(_ event: ConversationRealtimeEvent) {
+        switch event {
+        case .connected:
+            realtimeConnected = true
+            adaptiveFallbackTask?.cancel()
+            adaptiveFallbackTask = nil
+            startIntegritySync()
+            Task { [weak self] in
+                await self?.loadMessagesAfterLatest()
+            }
+        case .disconnected:
+            handleRealtimeDisconnected()
+        case .messageChanged(let message):
+            guard message.conversationId == conversationId else { return }
+            mergeMessages([message])
+            if message.senderId != currentUserId {
+                otherTyping = false
+                remoteTypingIdleTask?.cancel()
+                Task { [weak self] in
+                    await self?.markVisibleMessagesRead(lastMessageId: message.id)
+                    await self?.refreshConversationSummary()
+                }
+            } else {
+                Task { [weak self] in
+                    await self?.refreshConversationSummary()
+                }
+            }
+        case .readStateChanged(let state):
+            guard state.conversationId == conversationId else { return }
+            guard state.userId != currentUserId else { return }
+            applyReadState(state)
+        case .changed:
+            Task { [weak self] in
+                await self?.loadMessagesAfterLatest()
+            }
+        }
+    }
+
+    private func handleRealtimeDisconnected() {
+        guard !realtimeStoppedIntentionally else { return }
+        realtimeConnected = false
+        integritySyncTask?.cancel()
+        integritySyncTask = nil
+        startAdaptiveFallback()
+    }
+
+    private func startIntegritySync() {
+        integritySyncTask?.cancel()
+        integritySyncTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
+                guard !Task.isCancelled else { return }
+                await self?.loadMessagesAfterLatest()
+            }
+        }
+    }
+
+    private func startAdaptiveFallback() {
+        guard adaptiveFallbackTask == nil else { return }
+        adaptiveFallbackTask = Task { [weak self] in
+            var attempt = 0
+            while !Task.isCancelled {
+                guard let self else { return }
+                let delay = await MainActor.run {
+                    self.fallbackIntervals[min(attempt, self.fallbackIntervals.count - 1)]
+                }
+                attempt += 1
+                try? await Task.sleep(nanoseconds: delay)
+                guard !Task.isCancelled else { return }
+                await self.refreshConversationAndMessages()
+                await self.attemptRealtimeConnection()
+                let connected = await MainActor.run { self.realtimeConnected }
+                if connected { return }
+            }
+        }
     }
 
     func loadMessagesAfterLatest() async {
         do {
             let latestCreatedAt = messages.last { !$0.id.hasPrefix("pending-") }?.createdAt
-            let incoming = try await APIClient.shared.fetchMessages(conversationId: conversationId, after: latestCreatedAt)
+            async let conversationsTask = APIClient.shared.fetchConversations()
+            async let messagesTask = APIClient.shared.fetchMessages(conversationId: conversationId, after: latestCreatedAt)
+            let incoming = try await messagesTask
             mergeMessages(incoming)
-            try? await APIClient.shared.markConversationRead(conversationId: conversationId)
+            if incoming.contains(where: { $0.senderId != currentUserId }) {
+                otherTyping = false
+                remoteTypingIdleTask?.cancel()
+            }
+            let conversationList = try await conversationsTask
+            conversation = conversationList.first { $0.id == conversationId } ?? conversation
+            await markVisibleMessagesRead()
         } catch {
-            // Realtime refresh is best-effort; the fallback poll will catch up.
+            // Realtime refresh is best-effort; adaptive sync will catch up.
         }
+    }
+
+    private func refreshConversationAndMessages() async {
+        do {
+            async let conversationsTask = APIClient.shared.fetchConversations()
+            async let messagesTask = APIClient.shared.fetchMessages(conversationId: conversationId)
+            let nextMessages = try await messagesTask
+            let conversationList = try await conversationsTask
+            conversation = conversationList.first { $0.id == conversationId } ?? conversation
+            mergeMessages(nextMessages)
+            await markVisibleMessagesRead()
+        } catch {
+            // Keep the chat usable; explicit load and the next adaptive pass can recover.
+        }
+    }
+
+    private func refreshConversationSummary() async {
+        do {
+            let conversationList = try await APIClient.shared.fetchConversations()
+            conversation = conversationList.first { $0.id == conversationId } ?? conversation
+        } catch {
+            // The next integrity sync or foreground refresh will recover the summary.
+        }
+    }
+
+    private func markVisibleMessagesRead(lastMessageId: String? = nil) async {
+        let messageId = lastMessageId ?? latestReadableMessageId
+        guard let messageId else { return }
+        try? await APIClient.shared.markConversationRead(conversationId: conversationId, lastMessageId: messageId)
+    }
+
+    private var latestReadableMessageId: String? {
+        messages.last { !$0.id.hasPrefix("pending-") }?.id
+    }
+
+    var latestReadOwnMessageId: String? {
+        guard let currentUserId else { return nil }
+        return messages.last {
+            $0.senderId == currentUserId &&
+            !$0.id.hasPrefix("pending-") &&
+            $0.messageType != .system &&
+            $0.readAt != nil
+        }?.id
+    }
+
+    private func applyReadState(_ state: ConversationReadState) {
+        guard let currentUserId, let lastReadMessageId = state.lastReadMessageId else { return }
+        guard let marker = messages.first(where: { $0.id == lastReadMessageId }) else {
+            Task { [weak self] in
+                await self?.refreshConversationAndMessages()
+            }
+            return
+        }
+
+        let readAt = state.lastReadAt ?? marker.createdAt
+        messages = messages.map { message in
+            guard
+                message.senderId == currentUserId,
+                !message.id.hasPrefix("pending-"),
+                message.messageType != .system,
+                message.readAt == nil,
+                isMessage(message, atOrBefore: marker)
+            else {
+                return message
+            }
+
+            return Message(
+                id: message.id,
+                conversationId: message.conversationId,
+                senderId: message.senderId,
+                messageType: message.messageType,
+                body: message.body,
+                imageUrl: message.imageUrl,
+                clientMessageId: message.clientMessageId,
+                deliveredAt: message.deliveredAt,
+                readAt: readAt,
+                createdAt: message.createdAt
+            )
+        }
+    }
+
+    private func isMessage(_ message: Message, atOrBefore marker: Message) -> Bool {
+        if message.createdAt < marker.createdAt { return true }
+        if message.createdAt == marker.createdAt { return message.id <= marker.id }
+        return false
     }
 
     func sendText() async {
@@ -475,6 +676,9 @@ final class ChatDetailViewModel: ObservableObject {
 
     fileprivate var composerBlockedReason: ChatComposerBlockedReason? {
         guard let conversation else { return nil }
+        if conversation.dealChatBlockedAt != nil {
+            return .reported(conversation.chatBlockedMessage(currentUserId: currentUserId))
+        }
         if conversation.hasPendingApplicationBeforeAcceptance { return .pendingApplication }
         if conversation.isClosed { return .closed }
         return nil
@@ -497,12 +701,17 @@ final class ChatDetailViewModel: ObservableObject {
         }
     }
 
-    func updateDealStatus(_ status: DealStatus) async -> Bool {
+    func updateDealStatus(_ status: DealStatus, reportReason: String? = nil, reportDescription: String? = nil) async -> Bool {
         guard let dealId = conversation?.dealId, pendingTradeAction == nil else { return false }
         pendingTradeAction = status.rawValue
         defer { pendingTradeAction = nil }
         do {
-            try await APIClient.shared.updateDealStatus(dealId: dealId, status: status)
+            try await APIClient.shared.updateDealStatus(
+                dealId: dealId,
+                status: status,
+                reportReason: reportReason,
+                reportDescription: reportDescription
+            )
             await load(silent: true)
             return true
         } catch {
@@ -697,6 +906,7 @@ struct ChatDetailView: View {
     @State private var showReviewPrompt = false
     @State private var showModerationActions = false
     @State private var showReportOverlay = false
+    @State private var showCompletionReportOverlay = false
     @State private var showBlockConfirmation = false
     @State private var moderationBusy = false
     @State private var pendingTradeConfirmation: ChatTradeAction?
@@ -729,7 +939,6 @@ struct ChatDetailView: View {
                 await viewModel.load()
                 syncReviewPrompt()
                 await viewModel.startRealtime()
-                await viewModel.poll()
             }
             .onDisappear {
                 viewModel.stopRealtime()
@@ -754,7 +963,13 @@ struct ChatDetailView: View {
             .onReceive(NotificationCenter.default.publisher(for: .manwonConversationPushReceived)) { notification in
                 guard notification.userInfo?["conversationId"] as? String == viewModel.conversationId else { return }
                 Task {
-                    await viewModel.load(silent: true)
+                    await viewModel.refreshForPushNotification()
+                    syncReviewPrompt()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .manwonAppDidBecomeActive)) { _ in
+                Task {
+                    await viewModel.refreshForForegroundResume()
                     syncReviewPrompt()
                 }
             }
@@ -817,6 +1032,21 @@ struct ChatDetailView: View {
                                 description: description,
                                 blockAfterReport: blockAfterReport
                             )
+                        }
+                    )
+                }
+                if showCompletionReportOverlay, let conversation = viewModel.conversation {
+                    ChatReportOverlay(
+                        userName: conversation.otherNickname ?? "상대방",
+                        title: "완료 요청 신고하기",
+                        message: "거래 문제를 신고하면 거래는 완료 처리되고 이 채팅방의 메시지 전송이 양쪽 모두 차단됩니다.",
+                        allowsBlock: false,
+                        busy: viewModel.pendingTradeAction == DealStatus.disputed.rawValue,
+                        onCancel: {
+                            showCompletionReportOverlay = false
+                        },
+                        onSubmit: { reason, description, _ in
+                            submitCompletionReport(reason: reason, description: description)
                         }
                     )
                 }
@@ -921,6 +1151,24 @@ struct ChatDetailView: View {
         }
     }
 
+    private func submitCompletionReport(reason: String, description: String) {
+        guard viewModel.pendingTradeAction == nil else { return }
+        dismissComposerKeyboard()
+        Task {
+            let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
+            let succeeded = await viewModel.updateDealStatus(
+                .disputed,
+                reportReason: reason,
+                reportDescription: trimmedDescription.isEmpty ? nil : trimmedDescription
+            )
+            await MainActor.run {
+                guard succeeded else { return }
+                showCompletionReportOverlay = false
+                NotificationCenter.default.post(name: .manwonModerationChanged, object: nil)
+            }
+        }
+    }
+
     private func confirmTradeAction(_ action: ChatTradeAction) {
         pendingTradeConfirmation = nil
         Task {
@@ -949,6 +1197,7 @@ struct ChatDetailView: View {
         guard
             let conversation = viewModel.conversation,
             conversation.dealStatus == .completed,
+            conversation.dealReportedAt == nil,
             let dealId = conversation.dealId,
             conversation.myReviewId == nil
         else {
@@ -975,6 +1224,9 @@ struct ChatDetailView: View {
                 if let conversation = viewModel.conversation {
                     TradeActionPanel(conversation: conversation, viewModel: viewModel) {
                         showProfileSheet = true
+                    } onRequestReport: {
+                        dismissComposerKeyboard()
+                        showCompletionReportOverlay = true
                     } onRequestConfirmation: { action in
                         dismissComposerKeyboard()
                         pendingTradeConfirmation = action
@@ -986,13 +1238,24 @@ struct ChatDetailView: View {
                     .simultaneousGesture(TapGesture().onEnded {
                         dismissComposerKeyboard()
                     })
+
+                    if conversation.dealChatBlockedAt != nil {
+                        ChatBlockedNotice(conversation: conversation, currentUserId: viewModel.currentUserId)
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 10)
+                            .background(ManwonColor.background)
+                    }
                 }
 
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 10) {
                             ForEach(viewModel.messages) { message in
-                                MessageBubble(message: message, isMine: message.senderId == viewModel.currentUserId)
+                                MessageBubble(
+                                    message: message,
+                                    isMine: message.senderId == viewModel.currentUserId,
+                                    showsReadReceipt: message.id == viewModel.latestReadOwnMessageId
+                                )
                                     .id(message.id)
                             }
                             if viewModel.otherTyping {
@@ -1127,6 +1390,9 @@ private let chatReportReasons = ["부적절한 메시지", "사기 의심", "개
 
 private struct ChatReportOverlay: View {
     let userName: String
+    var title: String? = nil
+    var message: String = "신고 내용과 채팅 정보는 운영팀 검토용으로 접수됩니다."
+    var allowsBlock: Bool = true
     let busy: Bool
     let onCancel: () -> Void
     let onSubmit: (String, String, Bool) -> Void
@@ -1143,10 +1409,10 @@ private struct ChatReportOverlay: View {
 
             VStack(alignment: .leading, spacing: 16) {
                 VStack(alignment: .leading, spacing: 7) {
-                    Text("\(userName)님 신고하기")
+                    Text(title ?? "\(userName)님 신고하기")
                         .font(.system(size: 20, weight: .bold))
                         .foregroundStyle(ManwonColor.text)
-                    Text("신고 내용과 채팅 정보는 운영팀 검토용으로 접수됩니다.")
+                    Text(message)
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(ManwonColor.muted)
                         .lineSpacing(2)
@@ -1204,18 +1470,20 @@ private struct ChatReportOverlay: View {
                         Button("취소", action: onCancel)
                             .buttonStyle(PrimaryButtonStyle(isSecondary: true))
                             .disabled(busy)
-                        Button(busy ? "접수 중" : "신고하기") {
+                        Button(busy ? "접수 중" : allowsBlock ? "신고하기" : "신고하고 거래 완료 처리") {
                             onSubmit(reason, description, false)
                         }
                         .buttonStyle(PrimaryButtonStyle())
                         .disabled(busy)
                     }
 
-                    Button(busy ? "접수 중" : "차단하고 신고하기") {
-                        onSubmit(reason, description, true)
+                    if allowsBlock {
+                        Button(busy ? "접수 중" : "차단하고 신고하기") {
+                            onSubmit(reason, description, true)
+                        }
+                        .buttonStyle(PrimaryButtonStyle())
+                        .disabled(busy)
                     }
-                    .buttonStyle(PrimaryButtonStyle())
-                    .disabled(busy)
                 }
             }
             .padding(20)
@@ -2085,6 +2353,7 @@ private struct TradeActionPanel: View {
     let conversation: Conversation
     @ObservedObject var viewModel: ChatDetailViewModel
     let onProfile: () -> Void
+    let onRequestReport: () -> Void
     let onRequestConfirmation: (ChatTradeAction) -> Void
 
     var body: some View {
@@ -2123,6 +2392,9 @@ private struct TradeActionPanel: View {
     }
 
     private var title: String {
+        if conversation.dealChatBlockedAt != nil {
+            return conversation.chatBlockedMessage(currentUserId: viewModel.currentUserId)
+        }
         if conversation.dealStatus == .completed { return "거래가 완료되었어요." }
         if conversation.dealStatus == .cancelled { return "거래가 취소되었어요." }
         if conversation.applicationStatus == "rejected" { return "지원이 거절되었어요." }
@@ -2194,14 +2466,18 @@ private struct TradeActionPanel: View {
 
     @ViewBuilder
     private var actions: some View {
-        if conversation.dealStatus == .completeRequested {
+        if conversation.dealChatBlockedAt != nil {
+            Text(conversation.chatBlockedDetail(currentUserId: viewModel.currentUserId))
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(ManwonColor.muted)
+        } else if conversation.dealStatus == .completeRequested {
             if isPostWriter {
                 if hasChatAfterStarted {
                     HStack {
                         Button(actionTitle(DealStatus.completed.rawValue, "완료 승인")) { runDealAction(.completed) }
                             .buttonStyle(PrimaryButtonStyle())
                             .disabled(busy)
-                        Button(actionTitle(DealStatus.disputed.rawValue, "문제 신고")) { runDealAction(.disputed) }
+                        Button(actionTitle(DealStatus.disputed.rawValue, "문제 신고")) { onRequestReport() }
                             .buttonStyle(PrimaryButtonStyle(isSecondary: true))
                             .disabled(busy)
                     }
@@ -2270,9 +2546,53 @@ private struct TradeActionPanel: View {
     }
 }
 
+private struct ChatBlockedNotice: View {
+    let conversation: Conversation
+    let currentUserId: String?
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "lock.fill")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(ManwonColor.brand)
+                .frame(width: 30, height: 30)
+                .background(ManwonColor.brandSoft)
+                .clipShape(Circle())
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(conversation.chatBlockedMessage(currentUserId: currentUserId))
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(ManwonColor.text)
+                    .lineLimit(2)
+                Text(conversation.chatBlockedDetail(currentUserId: currentUserId))
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(ManwonColor.muted)
+                    .lineLimit(3)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(ManwonColor.brandSoft)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(ManwonColor.brand.opacity(0.18), lineWidth: 1)
+        )
+    }
+}
+
 private struct MessageBubble: View {
     let message: Message
     let isMine: Bool
+    let showsReadReceipt: Bool
+
+    private var isPending: Bool {
+        message.id.hasPrefix("pending-")
+    }
+
+    private var isRead: Bool {
+        isMine && !isPending && message.readAt != nil
+    }
 
     var body: some View {
         if message.messageType == .system {
@@ -2310,9 +2630,18 @@ private struct MessageBubble: View {
                             .background(isMine ? ManwonColor.brand : ManwonColor.surface)
                             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     }
-                    Text(compactDateText(message.createdAt))
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(ManwonColor.muted)
+                    HStack(spacing: 6) {
+                        if isMine {
+                            if isPending {
+                                Text("전송 중")
+                            } else if showsReadReceipt && isRead {
+                                Text("읽음")
+                            }
+                        }
+                        Text(compactDateText(message.createdAt))
+                    }
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(ManwonColor.muted)
                 }
                 if !isMine { Spacer(minLength: 50) }
             }
@@ -2362,6 +2691,23 @@ fileprivate extension Conversation {
         postType == "request" && applicationId != nil && applicationStatus == "applied" && dealId == nil
     }
 
+    func chatBlockedMessage(currentUserId: String?) -> String {
+        let reason = dealReportReason?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? dealReportReason!
+            : "문제 신고"
+        if dealReportedUserId == currentUserId {
+            return "상대방이 ‘\(reason)’ 문제로 신고했어요."
+        }
+        return "‘\(reason)’ 신고가 접수되어 채팅이 차단되었습니다."
+    }
+
+    func chatBlockedDetail(currentUserId: String?) -> String {
+        if dealReportedUserId == currentUserId {
+            return "거래는 완료 처리되었고, 이 채팅방에서는 더 이상 메시지를 보낼 수 없습니다."
+        }
+        return "거래는 완료 처리되었고, 양쪽 모두 이 채팅방에서 더 이상 메시지를 보낼 수 없습니다."
+    }
+
     func quickMessageSuggestionTexts(currentUserId: String?) -> [String] {
         guard let currentUserId else { return [] }
 
@@ -2395,6 +2741,7 @@ fileprivate struct QuickMessageSuggestion: Identifiable, Hashable {
 fileprivate enum ChatComposerBlockedReason {
     case pendingApplication
     case closed
+    case reported(String)
 
     var message: String {
         switch self {
@@ -2402,12 +2749,14 @@ fileprivate enum ChatComposerBlockedReason {
             return "지원 요청이 수락되면 채팅을 할 수 있습니다."
         case .closed:
             return "종료된 거래라 메시지를 보낼 수 없어요."
+        case .reported(let message):
+            return message
         }
     }
 
     var textColor: Color {
         switch self {
-        case .pendingApplication:
+        case .pendingApplication, .reported:
             return ManwonColor.brand
         case .closed:
             return ManwonColor.muted

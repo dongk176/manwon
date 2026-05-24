@@ -44,8 +44,11 @@ class APIClient(private val context: Context) {
         return parseMessage(requestObject("/api/conversations/$conversationId/messages", "POST", payload))
     }
 
-    fun updateDealStatus(dealId: String, status: String) {
-        requestUnit("/api/deals/$dealId/status", "PATCH", JSONObject().put("status", status))
+    fun updateDealStatus(dealId: String, status: String, reportReason: String? = null, reportDescription: String? = null) {
+        val payload = JSONObject().put("status", status)
+        if (!reportReason.isNullOrBlank()) payload.put("reportReason", reportReason)
+        if (!reportDescription.isNullOrBlank()) payload.put("reportDescription", reportDescription)
+        requestUnit("/api/deals/$dealId/status", "PATCH", payload)
     }
 
     fun updateApplicationStatus(applicationId: String, status: String) {
@@ -229,6 +232,12 @@ class APIClient(private val context: Context) {
             postCreatorId = json.optNullableString("postCreatorId"),
             postType = json.optNullableString("postType"),
             dealStatus = json.optNullableString("dealStatus"),
+            dealReportedAt = json.optNullableString("dealReportedAt"),
+            dealReportedBy = json.optNullableString("dealReportedBy"),
+            dealReportedUserId = json.optNullableString("dealReportedUserId"),
+            dealReportReason = json.optNullableString("dealReportReason"),
+            dealReportDescription = json.optNullableString("dealReportDescription"),
+            dealChatBlockedAt = json.optNullableString("dealChatBlockedAt"),
             requesterProfileId = json.optNullableString("requesterProfileId"),
             helperProfileId = json.optNullableString("helperProfileId"),
             applicationId = json.optNullableString("applicationId"),

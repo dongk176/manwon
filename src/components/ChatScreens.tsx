@@ -34,6 +34,7 @@ import {
   getCurrentUserId,
   getDisplayImageUrl,
   isPhoneVerificationRequired,
+  markConversationRead,
   normalizeDisplayImageUrl,
   scheduleReviewReminder,
   sendConversationMessage,
@@ -65,6 +66,12 @@ const reportReasons = [
 interface UiChat {
   id: string
   dealId: string | null
+  dealReportedAt: string | null
+  dealReportedBy: string | null
+  dealReportedUserId: string | null
+  dealReportReason: string | null
+  dealReportDescription: string | null
+  dealChatBlockedAt: string | null
   applicationId: string | null
   applicationStatus: ApiConversation['applicationStatus']
   requesterId: string
@@ -92,6 +99,11 @@ interface UiMessage extends ChatMessage {
 interface ComposerDisabledReason {
   message: string
   brand?: boolean
+}
+
+interface CompletionReportInput {
+  reason: string
+  description: string
 }
 
 export function ChatScreens({ conversationId }: { conversationId?: string }) {
@@ -222,7 +234,7 @@ function ChatCard({ chat, onOpen }: { chat: UiChat; onOpen: () => void }) {
               <span>{chat.user.name}</span>
               {hasUnread && <i />}
             </strong>
-            <StatusBadge status={chat.status} />
+            <StatusBadge status={chat.dealReportedAt ? '완료 · 신고' : chat.status} />
           </span>
           <time>{chat.lastTime}</time>
         </span>
@@ -261,6 +273,14 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
       const data = await fetchMessages(chat.id, after)
       const nextMessages = data.map((message) => mapApiMessage(message, currentUserId))
       setMessages((previous) => (after ? mergeMessages(previous, nextMessages) : nextMessages))
+      let lastReadMessageId: string | null = null
+      for (let index = data.length - 1; index >= 0; index -= 1) {
+        if (!data[index].id.startsWith('pending-')) {
+          lastReadMessageId = data[index].id
+          break
+        }
+      }
+      void markConversationRead(chat.id, lastReadMessageId).catch(() => undefined)
       setLoadState('ready')
     } catch {
       const fallback = mockChats.find((thread) => thread.id === chat.id)
@@ -285,13 +305,13 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
 
   useEffect(() => {
     const shouldShow = (() => {
-      if (chat.status !== '거래완료' || !chat.dealId || chat.myReviewId) return false
+      if (chat.status !== '거래완료' || !chat.dealId || chat.myReviewId || chat.dealReportedAt) return false
       const deferredUntil = getDeferredReviewUntil(chat.dealId)
       return !deferredUntil || Date.now() >= deferredUntil
     })()
 
     queueMicrotask(() => setShowReviewPrompt(shouldShow))
-  }, [chat.dealId, chat.id, chat.myReviewId, chat.status])
+  }, [chat.dealId, chat.dealReportedAt, chat.id, chat.myReviewId, chat.status])
 
   useEffect(() => {
     if (loadState !== 'ready') return
@@ -530,6 +550,7 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
         onReview={() => setShowReviewPrompt(true)}
       />
       <RequestCard request={chat.request} variant="preview" />
+      {chat.dealChatBlockedAt && <ChatBlockedNotice chat={chat} />}
       {moderationStatus && <p className="inline-status moderation-feedback">{moderationStatus}</p>}
       {moderationError && <p className="inline-status is-error moderation-feedback">{moderationError}</p>}
 
@@ -623,6 +644,18 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
         />
       )}
     </section>
+  )
+}
+
+function ChatBlockedNotice({ chat }: { chat: UiChat }) {
+  return (
+    <div className="chat-blocked-notice" role="status">
+      <LockKeyhole size={18} />
+      <span>
+        <strong>{getChatBlockedMessage(chat)}</strong>
+        <small>{getChatBlockedDetail(chat)}</small>
+      </span>
+    </div>
   )
 }
 
@@ -808,6 +841,68 @@ function ReportSheet({
   )
 }
 
+function CompletionReportSheet({
+  userName,
+  error,
+  busy,
+  onClose,
+  onSubmit,
+}: {
+  userName: string
+  error?: string
+  busy?: boolean
+  onClose: () => void
+  onSubmit: (input: CompletionReportInput) => void
+}) {
+  const [reason, setReason] = useState<string>(reportReasons[0])
+  const [description, setDescription] = useState('')
+
+  return (
+    <div className="sheet-overlay" role="presentation" onClick={busy ? undefined : onClose}>
+      <div className="report-sheet" role="dialog" aria-modal="true" aria-labelledby="completion-report-title" onClick={(event) => event.stopPropagation()}>
+        <div className="drag-handle" />
+        <button className="sheet-x" type="button" onClick={onClose} aria-label="닫기" disabled={busy}>
+          ×
+        </button>
+        <h2 id="completion-report-title">완료 요청 신고하기</h2>
+        <p>{userName}님과의 거래 문제를 신고하면 거래는 완료 처리되고 이 채팅방의 메시지 전송이 양쪽 모두 차단됩니다.</p>
+        <div className="report-reason-grid" role="radiogroup" aria-label="신고 사유">
+          {reportReasons.map((item) => (
+            <button
+              key={item}
+              className={reason === item ? 'is-active' : ''}
+              type="button"
+              onClick={() => setReason(item)}
+              role="radio"
+              aria-checked={reason === item}
+              disabled={busy}
+            >
+              {item}
+            </button>
+          ))}
+        </div>
+        <label className="report-textarea">
+          <span>상세 내용</span>
+          <textarea
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            maxLength={1000}
+            placeholder="완료 요청에 문제가 있는 이유를 적어주세요."
+            disabled={busy}
+          />
+          <em>{description.length}/1000</em>
+        </label>
+        {error && <p className="inline-status is-error">{error}</p>}
+        <div className="report-sheet-actions is-single">
+          <BrandButton size="lg" disabled={busy} onClick={() => onSubmit({ reason, description })}>
+            {busy ? '접수 중' : '신고하고 거래 완료 처리'}
+          </BrandButton>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 type TradeActionId = 'accept' | 'reject' | 'complete' | 'dispute' | 'requestComplete' | 'cancel' | 'start'
 
 const tradeActionPendingLabels: Record<TradeActionId, string> = {
@@ -879,6 +974,7 @@ function TradeActionPanel({
   const [pendingAction, setPendingAction] = useState<TradeActionId | null>(null)
   const [confirmAction, setConfirmAction] = useState<TradeActionConfirmation | null>(null)
   const [phoneVerificationAction, setPhoneVerificationAction] = useState<TradeActionConfirmation | null>(null)
+  const [showCompletionReport, setShowCompletionReport] = useState(false)
   const [error, setError] = useState('')
   const busy = pendingAction !== null
   const postCreatorId = chat.postCreatorId ?? chat.requesterId
@@ -900,13 +996,15 @@ function TradeActionPanel({
     try {
       await action()
       await onRefresh()
+      return true
     } catch (nextError) {
       if (actionId === 'dispute' && isPhoneVerificationRequired(nextError)) {
         setError('')
         setPhoneVerificationAction({ id: actionId, action })
-        return
+        return false
       }
       setError(nextError instanceof Error ? nextError.message : '상태를 변경하지 못했습니다.')
+      return false
     } finally {
       setPendingAction(null)
     }
@@ -928,6 +1026,27 @@ function TradeActionPanel({
     return (
       <>
         {content}
+        {showCompletionReport && (
+          <CompletionReportSheet
+            userName={chat.user.name}
+            error={error}
+            busy={pendingAction === 'dispute'}
+            onClose={() => {
+              if (pendingAction === 'dispute') return
+              setShowCompletionReport(false)
+              setError('')
+            }}
+            onSubmit={(input) => {
+              if (!chat.dealId) return
+              void run('dispute', () => updateDealStatus(chat.dealId!, 'disputed', {
+                reportReason: input.reason,
+                reportDescription: input.description.trim() || null,
+              })).then((succeeded) => {
+                if (succeeded) setShowCompletionReport(false)
+              })
+            }}
+          />
+        )}
         {confirmAction && (
           <TradeActionConfirmDialog
             actionId={confirmAction.id}
@@ -941,7 +1060,11 @@ function TradeActionPanel({
             onVerified={() => {
               const nextAction = phoneVerificationAction
               setPhoneVerificationAction(null)
-              if (nextAction) void run(nextAction.id, nextAction.action)
+              if (nextAction) {
+                void run(nextAction.id, nextAction.action).then((succeeded) => {
+                  if (succeeded && nextAction.id === 'dispute') setShowCompletionReport(false)
+                })
+              }
             }}
           />
         )}
@@ -950,6 +1073,16 @@ function TradeActionPanel({
   }
 
   if (chat.status === '거래완료') {
+    if (chat.dealReportedAt) {
+      return withConfirmation(
+        <div className="complete-panel is-reported">
+          <div className="complete-icon">!</div>
+          <strong>{getChatBlockedMessage(chat)}</strong>
+          <span>{getChatBlockedDetail(chat)}</span>
+        </div>,
+      )
+    }
+
     return withConfirmation(
       <div className="complete-panel">
         <div className="complete-icon">✓</div>
@@ -1015,7 +1148,7 @@ function TradeActionPanel({
             <BrandButton className={actionClass('complete')} disabled={busy || !dealId} onClick={() => dealId && requestConfirmation('complete', () => updateDealStatus(dealId, 'completed'))}>
               {actionText('complete', '완료 승인')}
             </BrandButton>
-            <BrandButton className={actionClass('dispute')} variant="outline" disabled={busy || !dealId} onClick={() => dealId && requestConfirmation('dispute', () => updateDealStatus(dealId, 'disputed'))}>
+            <BrandButton className={actionClass('dispute')} variant="outline" disabled={busy || !dealId} onClick={() => dealId && setShowCompletionReport(true)}>
               {actionText('dispute', '문제 신고')}
             </BrandButton>
           </div>
@@ -1256,6 +1389,12 @@ function mapConversationToChat(conversation: ApiConversation, currentUserId: str
   return {
     id: conversation.id,
     dealId: conversation.dealId,
+    dealReportedAt: conversation.dealReportedAt ?? null,
+    dealReportedBy: conversation.dealReportedBy ?? null,
+    dealReportedUserId: conversation.dealReportedUserId ?? null,
+    dealReportReason: conversation.dealReportReason ?? null,
+    dealReportDescription: conversation.dealReportDescription ?? null,
+    dealChatBlockedAt: conversation.dealChatBlockedAt ?? null,
     applicationId: conversation.applicationId ?? null,
     applicationStatus: conversation.applicationStatus,
     requesterId: conversation.requesterId,
@@ -1279,6 +1418,12 @@ function mapMockChatToChat(thread: ChatThread): UiChat {
   return {
     id: thread.id,
     dealId: null,
+    dealReportedAt: null,
+    dealReportedBy: null,
+    dealReportedUserId: null,
+    dealReportReason: null,
+    dealReportDescription: null,
+    dealChatBlockedAt: null,
     applicationId: null,
     applicationStatus: null,
     requesterId: request.requesterId,
@@ -1407,6 +1552,12 @@ function createClientMessageId() {
 }
 
 function getComposerDisabledReason(chat: UiChat): ComposerDisabledReason | null {
+  if (chat.dealChatBlockedAt) {
+    return {
+      message: getChatBlockedMessage(chat),
+      brand: chat.dealReportedUserId === getCurrentUserId(),
+    }
+  }
   if (chat.postType === 'request' && chat.applicationStatus === 'applied' && !chat.dealId) {
     return {
       message: '지원 요청이 수락되면 채팅을 할 수 있습니다.',
@@ -1419,6 +1570,21 @@ function getComposerDisabledReason(chat: UiChat): ComposerDisabledReason | null 
     }
   }
   return null
+}
+
+function getChatBlockedMessage(chat: UiChat) {
+  const reason = chat.dealReportReason?.trim() || '문제 신고'
+  if (chat.dealReportedUserId === getCurrentUserId()) {
+    return `상대방이 ‘${reason}’ 문제로 신고했어요.`
+  }
+  return `‘${reason}’ 신고가 접수되어 채팅이 차단되었습니다.`
+}
+
+function getChatBlockedDetail(chat: UiChat) {
+  if (chat.dealReportedUserId === getCurrentUserId()) {
+    return '거래는 완료 처리되었고, 이 채팅방에서는 더 이상 메시지를 보낼 수 없습니다.'
+  }
+  return '거래는 완료 처리되었고, 양쪽 모두 이 채팅방에서 더 이상 메시지를 보낼 수 없습니다.'
 }
 
 function mapTradeStatus(conversation: ApiConversation): TradeStatus {

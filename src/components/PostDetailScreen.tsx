@@ -8,6 +8,7 @@ import { ActionGuideOverlay, BrandButton, CategoryImageFrame, MoreMenu, RatingSt
 import { UserProfileSheet } from '@/components/UserProfileSheet'
 import { Avatar } from '@/components/ui/Illustration'
 import { PhoneVerificationOverlay } from '@/components/PhoneVerificationOverlay'
+import { ImageUploader, getImagePreviewUrl, toPersistedImages, useImagePreviewCleanup, type ImageRecord } from '@/components/ImageUploader'
 import {
   categoryDetailOptions,
   customCategoryDetailMaxLength,
@@ -96,6 +97,8 @@ interface DetailEditDraft {
   portfolioUrl: string
   responseTime: string
   description: string
+  images: ImageRecord[]
+  workSampleImages: ImageRecord[]
 }
 
 const requestPriceOptions = [
@@ -136,6 +139,7 @@ const availableTimeMaxLength = 8
 const requiredFieldMessage = '필수 항목이에요.'
 const offerMinPrice = 1000
 const offerMaxPrice = 10000
+const emptyImageRecords: ImageRecord[] = []
 
 const modeOptions: Array<{
   value: RequestMode
@@ -182,6 +186,9 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
   const [guideOverlay, setGuideOverlay] = useState<{ title: string; description: string; note: string } | null>(null)
   const detailScrollYRef = useRef(0)
   const detailScrollFrameRef = useRef<number | null>(null)
+
+  useImagePreviewCleanup(editDraft?.images ?? emptyImageRecords)
+  useImagePreviewCleanup(editDraft?.workSampleImages ?? emptyImageRecords)
 
   useEffect(() => {
     let cancelled = false
@@ -662,6 +669,9 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
         responseTime: isRequest ? null : nullableText(editDraft.responseTime),
         capacityType: editDraft.capacityType,
         capacityLimit: editDraft.capacityType === 'limited' ? getCapacityLimitValue(editDraft.capacityLimit) : null,
+        images: toPersistedImages(editDraft.images),
+        trustExampleImages: isRequest ? [] : toPersistedImages(editDraft.workSampleImages),
+        workSampleImages: isRequest ? [] : toPersistedImages(editDraft.workSampleImages),
         addressText: isOffline ? nullableText(editDraft.addressText) : null,
         region1Depth: isOffline ? nullableText(editDraft.region1Depth) : null,
         region2Depth: isOffline ? nullableText(editDraft.region2Depth) : null,
@@ -835,12 +845,12 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
 
               {post && <PostCapacityPanel post={post} />}
 
-              {post && <ExtraPostSections post={post} />}
-
               <section className="detail-section-card">
                 <h3>상세 설명</h3>
                 <p>{displayPost.description || '상세 설명이 아직 없습니다.'}</p>
               </section>
+
+              {post && <ExtraPostSections post={post} />}
 
               <section className="detail-section-card requester-card">
                 <h3>작성자 정보</h3>
@@ -1272,6 +1282,27 @@ function getDetailImageUrls(post: ApiTaskPost | null, displayPost: RequestPost |
   return displayPost?.imageUrl ? [displayPost.imageUrl] : []
 }
 
+function getOfferWorkSampleImages(post: ApiTaskPost) {
+  const images = post.workSampleImages && post.workSampleImages.length > 0 ? post.workSampleImages : post.trustExampleImages
+  return normalizeImageRecords(images)
+}
+
+function normalizeImageRecords(images?: Array<{ imageUrl?: string | null; storageKey?: string | null; sortOrder?: number | null }> | null): ImageRecord[] {
+  return (images ?? [])
+    .map((image, index) => {
+      const imageUrl = image.imageUrl?.trim()
+      if (!imageUrl) return null
+      return {
+        imageUrl,
+        storageKey: image.storageKey?.trim() || imageUrl,
+        sortOrder: Number.isFinite(Number(image.sortOrder)) ? Number(image.sortOrder) : index,
+      }
+    })
+    .filter((image): image is ImageRecord => image !== null)
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((image, index) => ({ ...image, sortOrder: index }))
+}
+
 function PostDetailImageCarousel({
   categoryId,
   imageUrls,
@@ -1392,32 +1423,110 @@ function PostCapacityPanel({ post }: { post: ApiTaskPost }) {
 
 function ExtraPostSections({ post }: { post: ApiTaskPost }) {
   const isOffer = post.postType === 'offer'
+  const [workSampleViewerIndex, setWorkSampleViewerIndex] = useState<number | null>(null)
   const portfolioLinks = normalizePortfolioLinks(post)
   const careerSummary = post.careerSummary || post.experienceSummary || ''
   const responseTime = post.responseTime || post.responseTimeText || ''
+  const workSampleImages = getOfferWorkSampleImages(post)
+  const hasTrustInfo = isOffer && (
+    careerSummary ||
+    portfolioLinks.length > 0 ||
+    responseTime ||
+    post.genderVisibility !== 'private' ||
+    workSampleImages.length > 0
+  )
+
+  if (!hasTrustInfo) return null
 
   return (
     <>
-      {isOffer && post.serviceIntro && (
-        <section className="detail-section-card">
-          <h3>서비스 소개</h3>
-          <p>{post.serviceIntro}</p>
-        </section>
-      )}
-      {isOffer && (careerSummary || portfolioLinks.length > 0 || responseTime || post.genderVisibility !== 'private') && (
-        <section className="detail-section-card">
-          <h3>신뢰 정보</h3>
-          <div className="detail-extra-list">
-            {careerSummary && <DetailExtra label="경력" value={careerSummary} />}
-            {portfolioLinks.map((link) => (
-              <DetailExtra key={`${link.title}-${link.url}`} label={link.title || '포트폴리오'} value={link.url} href={link.url} />
-            ))}
-            {post.genderVisibility !== 'private' && <DetailExtra label="성별" value={genderVisibilityText(post.genderVisibility)} />}
-            {responseTime && <DetailExtra label="응답 가능 시간" value={responseTime} />}
+      <section className="detail-section-card">
+        <h3>신뢰 정보</h3>
+        <div className="detail-extra-list">
+          {careerSummary && <DetailExtra label="경력" value={careerSummary} />}
+          {portfolioLinks.map((link) => (
+            <DetailExtra key={`${link.title}-${link.url}`} label={link.title || '포트폴리오'} value={link.url} href={link.url} />
+          ))}
+          {post.genderVisibility !== 'private' && <DetailExtra label="성별" value={genderVisibilityText(post.genderVisibility)} />}
+          {responseTime && <DetailExtra label="응답 가능 시간" value={responseTime} />}
+        </div>
+        {workSampleImages.length > 0 && (
+          <div className="detail-work-sample-block">
+            <strong>작업 예시 이미지</strong>
+            <div className="detail-work-sample-grid">
+              {workSampleImages.map((image, index) => (
+                <button type="button" key={`${image.storageKey}-${index}`} onClick={() => setWorkSampleViewerIndex(index)} aria-label={`작업 예시 이미지 ${index + 1} 크게 보기`}>
+                  <Image src={getImagePreviewUrl(image)} alt="" fill sizes="76px" unoptimized />
+                </button>
+              ))}
+            </div>
           </div>
-        </section>
+        )}
+      </section>
+      {workSampleViewerIndex !== null && (
+        <WorkSampleImageViewer
+          key={workSampleViewerIndex}
+          images={workSampleImages}
+          initialIndex={workSampleViewerIndex}
+          onClose={() => setWorkSampleViewerIndex(null)}
+        />
       )}
     </>
+  )
+}
+
+function WorkSampleImageViewer({
+  images,
+  initialIndex,
+  onClose,
+}: {
+  images: ImageRecord[]
+  initialIndex: number
+  onClose: () => void
+}) {
+  const [activeIndex, setActiveIndex] = useState(initialIndex)
+  const hasMultipleImages = images.length > 1
+  const activeImage = images[activeIndex] ?? images[0]
+
+  function moveImage(direction: -1 | 1) {
+    setActiveIndex((current) => Math.min(Math.max(current + direction, 0), images.length - 1))
+  }
+
+  if (!activeImage) return null
+
+  return (
+    <div className="profile-photo-viewer-overlay" role="dialog" aria-modal="true" aria-label="작업 예시 이미지 크게 보기" onClick={onClose}>
+      <div className="profile-photo-viewer-toolbar" onClick={(event) => event.stopPropagation()}>
+        <span>작업 예시 이미지 {activeIndex + 1}/{images.length}</span>
+        <button type="button" onClick={onClose} aria-label="닫기">
+          <X size={22} />
+        </button>
+      </div>
+      <div className="profile-photo-viewer-stage" onClick={(event) => event.stopPropagation()}>
+        <button className="profile-photo-viewer-nav" type="button" disabled={!hasMultipleImages || activeIndex === 0} onClick={() => moveImage(-1)} aria-label="이전 이미지">
+          <ChevronLeft size={24} />
+        </button>
+        <div className="profile-photo-viewer-image-wrap">
+          <Image src={getImagePreviewUrl(activeImage)} alt="" width={1200} height={900} unoptimized />
+        </div>
+        <button className="profile-photo-viewer-nav" type="button" disabled={!hasMultipleImages || activeIndex === images.length - 1} onClick={() => moveImage(1)} aria-label="다음 이미지">
+          <ChevronRight size={24} />
+        </button>
+      </div>
+      {hasMultipleImages && (
+        <div className="profile-photo-viewer-dots" onClick={(event) => event.stopPropagation()}>
+          {images.map((image, index) => (
+            <button
+              type="button"
+              key={`${image.storageKey}-${index}`}
+              className={index === activeIndex ? 'is-active' : undefined}
+              onClick={() => setActiveIndex(index)}
+              aria-label={`작업 예시 이미지 ${index + 1} 보기`}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -1531,15 +1640,6 @@ function PostDetailEditForm({
         )}
       </section>
 
-      {!isRequest && (
-        <section className="step-card detail-edit-card">
-          <div className="step-card-title">
-            <h3>서비스 소개</h3>
-          </div>
-          <DetailTextInput value={draft.serviceIntro} onChange={(serviceIntro) => update({ serviceIntro })} placeholder="한 줄로 간단히 소개해주세요" maxLength={80} />
-        </section>
-      )}
-
       <section className="step-card detail-edit-card">
         <div className="step-card-title">
           <h3>조건</h3>
@@ -1626,26 +1726,30 @@ function PostDetailEditForm({
           error={errors.description}
         />
       </section>
+      <ImageUploader title="사진 첨부" optional images={draft.images} onChange={(images) => update({ images })} />
 
       {!isRequest && (
-        <section className="step-card detail-edit-card">
-          <div className="step-card-title">
-            <h3>신뢰 정보</h3>
-            <span>선택</span>
-          </div>
-          <DetailTextInput value={draft.careerSummary} onChange={(careerSummary) => update({ careerSummary })} placeholder="예: 디자인 2년차" maxLength={160} />
-          <div className="stacked-fields">
-            <DetailTextInput value={draft.portfolioTitle} onChange={(portfolioTitle) => update({ portfolioTitle })} placeholder="링크 제목" />
-            <DetailTextInput value={draft.portfolioUrl} onChange={(portfolioUrl) => update({ portfolioUrl })} placeholder="https://..." error={errors.portfolioUrl} />
-          </div>
-          <DetailOptionGrid value={draft.genderVisibility} onChange={(genderVisibility) => update({ genderVisibility })} options={genderVisibilityOptions} columns={3} />
-          <DetailOptionGrid
-            value={draft.responseTime}
-            onChange={(responseTime) => update({ responseTime })}
-            options={responseTimeOptions.map((label) => ({ value: label, label }))}
-            columns={2}
-          />
-        </section>
+        <>
+          <section className="step-card detail-edit-card">
+            <div className="step-card-title">
+              <h3>신뢰 정보</h3>
+              <span>선택</span>
+            </div>
+            <DetailTextInput value={draft.careerSummary} onChange={(careerSummary) => update({ careerSummary })} placeholder="예: 디자인 2년차" maxLength={160} />
+            <div className="stacked-fields">
+              <DetailTextInput value={draft.portfolioTitle} onChange={(portfolioTitle) => update({ portfolioTitle })} placeholder="링크 제목" />
+              <DetailTextInput value={draft.portfolioUrl} onChange={(portfolioUrl) => update({ portfolioUrl })} placeholder="https://..." error={errors.portfolioUrl} />
+            </div>
+            <DetailOptionGrid value={draft.genderVisibility} onChange={(genderVisibility) => update({ genderVisibility })} options={genderVisibilityOptions} columns={3} />
+            <DetailOptionGrid
+              value={draft.responseTime}
+              onChange={(responseTime) => update({ responseTime })}
+              options={responseTimeOptions.map((label) => ({ value: label, label }))}
+              columns={2}
+            />
+          </section>
+          <ImageUploader title="작업 예시 이미지" optional images={draft.workSampleImages} onChange={(workSampleImages) => update({ workSampleImages })} />
+        </>
       )}
 
       {sheet === 'category' && (
@@ -2027,6 +2131,8 @@ function createEditDraft(post: ApiTaskPost, displayPost: RequestPost): DetailEdi
     portfolioUrl: firstPortfolio?.url ?? post.portfolioUrl ?? '',
     responseTime: post.responseTime ?? post.responseTimeText ?? '',
     description: post.description,
+    images: normalizeImageRecords(post.images),
+    workSampleImages: getOfferWorkSampleImages(post),
   }
 }
 
@@ -2083,7 +2189,9 @@ function mergeUpdatedPost(current: ApiTaskPost | null, updated: ApiTaskPost): Ap
   return {
     ...current,
     ...updated,
-    images: current.images,
+    images: updated.images ?? current.images,
+    trustExampleImages: updated.trustExampleImages ?? current.trustExampleImages,
+    workSampleImages: updated.workSampleImages ?? current.workSampleImages,
     creatorNickname: current.creatorNickname,
     creatorAvatarUrl: current.creatorAvatarUrl,
     creatorRatingAvg: current.creatorRatingAvg,

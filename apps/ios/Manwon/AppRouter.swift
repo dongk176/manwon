@@ -274,13 +274,25 @@ final class AppRouter: ObservableObject {
             return
         }
 
-        if let path = PushPayload.path(from: userInfo) {
-            openNativeRoute(path: path)
+        let path = PushPayload.path(from: userInfo)
+        let dealId = PushPayload.dealId(from: userInfo)
+        let applicationId = PushPayload.applicationId(from: userInfo)
+        let postId = PushPayload.postId(from: userInfo)
+        if dealId != nil || applicationId != nil || postId != nil {
+            Task { [weak self] in
+                await self?.resolveAndOpenPushTarget(
+                    dealId: dealId,
+                    applicationId: applicationId,
+                    postId: postId,
+                    fallbackPath: path
+                )
+            }
             return
         }
 
-        if let postId = PushPayload.postId(from: userInfo) {
-            openWebPath("/posts/\(postId)")
+        if let path = PushPayload.path(from: userInfo) {
+            openNativeRoute(path: path)
+            return
         }
     }
 
@@ -290,6 +302,40 @@ final class AppRouter: ObservableObject {
 
     private func shouldBlockForOnboarding(_ path: String) -> Bool {
         onboardingRequired && requiresAuthentication(path) && path != "/profile-onboarding"
+    }
+
+    private func resolveAndOpenPushTarget(
+        dealId: String?,
+        applicationId: String?,
+        postId: String?,
+        fallbackPath: String?
+    ) async {
+        do {
+            let target = try await APIClient.shared.resolveConversationTarget(
+                dealId: dealId,
+                applicationId: applicationId,
+                postId: postId
+            )
+            if let conversationId = target.conversationId {
+                setSelectedTab(.chat)
+                setChatRoute(conversationId: conversationId, detailActive: true, advanceRevision: true)
+                return
+            }
+            if let route = target.route {
+                openNativeRoute(path: route)
+                return
+            }
+        } catch {
+            // Older or partial payloads still fall back to the best local route below.
+        }
+
+        if let fallbackPath {
+            openNativeRoute(path: fallbackPath)
+        } else if let postId {
+            openWebPath("/posts/\(postId)")
+        } else {
+            openWebPath("/")
+        }
     }
 
     private func routeToProfileOnboarding() {

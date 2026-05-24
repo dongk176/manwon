@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import {
@@ -11,7 +11,6 @@ import {
   ChevronRight,
   Clock3,
   Globe2,
-  ImagePlus,
   Link as LinkIcon,
   MapPin,
   UsersRound,
@@ -36,9 +35,9 @@ import {
   fetchMyPage,
   isPhoneVerificationRequired,
   saveMyLocationPreference,
-  uploadImageFile,
   type ActivityProfile,
 } from '@/lib/manwonApi'
+import { ImageUploader, getImagePreviewUrl, toPersistedImages, useImagePreviewCleanup, type ImageRecord } from '@/components/ImageUploader'
 import {
   getLocationPermissionState,
   requestBrowserLocation,
@@ -69,15 +68,6 @@ type SheetKind =
   | 'availableTimeCustom'
   | null
 
-type ImageRecord = {
-  imageUrl: string
-  storageKey: string
-  sortOrder: number
-  previewUrl?: string
-}
-
-type PersistedImageRecord = Omit<ImageRecord, 'previewUrl'>
-
 type PortfolioLink = {
   title: string
   url: string
@@ -107,8 +97,6 @@ const requestMaxPrice = 10000
 const customCategoryMaxLength = 9
 const availableTimeMaxLength = 8
 const requiredFieldMessage = '필수 항목이에요.'
-const maxImageUploadSizeBytes = 5 * 1024 * 1024
-const maxImageUploadSizeLabel = '5MB'
 const calendarWeekdays = ['일', '월', '화', '수', '목', '금', '토']
 
 const availableTimeOptions = [
@@ -725,6 +713,7 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
   const [showPortfolioForm, setShowPortfolioForm] = useState(false)
   const [portfolioTitle, setPortfolioTitle] = useState('')
   const [portfolioUrl, setPortfolioUrl] = useState('')
+  const [postImages, setPostImages] = useState<ImageRecord[]>([])
   const [sampleImages, setSampleImages] = useState<ImageRecord[]>([])
   const [genderVisibility, setGenderVisibility] = useState<GenderVisibility>('private')
   const [responseTime, setResponseTime] = useState('')
@@ -736,8 +725,9 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
   const price = getPriceValue(priceOption, customPrice)
   const availableTimeText = getAvailableTimeText(availableTimeOption, customAvailableTime)
   const portfolioLinks = getPortfolioLinks(portfolioTitle, portfolioUrl)
-  const isDirty = hasOfferInput({ title, categoryId, customCategory, categoryDetail, serviceIntro, mode, customAvailableTime, capacityType, capacityLimit, customPrice, description, careerSummary, portfolioUrl, sampleImages, responseTime })
+  const isDirty = hasOfferInput({ title, categoryId, customCategory, categoryDetail, serviceIntro, mode, customAvailableTime, capacityType, capacityLimit, customPrice, description, careerSummary, portfolioUrl, postImages, sampleImages, responseTime })
 
+  useImagePreviewCleanup(postImages)
   useImagePreviewCleanup(sampleImages)
 
   useEffect(() => {
@@ -885,7 +875,7 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
         locationSource: isOffline ? activityRegion?.locationSource ?? null : null,
         latitude: isOffline ? activityRegion?.latitude ?? null : null,
         longitude: isOffline ? activityRegion?.longitude ?? null : null,
-        images: toPersistedImages(sampleImages),
+        images: toPersistedImages(postImages),
         trustExampleImages: toPersistedImages(sampleImages),
         workSampleImages: toPersistedImages(sampleImages),
       })
@@ -1022,6 +1012,7 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
                 error={errors.description}
               />
             </StepCard>
+            <ImageUploader title="사진 첨부" optional images={postImages} onChange={setPostImages} />
           </>
         )}
 
@@ -1123,8 +1114,11 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
                 { label: '응답 가능 시간', value: responseTime || '미입력', onEdit: () => setStep(3) },
               ]}
               description={description}
-              images={sampleImages}
-              imageTitle="작업 예시"
+              images={postImages}
+              imageSections={[
+                { title: '사진', images: postImages },
+                { title: '작업 예시', images: sampleImages },
+              ]}
             />
           </>
         )}
@@ -1875,106 +1869,12 @@ function BottomSheet({ title, children, onClose }: { title: string; children: Re
   )
 }
 
-function getImagePreviewUrl(image: ImageRecord) {
-  return image.previewUrl ?? image.imageUrl
-}
-
-function toPersistedImages(images: ImageRecord[]): PersistedImageRecord[] {
-  return images.map(({ imageUrl, storageKey, sortOrder }) => ({ imageUrl, storageKey, sortOrder }))
-}
-
-function useImagePreviewCleanup(images: ImageRecord[]) {
-  const imagesRef = useRef(images)
-
-  useEffect(() => {
-    imagesRef.current = images
-  }, [images])
-
-  useEffect(() => {
-    return () => {
-      imagesRef.current.forEach((image) => {
-        if (image.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(image.previewUrl)
-      })
-    }
-  }, [])
-}
-
-function ImageUploader({
-  title,
-  optional,
-  images,
-  onChange,
-  maxCount = 5,
-}: {
-  title: string
-  optional?: boolean
-  images: ImageRecord[]
-  onChange: (images: ImageRecord[]) => void
-  maxCount?: number
-}) {
-  const inputRef = useRef<HTMLInputElement>(null)
-  const [uploadState, setUploadState] = useState<'idle' | 'uploading' | 'error' | 'too-large'>('idle')
-
-  async function handleFile(file: File | undefined) {
-    if (!file || images.length >= maxCount) return
-    if (file.size > maxImageUploadSizeBytes) {
-      setUploadState('too-large')
-      if (inputRef.current) inputRef.current.value = ''
-      return
-    }
-    setUploadState('uploading')
-    const previewUrl = URL.createObjectURL(file)
-    try {
-      const uploaded = await uploadImageFile(file, 'task-post')
-      onChange([...images, { ...uploaded, sortOrder: images.length, previewUrl }])
-      setUploadState('idle')
-    } catch {
-      URL.revokeObjectURL(previewUrl)
-      setUploadState('error')
-    } finally {
-      if (inputRef.current) inputRef.current.value = ''
-    }
-  }
-
-  return (
-    <section className="step-card image-uploader-card">
-      <div className="step-card-title">
-        <h3>{title}</h3>
-        {optional && <span>선택</span>}
-      </div>
-      <div className="image-uploader-list">
-        {images
-          .slice()
-          .sort((a, b) => a.sortOrder - b.sortOrder)
-          .map((image, index) => (
-            <span className="image-thumb" key={`${image.storageKey}-${index}`} style={{ backgroundImage: `url("${getImagePreviewUrl(image)}")` }} />
-          ))}
-        {images.length < maxCount && (
-          <button type="button" aria-label="이미지 추가" onClick={() => inputRef.current?.click()}>
-            <ImagePlus size={24} />
-          </button>
-        )}
-        <input
-          ref={inputRef}
-          hidden
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          onChange={(event) => void handleFile(event.target.files?.[0])}
-        />
-      </div>
-      <p className="image-upload-hint">최대 {maxCount}장까지 첨부할 수 있어요. 현재 {images.length}장</p>
-      {uploadState === 'uploading' && <p className="inline-status">사진을 업로드하는 중입니다.</p>}
-      {uploadState === 'error' && <p className="inline-status is-error">사진 업로드에 실패했습니다.</p>}
-      {uploadState === 'too-large' && <p className="inline-status is-error">사진은 파일당 {maxImageUploadSizeLabel} 이하만 첨부할 수 있어요.</p>}
-    </section>
-  )
-}
-
 function PreviewCard({
   rows,
   description,
   images,
   imageTitle = '사진',
+  imageSections,
 }: {
   rows: Array<{
     label: string
@@ -1987,7 +1887,10 @@ function PreviewCard({
   description: string
   images: ImageRecord[]
   imageTitle?: string
+  imageSections?: Array<{ title: string; images: ImageRecord[] }>
 }) {
+  const sections = imageSections ?? [{ title: imageTitle, images }]
+
   return (
     <div className="registration-preview">
       <div className="preview-row-list">
@@ -2022,18 +1925,20 @@ function PreviewCard({
         <h3>상세 설명</h3>
         <p>{description}</p>
       </section>
-      <section className="preview-section">
-        <h3>{imageTitle}</h3>
-        {images.length > 0 ? (
-          <div className="preview-image-list">
-            {images.map((image, index) => (
-              <span className="image-thumb" key={`${image.storageKey}-${index}`} style={{ backgroundImage: `url("${getImagePreviewUrl(image)}")` }} />
-            ))}
-          </div>
-        ) : (
-          <p className="empty-preview-text">첨부한 이미지가 없어요.</p>
-        )}
-      </section>
+      {sections.map((section) => (
+        <section className="preview-section" key={section.title}>
+          <h3>{section.title}</h3>
+          {section.images.length > 0 ? (
+            <div className="preview-image-list">
+              {section.images.map((image, index) => (
+                <span className="image-thumb" key={`${image.storageKey}-${index}`} style={{ backgroundImage: `url("${getImagePreviewUrl(image)}")` }} />
+              ))}
+            </div>
+          ) : (
+            <p className="empty-preview-text">첨부한 이미지가 없어요.</p>
+          )}
+        </section>
+      ))}
     </div>
   )
 }
@@ -2282,6 +2187,7 @@ function hasOfferInput(input: {
   description: string
   careerSummary: string
   portfolioUrl: string
+  postImages: ImageRecord[]
   sampleImages: ImageRecord[]
   responseTime: string
 }) {
@@ -2299,6 +2205,7 @@ function hasOfferInput(input: {
       input.description.trim() ||
       input.careerSummary.trim() ||
       input.portfolioUrl.trim() ||
+      input.postImages.length > 0 ||
       input.sampleImages.length > 0 ||
       input.responseTime,
   )

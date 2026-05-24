@@ -168,14 +168,41 @@ enum PushPayload {
         )
     }
 
+    static func dealId(from userInfo: [AnyHashable: Any]) -> String? {
+        let data = dictionaryValue(userInfo["data"])
+        return firstString(
+            userInfo["dealId"],
+            userInfo["deal_id"],
+            data?["dealId"],
+            data?["deal_id"]
+        )
+    }
+
+    static func applicationId(from userInfo: [AnyHashable: Any]) -> String? {
+        let data = dictionaryValue(userInfo["data"])
+        return firstString(
+            userInfo["applicationId"],
+            userInfo["application_id"],
+            data?["applicationId"],
+            data?["application_id"]
+        )
+    }
+
     static func path(from userInfo: [AnyHashable: Any]) -> String? {
-        firstPath(
+        let data = dictionaryValue(userInfo["data"])
+        return firstPath(
             userInfo["path"],
             userInfo["route"],
             userInfo["url"],
             userInfo["link"],
             userInfo["deepLink"],
-            userInfo["deeplink"]
+            userInfo["deeplink"],
+            data?["path"],
+            data?["route"],
+            data?["url"],
+            data?["link"],
+            data?["deepLink"],
+            data?["deeplink"]
         )
     }
 
@@ -257,6 +284,7 @@ enum PushPayload {
 extension Notification.Name {
     static let manwonConversationPushReceived = Notification.Name("manwonConversationPushReceived")
     static let manwonModerationChanged = Notification.Name("manwonModerationChanged")
+    static let manwonAppDidBecomeActive = Notification.Name("manwonAppDidBecomeActive")
 }
 
 enum PushPromptContext: String {

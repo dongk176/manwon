@@ -131,6 +131,12 @@ export interface ApiConversation {
   postCreatorId?: string | null
   postType?: ApiTaskPost['postType'] | null
   dealStatus?: 'pending' | 'accepted' | 'in_progress' | 'complete_requested' | 'completed' | 'cancelled' | 'disputed' | null
+  dealReportedAt?: string | null
+  dealReportedBy?: string | null
+  dealReportedUserId?: string | null
+  dealReportReason?: string | null
+  dealReportDescription?: string | null
+  dealChatBlockedAt?: string | null
   applicationId?: string | null
   applicationStatus?: 'applied' | 'accepted' | 'rejected' | 'cancelled' | null
   applicationApplicantId?: string | null
@@ -537,9 +543,10 @@ export async function fetchMessages(conversationId: string, after?: string | nul
   return apiFetch<ApiMessage[]>(`/api/conversations/${conversationId}/messages${suffix}`)
 }
 
-export async function markConversationRead(conversationId: string) {
+export async function markConversationRead(conversationId: string, lastMessageId?: string | null) {
   return apiFetch<{ readCount: number }>(`/api/conversations/${conversationId}/read`, {
     method: 'PATCH',
+    body: JSON.stringify({ lastMessageId: lastMessageId ?? null }),
   })
 }
 
@@ -564,10 +571,14 @@ export async function updateApplicationStatus(applicationId: string, status: 'ac
 export async function updateDealStatus(
   dealId: string,
   status: 'pending' | 'accepted' | 'in_progress' | 'complete_requested' | 'completed' | 'cancelled' | 'disputed',
+  options?: {
+    reportReason?: string | null
+    reportDescription?: string | null
+  },
 ) {
   return apiFetch(`/api/deals/${dealId}/status`, {
     method: 'PATCH',
-    body: JSON.stringify({ status }),
+    body: JSON.stringify({ status, ...options }),
   })
 }
 
@@ -766,6 +777,7 @@ export async function saveMyLocationPreference(input: {
 export async function fetchMyActivity() {
   return apiFetch<{
     myPosts: ApiTaskPost[]
+    requestDeals: unknown[]
     helpedDeals: unknown[]
     favorites: unknown[]
     receivedReviews: Array<Record<string, unknown>>

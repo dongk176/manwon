@@ -105,6 +105,12 @@ data class Conversation(
     val postCreatorId: String?,
     val postType: String?,
     val dealStatus: String?,
+    val dealReportedAt: String?,
+    val dealReportedBy: String?,
+    val dealReportedUserId: String?,
+    val dealReportReason: String?,
+    val dealReportDescription: String?,
+    val dealChatBlockedAt: String?,
     val requesterProfileId: String?,
     val helperProfileId: String?,
     val applicationId: String?,
@@ -143,6 +149,23 @@ data class Conversation(
 ) {
     val isClosed: Boolean
         get() = dealStatus == "completed" || dealStatus == "cancelled"
+
+    fun chatBlockedMessage(currentUserId: String?): String {
+        val reason = dealReportReason?.takeIf { it.isNotBlank() } ?: "문제 신고"
+        return if (dealReportedUserId == currentUserId) {
+            "상대방이 ‘$reason’ 문제로 신고했어요."
+        } else {
+            "‘$reason’ 신고가 접수되어 채팅이 차단되었습니다."
+        }
+    }
+
+    fun chatBlockedDetail(currentUserId: String?): String {
+        return if (dealReportedUserId == currentUserId) {
+            "거래는 완료 처리되었고, 이 채팅방에서는 더 이상 메시지를 보낼 수 없습니다."
+        } else {
+            "거래는 완료 처리되었고, 양쪽 모두 이 채팅방에서 더 이상 메시지를 보낼 수 없습니다."
+        }
+    }
 }
 
 data class Message(
@@ -178,6 +201,7 @@ fun compactDateText(value: String?): String {
 }
 
 fun statusText(conversation: Conversation): String {
+    if (conversation.dealChatBlockedAt != null) return "완료·신고"
     return when (conversation.dealStatus) {
         "completed" -> "거래완료"
         "cancelled" -> "취소됨"

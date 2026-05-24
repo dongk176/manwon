@@ -41,6 +41,16 @@ private struct ReviewReminderPayload: Encodable {
     let dealId: String
 }
 
+private struct ReadConversationPayload: Encodable {
+    let lastMessageId: String?
+}
+
+private struct DealStatusPayload: Encodable {
+    let status: String
+    let reportReason: String?
+    let reportDescription: String?
+}
+
 private struct KakaoNativeLoginPayload: Encodable {
     let accessToken: String
 }
@@ -79,6 +89,27 @@ struct ConversationTypingState: Sendable {
     let isTyping: Bool
 }
 
+struct ConversationReadState: Decodable, Hashable {
+    let conversationId: String
+    let userId: String
+    let lastReadMessageId: String?
+    let lastReadAt: String?
+}
+
+struct ConversationTarget: Decodable, Hashable {
+    let conversationId: String?
+    let postId: String?
+    let route: String?
+}
+
+enum ConversationRealtimeEvent {
+    case messageChanged(Message)
+    case readStateChanged(ConversationReadState)
+    case changed
+    case connected
+    case disconnected
+}
+
 struct DueReviewReminder: Decodable {
     let dealId: String
     let conversationId: String?
@@ -87,7 +118,7 @@ struct DueReviewReminder: Decodable {
 
 final class ConversationRealtimeSubscription {
     private let conversationId: String
-    private let onChange: @MainActor () -> Void
+    private let onEvent: @MainActor (ConversationRealtimeEvent) -> Void
     private let onTyping: @MainActor (ConversationTypingState) -> Void
     private let session: URLSession
     private var socket: URLSessionWebSocketTask?
@@ -99,12 +130,12 @@ final class ConversationRealtimeSubscription {
     init(
         conversationId: String,
         session: URLSession = .shared,
-        onChange: @escaping @MainActor () -> Void,
+        onEvent: @escaping @MainActor (ConversationRealtimeEvent) -> Void,
         onTyping: @escaping @MainActor (ConversationTypingState) -> Void = { _ in }
     ) {
         self.conversationId = conversationId
         self.session = session
-        self.onChange = onChange
+        self.onEvent = onEvent
         self.onTyping = onTyping
     }
 
@@ -125,6 +156,9 @@ final class ConversationRealtimeSubscription {
         socket.resume()
 
         try await join(accessToken: token.token)
+        await MainActor.run {
+            onEvent(.connected)
+        }
         startReceiveLoop()
         startHeartbeat()
         startTokenRefresh(expiresIn: token.expiresIn)
@@ -196,14 +230,22 @@ final class ConversationRealtimeSubscription {
                             await self.handleFrame(text)
                         }
                     case nil:
+                        await self.notifyDisconnected()
                         return
                     @unknown default:
                         break
                     }
                 } catch {
+                    await self.notifyDisconnected()
                     return
                 }
             }
+        }
+    }
+
+    private func notifyDisconnected() async {
+        await MainActor.run {
+            onEvent(.disconnected)
         }
     }
 
@@ -231,7 +273,7 @@ final class ConversationRealtimeSubscription {
                         payload: ["access_token": token.token]
                     )
                 } catch {
-                    // Keep the existing socket alive; the fallback poll still protects freshness.
+                    // Keep the existing socket alive; adaptive sync still protects freshness.
                 }
             }
         }
@@ -248,12 +290,12 @@ final class ConversationRealtimeSubscription {
             return
         }
 
-        let payload = frame[4] as? [String: Any]
-        if payload?["event"] as? String == "typing" {
-            let typingPayload = payload?["payload"] as? [String: Any] ?? [:]
+        guard let payload = frame[4] as? [String: Any] else { return }
+        if payload["event"] as? String == "typing" {
+            let typingPayload = payload["payload"] as? [String: Any] ?? [:]
             let state = ConversationTypingState(
-                userId: typingPayload["userId"] as? String,
-                isTyping: (typingPayload["isTyping"] as? Bool) ?? false
+                userId: stringValue(typingPayload, "userId", "user_id"),
+                isTyping: (typingPayload["isTyping"] as? Bool) ?? (typingPayload["is_typing"] as? Bool) ?? false
             )
             await MainActor.run {
                 onTyping(state)
@@ -261,9 +303,109 @@ final class ConversationRealtimeSubscription {
             return
         }
 
-        await MainActor.run {
-            onChange()
+        let record = realtimeRecord(from: payload)
+        let nestedPayload = payload["payload"] as? [String: Any]
+        let table = stringValue(payload, "table")
+            ?? nestedPayload.flatMap { stringValue($0, "table") }
+            ?? record.flatMap { inferredTable(from: $0) }
+
+        if table == "messages", let record, let message = message(from: record) {
+            await MainActor.run {
+                onEvent(.messageChanged(message))
+            }
+            return
         }
+
+        if table == "conversation_read_states", let record, let readState = readState(from: record) {
+            await MainActor.run {
+                onEvent(.readStateChanged(readState))
+            }
+            return
+        }
+
+        await MainActor.run {
+            onEvent(.changed)
+        }
+    }
+
+    private func realtimeRecord(from payload: [String: Any]) -> [String: Any]? {
+        let nestedPayload = payload["payload"] as? [String: Any]
+        let candidates: [Any?] = [
+            nestedPayload?["record"],
+            nestedPayload?["new"],
+            nestedPayload?["new_record"],
+            payload["record"],
+            payload["new"],
+            payload["new_record"],
+        ]
+        return candidates.compactMap { $0 as? [String: Any] }.first
+    }
+
+    private func inferredTable(from record: [String: Any]) -> String? {
+        if stringValue(record, "messageType", "message_type") != nil {
+            return "messages"
+        }
+        if record.keys.contains("last_read_message_id") || record.keys.contains("lastReadMessageId") {
+            return "conversation_read_states"
+        }
+        return nil
+    }
+
+    private func message(from record: [String: Any]) -> Message? {
+        guard
+            let id = stringValue(record, "id"),
+            let conversationId = stringValue(record, "conversationId", "conversation_id"),
+            let senderId = stringValue(record, "senderId", "sender_id"),
+            let messageTypeValue = stringValue(record, "messageType", "message_type"),
+            let messageType = MessageType(rawValue: messageTypeValue),
+            let createdAt = stringValue(record, "createdAt", "created_at")
+        else {
+            return nil
+        }
+
+        return Message(
+            id: id,
+            conversationId: conversationId,
+            senderId: senderId,
+            messageType: messageType,
+            body: stringValue(record, "body"),
+            imageUrl: stringValue(record, "imageUrl", "image_url"),
+            clientMessageId: stringValue(record, "clientMessageId", "client_message_id"),
+            deliveredAt: stringValue(record, "deliveredAt", "delivered_at"),
+            readAt: stringValue(record, "readAt", "read_at"),
+            createdAt: createdAt
+        )
+    }
+
+    private func readState(from record: [String: Any]) -> ConversationReadState? {
+        guard
+            let conversationId = stringValue(record, "conversationId", "conversation_id"),
+            let userId = stringValue(record, "userId", "user_id")
+        else {
+            return nil
+        }
+
+        return ConversationReadState(
+            conversationId: conversationId,
+            userId: userId,
+            lastReadMessageId: stringValue(record, "lastReadMessageId", "last_read_message_id"),
+            lastReadAt: stringValue(record, "lastReadAt", "last_read_at")
+        )
+    }
+
+    private func stringValue(_ record: [String: Any], _ keys: String...) -> String? {
+        for key in keys {
+            guard let value = record[key], !(value is NSNull) else { continue }
+            if let text = value as? String {
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { return trimmed }
+            }
+            if let value = value as? CustomStringConvertible {
+                let text = value.description.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !text.isEmpty { return text }
+            }
+        }
+        return nil
     }
 
     private func send(topic: String, event: String, payload: [String: Any], joinRef: Any = NSNull()) async throws {
@@ -375,8 +517,29 @@ final class APIClient {
         try await request("/api/realtime/token")
     }
 
-    func markConversationRead(conversationId: String) async throws {
-        try await requestNoData("/api/conversations/\(conversationId)/read", method: "PATCH")
+    func markConversationRead(conversationId: String, lastMessageId: String? = nil) async throws {
+        try await requestNoData(
+            "/api/conversations/\(conversationId)/read",
+            method: "PATCH",
+            body: ReadConversationPayload(lastMessageId: lastMessageId)
+        )
+    }
+
+    func resolveConversationTarget(
+        conversationId: String? = nil,
+        dealId: String? = nil,
+        applicationId: String? = nil,
+        postId: String? = nil
+    ) async throws -> ConversationTarget {
+        var components = URLComponents()
+        components.path = "/api/conversations/resolve"
+        components.queryItems = [
+            conversationId.map { URLQueryItem(name: "conversationId", value: $0) },
+            dealId.map { URLQueryItem(name: "dealId", value: $0) },
+            applicationId.map { URLQueryItem(name: "applicationId", value: $0) },
+            postId.map { URLQueryItem(name: "postId", value: $0) },
+        ].compactMap { $0 }
+        return try await request(components.string ?? "/api/conversations/resolve")
     }
 
     func sendTextMessage(conversationId: String, body: String, clientMessageId: String) async throws -> Message {
@@ -418,8 +581,16 @@ final class APIClient {
         return try await perform(request)
     }
 
-    func updateDealStatus(dealId: String, status: DealStatus) async throws {
-        try await requestNoData("/api/deals/\(dealId)/status", method: "PATCH", body: ["status": status.rawValue])
+    func updateDealStatus(dealId: String, status: DealStatus, reportReason: String? = nil, reportDescription: String? = nil) async throws {
+        try await requestNoData(
+            "/api/deals/\(dealId)/status",
+            method: "PATCH",
+            body: DealStatusPayload(
+                status: status.rawValue,
+                reportReason: reportReason,
+                reportDescription: reportDescription
+            )
+        )
     }
 
     func updateApplicationStatus(applicationId: String, status: String) async throws {
