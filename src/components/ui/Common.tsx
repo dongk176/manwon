@@ -434,11 +434,11 @@ export function RequestCard({ request, onPrimary, onOpen, onReport, reportDisabl
           <p className="request-sub request-stats" aria-label={`${interactionLabel} ${messageCount}개, 찜 ${favoriteCount}개`}>
             <span className="request-stat-item">
               <MessageCircle size={13} />
-              <span className="request-stat-label">{interactionLabel} {messageCount}</span>
+              <span className="request-stat-label">{messageCount}</span>
             </span>
             <span className="request-stat-item is-favorite">
               <Heart size={13} fill="currentColor" />
-              <span className="request-stat-label">찜 {favoriteCount}</span>
+              <span className="request-stat-label">{favoriteCount}</span>
             </span>
           </p>
         )}

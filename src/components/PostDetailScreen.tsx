@@ -1406,11 +1406,11 @@ function PostDetailEngagementStats({
     <div className="post-detail-engagement-stats" aria-label={`${interactionLabel} ${formatCount(messageCount)}개, 찜 ${formatCount(favoriteCount)}개`}>
       <span>
         <MessageCircle size={15} />
-        {interactionLabel} {formatCount(messageCount)}
+        {formatCount(messageCount)}
       </span>
       <span className="is-favorite">
         <Heart size={15} fill="currentColor" />
-        찜 {formatCount(favoriteCount)}
+        {formatCount(favoriteCount)}
       </span>
     </div>
   )
