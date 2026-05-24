@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { BottomNav } from '@/components/ui/Common'
+import { isManwonIOS } from '@/components/NativeIOSBridge'
 import { fetchAuthSession, fetchDueReviewReminder } from '@/lib/manwonApi'
 
 type AppGateState =
@@ -150,6 +151,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!contentAllowed || !onboardingCompleted) return
+    if (isManwonIOS()) return
     if (pathname.startsWith('/login') || pathname.startsWith('/signup') || pathname.startsWith('/chat/') || pathname === '/profile-onboarding') return
 
     let cancelled = false

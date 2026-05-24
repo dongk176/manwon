@@ -144,6 +144,18 @@ final class PushManager: NSObject, UNUserNotificationCenterDelegate {
 }
 
 enum PushPayload {
+    static func notificationType(from userInfo: [AnyHashable: Any]) -> String? {
+        let data = dictionaryValue(userInfo["data"])
+        return firstString(
+            userInfo["type"],
+            userInfo["notificationType"],
+            userInfo["notification_type"],
+            data?["type"],
+            data?["notificationType"],
+            data?["notification_type"]
+        )
+    }
+
     static func conversationId(from userInfo: [AnyHashable: Any]) -> String? {
         let data = dictionaryValue(userInfo["data"])
         return firstString(
@@ -284,6 +296,7 @@ enum PushPayload {
 extension Notification.Name {
     static let manwonConversationPushReceived = Notification.Name("manwonConversationPushReceived")
     static let manwonModerationChanged = Notification.Name("manwonModerationChanged")
+    static let manwonConversationStateChanged = Notification.Name("manwonConversationStateChanged")
     static let manwonAppDidBecomeActive = Notification.Name("manwonAppDidBecomeActive")
 }
 
@@ -372,11 +385,15 @@ final class PermissionPromptManager: ObservableObject {
     }
 
     func requestPush(context: PushPromptContext, unreadCount: Int? = nil) {
-        UNUserNotificationCenter.current().getNotificationSettings { [weak self] settings in
-            Task { @MainActor in
-                self?.handleNotificationSettings(settings, context: context, unreadCount: unreadCount)
-            }
+        Task { [weak self] in
+            _ = await self?.requestPushIfNeeded(context: context, unreadCount: unreadCount)
         }
+    }
+
+    @discardableResult
+    func requestPushIfNeeded(context: PushPromptContext, unreadCount: Int? = nil) async -> Bool {
+        let settings = await notificationSettings()
+        return handleNotificationSettings(settings, context: context, unreadCount: unreadCount)
     }
 
     func checkUnreadMessagesOnForeground() {
@@ -418,25 +435,25 @@ final class PermissionPromptManager: ObservableObject {
         _ settings: UNNotificationSettings,
         context: PushPromptContext,
         unreadCount: Int?
-    ) {
+    ) -> Bool {
         if settings.authorizationStatus.allowsRemoteNotificationRegistration {
             PushManager.shared.registerForRemoteNotificationsIfAuthorized()
-            return
+            return false
         }
 
         switch settings.authorizationStatus {
         case .notDetermined:
-            presentPushPrompt(context: context, unreadCount: unreadCount)
+            return presentPushPrompt(context: context, unreadCount: unreadCount)
         case .denied:
-            presentPushSettingsPrompt(context: context, unreadCount: unreadCount)
+            return presentPushSettingsPrompt(context: context, unreadCount: unreadCount)
         default:
-            break
+            return false
         }
     }
 
-    private func presentPushPrompt(context: PushPromptContext, unreadCount: Int?) {
+    private func presentPushPrompt(context: PushPromptContext, unreadCount: Int?) -> Bool {
         let key = "push-\(context.rawValue)"
-        guard markPromptShown(key) else { return }
+        guard markPromptShown(key) else { return false }
         let copy = context.copy(unreadCount: unreadCount)
         prompt = Prompt(
             iconName: "bell.badge.fill",
@@ -452,11 +469,12 @@ final class PermissionPromptManager: ObservableObject {
                 self?.prompt = nil
             }
         )
+        return true
     }
 
-    private func presentPushSettingsPrompt(context: PushPromptContext, unreadCount: Int?) {
+    private func presentPushSettingsPrompt(context: PushPromptContext, unreadCount: Int?) -> Bool {
         let key = "push-settings-\(context.rawValue)"
-        guard markPromptShown(key) else { return }
+        guard markPromptShown(key) else { return false }
         let copy = context.copy(unreadCount: unreadCount)
         prompt = Prompt(
             iconName: "bell.slash.fill",
@@ -472,6 +490,7 @@ final class PermissionPromptManager: ObservableObject {
                 self?.prompt = nil
             }
         )
+        return true
     }
 
     private func presentLocationPrompt(context: NativeLocationPromptContext, onAllow: @escaping () -> Void) {
@@ -519,6 +538,14 @@ final class PermissionPromptManager: ObservableObject {
     private static func openAppSettings() {
         guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
         UIApplication.shared.open(url)
+    }
+
+    private func notificationSettings() async -> UNNotificationSettings {
+        await withCheckedContinuation { continuation in
+            UNUserNotificationCenter.current().getNotificationSettings { settings in
+                continuation.resume(returning: settings)
+            }
+        }
     }
 }
 

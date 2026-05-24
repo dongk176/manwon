@@ -672,6 +672,7 @@ function ReviewPromptSheet({
   const [content, setContent] = useState('')
   const [busy, setBusy] = useState<'submit' | 'later' | null>(null)
   const [error, setError] = useState('')
+  const overlayStyle = useVisualViewportOverlayStyle()
   const dealId = chat.dealId
 
   async function submit() {
@@ -704,8 +705,9 @@ function ReviewPromptSheet({
   }
 
   return (
-    <div className="sheet-overlay is-centered" role="presentation">
+    <div className="sheet-overlay" role="presentation" style={overlayStyle}>
       <div className="review-prompt-sheet" role="dialog" aria-modal="true" aria-labelledby="review-prompt-title">
+        <div className="drag-handle" />
         <button className="sheet-x" type="button" onClick={() => void remindLater()} aria-label="나중에">
           ×
         </button>
@@ -793,8 +795,7 @@ function ReportSheet({
 }) {
   const [reason, setReason] = useState<string>(reportReasons[0])
   const [description, setDescription] = useState('')
-  const keyboardInset = useVisualViewportKeyboardInset()
-  const overlayStyle = { '--sheet-keyboard-inset': `${keyboardInset}px` } as CSSProperties
+  const overlayStyle = useVisualViewportOverlayStyle()
 
   return (
     <div className="sheet-overlay" role="presentation" onClick={onClose} style={overlayStyle}>
@@ -803,7 +804,7 @@ function ReportSheet({
         <button className="sheet-x" type="button" onClick={onClose} aria-label="닫기">
           ×
         </button>
-        <h2 id="report-sheet-title">{userName}님 신고하기</h2>
+        <h2 id="report-sheet-title">{userName}님을 신고할까요?</h2>
         <p>신고 내용은 관리자에게 전달됩니다. 필요한 경우 상세 내용을 함께 적어주세요.</p>
         <div className="report-reason-grid" role="radiogroup" aria-label="신고 사유">
           {reportReasons.map((item) => (
@@ -858,8 +859,7 @@ function CompletionReportSheet({
 }) {
   const [reason, setReason] = useState<string>(reportReasons[0])
   const [description, setDescription] = useState('')
-  const keyboardInset = useVisualViewportKeyboardInset()
-  const overlayStyle = { '--sheet-keyboard-inset': `${keyboardInset}px` } as CSSProperties
+  const overlayStyle = useVisualViewportOverlayStyle()
 
   return (
     <div className="sheet-overlay" role="presentation" onClick={busy ? undefined : onClose} style={overlayStyle}>
@@ -868,7 +868,7 @@ function CompletionReportSheet({
         <button className="sheet-x" type="button" onClick={onClose} aria-label="닫기" disabled={busy}>
           ×
         </button>
-        <h2 id="completion-report-title">완료 요청 신고하기</h2>
+        <h2 id="completion-report-title">완료 요청을 신고할까요?</h2>
         <p>{userName}님과의 거래 문제를 신고하면 거래는 완료 처리되고 이 채팅방의 메시지 전송이 양쪽 모두 차단됩니다.</p>
         <div className="report-reason-grid" role="radiogroup" aria-label="신고 사유">
           {reportReasons.map((item) => (
@@ -907,31 +907,33 @@ function CompletionReportSheet({
   )
 }
 
-function useVisualViewportKeyboardInset() {
-  const [inset, setInset] = useState(0)
+function useVisualViewportOverlayStyle() {
+  const [style, setStyle] = useState<CSSProperties>({})
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.visualViewport) return undefined
 
     const viewport = window.visualViewport
-    const updateInset = () => {
-      const nextInset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)
-      setInset(Math.round(nextInset))
+    const updateStyle = () => {
+      setStyle({
+        '--sheet-viewport-height': `${Math.round(viewport.height)}px`,
+        '--sheet-viewport-offset-top': `${Math.round(viewport.offsetTop)}px`,
+      } as CSSProperties)
     }
 
-    updateInset()
-    viewport.addEventListener('resize', updateInset)
-    viewport.addEventListener('scroll', updateInset)
-    window.addEventListener('orientationchange', updateInset)
+    updateStyle()
+    viewport.addEventListener('resize', updateStyle)
+    viewport.addEventListener('scroll', updateStyle)
+    window.addEventListener('orientationchange', updateStyle)
 
     return () => {
-      viewport.removeEventListener('resize', updateInset)
-      viewport.removeEventListener('scroll', updateInset)
-      window.removeEventListener('orientationchange', updateInset)
+      viewport.removeEventListener('resize', updateStyle)
+      viewport.removeEventListener('scroll', updateStyle)
+      window.removeEventListener('orientationchange', updateStyle)
     }
   }, [])
 
-  return inset
+  return style
 }
 
 type TradeActionId = 'accept' | 'reject' | 'complete' | 'dispute' | 'requestComplete' | 'cancel' | 'start'

@@ -518,6 +518,7 @@ type ActivityProfileFormState = {
   defaultAvatarKey: string
   gender?: 'male' | 'female' | 'unknown' | 'private' | null
   nickname: string
+  nicknameEdited?: boolean
   bio: string
   activityMode: '' | 'online' | 'nearby' | 'both'
   addressText: string
@@ -575,7 +576,8 @@ function ActivityProfilesScreen({
 
     let nextForm = formState
     if (onboarding && !nextForm.id && profileDefaults) {
-      const nickname = nextForm.nickname || normalizeProfileDefaultNickname(profileDefaults.nickname)
+      const defaultNickname = normalizeProfileDefaultNickname(profileDefaults.nickname)
+      const nickname = !nextForm.nicknameEdited && !nextForm.nickname ? defaultNickname : nextForm.nickname
       const avatarUrl = nextForm.avatarUrl ?? profileDefaults.avatarUrl ?? null
       if (nickname !== nextForm.nickname || avatarUrl !== nextForm.avatarUrl) {
         nextForm = { ...nextForm, nickname, avatarUrl }
@@ -809,7 +811,7 @@ function ActivityProfileFormScreen({
   }, [])
 
   function update(patch: Partial<ActivityProfileFormState>) {
-    const nextForm = { ...form, ...patch }
+    const nextForm = { ...form, ...patch, ...('nickname' in patch ? { nicknameEdited: true } : {}) }
     onChange(nextForm)
     const errorKeys = new Set<string>()
     if ('nickname' in patch) errorKeys.add('nickname')
@@ -2330,6 +2332,7 @@ function createEmptyActivityProfileForm(gender?: ActivityProfile['gender'], defa
     defaultAvatarKey: defaultProfileAvatars[0],
     gender: gender ?? null,
     nickname: normalizeProfileDefaultNickname(defaults?.nickname),
+    nicknameEdited: false,
     bio: '',
     activityMode: '',
     addressText: '',
@@ -2361,6 +2364,7 @@ function activityProfileToForm(profile: ActivityProfile): ActivityProfileFormSta
     defaultAvatarKey: profile.defaultAvatarKey || defaultProfileAvatars[0],
     gender: profile.gender ?? null,
     nickname: profile.nickname,
+    nicknameEdited: true,
     bio: profile.bio,
     activityMode: profile.activityMode,
     addressText: profile.addressText ?? '',

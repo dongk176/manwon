@@ -8,6 +8,45 @@ enum AppTab: Hashable {
     case my
 }
 
+enum ChatReportMode: String, Hashable {
+    case conversation
+    case completionDispute
+}
+
+enum ChatReviewSource: String, Hashable {
+    case chatPrompt
+    case reminder
+}
+
+enum ChatNavigationRoute: Hashable {
+    case detail(conversationId: String)
+    case report(conversationId: String, mode: ChatReportMode)
+    case review(conversationId: String, source: ChatReviewSource)
+
+    var conversationId: String {
+        switch self {
+        case .detail(let conversationId),
+             .report(let conversationId, _),
+             .review(let conversationId, _):
+            return conversationId
+        }
+    }
+
+    var stackRoutes: [ChatNavigationRoute] {
+        switch self {
+        case .detail:
+            return [self]
+        case .report(let conversationId, _):
+            return [.detail(conversationId: conversationId), self]
+        case .review(let conversationId, let source):
+            if source == .reminder {
+                return [self]
+            }
+            return [.detail(conversationId: conversationId), self]
+        }
+    }
+}
+
 @MainActor
 final class AppRouter: ObservableObject {
     @Published var selectedTab: AppTab = .home
@@ -17,6 +56,7 @@ final class AppRouter: ObservableObject {
     @Published var activityPath = "/activity"
     @Published var myPath = "/my"
     @Published var chatConversationId: String?
+    @Published var chatNavigationRoute: ChatNavigationRoute?
     @Published var chatRouteRevision = 0
     @Published var chatDetailActive = false
     @Published var chatUnreadCount = 0
@@ -118,6 +158,11 @@ final class AppRouter: ObservableObject {
         setSelectedTab(.home)
     }
 
+    func openHome() {
+        setChatRoute(conversationId: nil, detailActive: false, advanceRevision: true)
+        openWebPath("/")
+    }
+
     func completeProfileOnboarding() {
         if onboardingRequired {
             onboardingRequired = false
@@ -153,6 +198,15 @@ final class AppRouter: ObservableObject {
         }
 
         openWebPath(normalized)
+    }
+
+    func openChatReview(conversationId: String, source: ChatReviewSource) {
+        setSelectedTab(.chat)
+        setChatRoute(.review(conversationId: conversationId, source: source), advanceRevision: true)
+    }
+
+    func chatStackDidChange(to route: ChatNavigationRoute?) {
+        setChatRoute(route, advanceRevision: false)
     }
 
     func openWebPath(_ path: String) {
@@ -278,6 +332,35 @@ final class AppRouter: ObservableObject {
     }
 
     func openPush(userInfo: [AnyHashable: Any]) {
+        let pushType = PushPayload.notificationType(from: userInfo)
+        let dealId = PushPayload.dealId(from: userInfo)
+        let applicationId = PushPayload.applicationId(from: userInfo)
+        let postId = PushPayload.postId(from: userInfo)
+
+        if pushType == "review.created" {
+            openNativeRoute(path: "/my/reviews")
+            return
+        }
+
+        if pushType == "review.reminder" {
+            if let conversationId = PushPayload.conversationId(from: userInfo) {
+                openChatReview(conversationId: conversationId, source: .reminder)
+                return
+            }
+            if dealId != nil || applicationId != nil || postId != nil {
+                Task { [weak self] in
+                    await self?.resolveAndOpenPushTarget(
+                        dealId: dealId,
+                        applicationId: applicationId,
+                        postId: postId,
+                        fallbackPath: PushPayload.path(from: userInfo),
+                        reviewSource: .reminder
+                    )
+                }
+                return
+            }
+        }
+
         if let conversationId = PushPayload.conversationId(from: userInfo) {
             setSelectedTab(.chat)
             setChatRoute(conversationId: conversationId, detailActive: true, advanceRevision: true)
@@ -285,16 +368,14 @@ final class AppRouter: ObservableObject {
         }
 
         let path = PushPayload.path(from: userInfo)
-        let dealId = PushPayload.dealId(from: userInfo)
-        let applicationId = PushPayload.applicationId(from: userInfo)
-        let postId = PushPayload.postId(from: userInfo)
         if dealId != nil || applicationId != nil || postId != nil {
             Task { [weak self] in
                 await self?.resolveAndOpenPushTarget(
                     dealId: dealId,
                     applicationId: applicationId,
                     postId: postId,
-                    fallbackPath: path
+                    fallbackPath: path,
+                    reviewSource: nil
                 )
             }
             return
@@ -318,7 +399,8 @@ final class AppRouter: ObservableObject {
         dealId: String?,
         applicationId: String?,
         postId: String?,
-        fallbackPath: String?
+        fallbackPath: String?,
+        reviewSource: ChatReviewSource?
     ) async {
         do {
             let target = try await APIClient.shared.resolveConversationTarget(
@@ -327,8 +409,12 @@ final class AppRouter: ObservableObject {
                 postId: postId
             )
             if let conversationId = target.conversationId {
-                setSelectedTab(.chat)
-                setChatRoute(conversationId: conversationId, detailActive: true, advanceRevision: true)
+                if let reviewSource {
+                    openChatReview(conversationId: conversationId, source: reviewSource)
+                } else {
+                    setSelectedTab(.chat)
+                    setChatRoute(conversationId: conversationId, detailActive: true, advanceRevision: true)
+                }
                 return
             }
             if let route = target.route {
@@ -374,9 +460,25 @@ final class AppRouter: ObservableObject {
     }
 
     private func setChatRoute(conversationId: String?, detailActive: Bool, advanceRevision: Bool) {
+        let route: ChatNavigationRoute?
+        if detailActive, let conversationId {
+            route = .detail(conversationId: conversationId)
+        } else {
+            route = nil
+        }
+        setChatRoute(route, advanceRevision: advanceRevision)
+    }
+
+    private func setChatRoute(_ route: ChatNavigationRoute?, advanceRevision: Bool) {
         var changed = false
+        let conversationId = route?.conversationId
+        let detailActive = route != nil
         if chatConversationId != conversationId {
             chatConversationId = conversationId
+            changed = true
+        }
+        if chatNavigationRoute != route {
+            chatNavigationRoute = route
             changed = true
         }
         if chatDetailActive != detailActive {

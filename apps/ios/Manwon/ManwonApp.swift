@@ -2,6 +2,8 @@ import KakaoSDKCommon
 import SwiftUI
 import UIKit
 
+private let unreadMessagesNoticeSuppressedKey = "manwon_unread_messages_notice_suppressed"
+
 @main
 struct ManwonApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -35,6 +37,9 @@ struct RootTabView: View {
     @State private var initialSessionChecked = false
     @State private var initialSessionCheckStarted = false
     @State private var initializedTabs: Set<AppTab> = [.home]
+    @State private var unreadNotice: UnreadMessagesNotice?
+    @State private var isRefreshingUnreadState = false
+    @State private var initialUnreadNoticeChecked = false
 
     var body: some View {
         Group {
@@ -118,6 +123,22 @@ struct RootTabView: View {
             }
         }
         .overlay {
+            if let notice = unreadNotice, permissionPrompts.prompt == nil {
+                UnreadMessagesNoticeOverlay(
+                    unreadCount: notice.unreadCount,
+                    onSuppress: {
+                        UserDefaults.standard.set(true, forKey: unreadMessagesNoticeSuppressedKey)
+                        unreadNotice = nil
+                    },
+                    onConfirm: {
+                        unreadNotice = nil
+                        router.openNativeRoute(path: "/chat")
+                    }
+                )
+                .zIndex(250)
+            }
+        }
+        .overlay {
             if let prompt = permissionPrompts.prompt {
                 PermissionPromptOverlay(prompt: prompt)
                     .zIndex(300)
@@ -127,6 +148,7 @@ struct RootTabView: View {
         .animation(.easeInOut(duration: 0.18), value: router.hidesBottomNav)
         .animation(.easeInOut(duration: 0.16), value: keyboardVisible)
         .animation(.easeInOut(duration: 0.18), value: router.mapUnavailableNoticeVisible)
+        .animation(.easeInOut(duration: 0.18), value: unreadNotice?.id)
         .animation(.easeInOut(duration: 0.18), value: permissionPrompts.prompt?.id)
         .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.86), value: router.homeIsAtTop)
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
@@ -152,13 +174,21 @@ struct RootTabView: View {
             guard phase == .active else { return }
             NotificationCenter.default.post(name: .manwonAppDidBecomeActive, object: nil)
             PushManager.shared.registerForRemoteNotificationsIfAuthorized()
-            permissionPrompts.checkUnreadMessagesOnForeground()
             Task {
                 guard initialSessionChecked else { return }
                 let session = await refreshSessionGate()
                 if session?.authenticated == true {
+                    await refreshUnreadState(showStartupNotice: false)
                     await openDueReviewReminderIfNeeded()
+                } else {
+                    router.chatUnreadCount = 0
+                    unreadNotice = nil
                 }
+            }
+        }
+        .onChange(of: permissionPrompts.prompt?.id) { promptId in
+            if promptId != nil {
+                unreadNotice = nil
             }
         }
     }
@@ -169,7 +199,10 @@ struct RootTabView: View {
         let session = await fetchSessionForInitialGate()
 
         if session?.authenticated == true {
+            await refreshUnreadState(showStartupNotice: true)
             await openDueReviewReminderIfNeeded()
+        } else {
+            router.chatUnreadCount = 0
         }
     }
 
@@ -207,7 +240,55 @@ struct RootTabView: View {
         guard let reminder = try? await APIClient.shared.fetchDueReviewReminder(), let conversationId = reminder.conversationId else {
             return
         }
-        router.openNativeRoute(path: "/chat/\(conversationId)")
+        router.openChatReview(conversationId: conversationId, source: .reminder)
+    }
+
+    private func refreshUnreadState(showStartupNotice: Bool) async {
+        if showStartupNotice && initialUnreadNoticeChecked { return }
+        guard !isRefreshingUnreadState else { return }
+        isRefreshingUnreadState = true
+        defer { isRefreshingUnreadState = false }
+
+        do {
+            let conversations = try await APIClient.shared.fetchConversations()
+            let unreadCount = totalUnreadCount(conversations)
+            router.chatUnreadCount = unreadCount
+
+            if showStartupNotice {
+                initialUnreadNoticeChecked = true
+            }
+
+            guard unreadCount > 0 else {
+                unreadNotice = nil
+                return
+            }
+
+            let pushPromptShown = await permissionPrompts.requestPushIfNeeded(
+                context: .unreadMessages,
+                unreadCount: unreadCount
+            )
+            guard !pushPromptShown, permissionPrompts.prompt == nil else {
+                unreadNotice = nil
+                return
+            }
+
+            guard showStartupNotice else { return }
+            guard !UserDefaults.standard.bool(forKey: unreadMessagesNoticeSuppressedKey) else { return }
+            unreadNotice = UnreadMessagesNotice(unreadCount: unreadCount)
+        } catch {
+            if showStartupNotice {
+                initialUnreadNoticeChecked = true
+            }
+        }
+    }
+
+    private func totalUnreadCount(_ conversations: [Conversation]) -> Int {
+        var total = 0
+        for conversation in conversations {
+            total += max(conversation.unreadCount ?? 0, 0)
+            if total > 99 { return 100 }
+        }
+        return total
     }
 
     private func tabLayer<Content: View>(_ tab: AppTab, @ViewBuilder content: () -> Content) -> some View {
@@ -238,6 +319,87 @@ private struct InitialSessionGateView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(ManwonColor.surface)
+    }
+}
+
+private struct UnreadMessagesNotice: Identifiable {
+    let id = UUID()
+    let unreadCount: Int
+}
+
+private struct UnreadMessagesNoticeOverlay: View {
+    let unreadCount: Int
+    let onSuppress: () -> Void
+    let onConfirm: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "message.fill")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(ManwonColor.brand)
+                    .frame(width: 38, height: 38)
+                    .background(ManwonColor.brandSoft)
+                    .clipShape(Circle())
+
+                VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("읽지 않은 메시지가 있어요")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(ManwonColor.text)
+                            .lineLimit(2)
+
+                        Text("채팅에 읽지 않은 메시지 \(unreadBadgeText)개가 있습니다.")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(ManwonColor.muted)
+                            .lineLimit(2)
+                            .lineSpacing(2)
+                    }
+
+                    HStack(spacing: 8) {
+                        Button(action: onSuppress) {
+                            Text("다시 보지 않기")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(ManwonColor.muted)
+                                .padding(.horizontal, 8)
+                                .frame(height: 34)
+                        }
+                        .buttonStyle(PressableScaleButtonStyle(scale: 0.97, pressedOpacity: 0.86))
+
+                        Button(action: onConfirm) {
+                            Text("확인")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(Color.white)
+                                .padding(.horizontal, 14)
+                                .frame(height: 34)
+                                .background(ManwonColor.brand)
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(PressableScaleButtonStyle(scale: 0.97, pressedOpacity: 0.88))
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(14)
+            .frame(maxWidth: 390)
+            .background(ManwonColor.surface)
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(ManwonColor.line.opacity(0.9), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .shadow(color: Color.black.opacity(0.12), radius: 18, x: 0, y: 8)
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    private var unreadBadgeText: String {
+        unreadCount > 99 ? "99+" : "\(unreadCount)"
     }
 }
 
