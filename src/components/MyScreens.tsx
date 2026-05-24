@@ -1539,20 +1539,28 @@ function ReviewsScreen({ reviews, loading, onBack }: { reviews: ActivityRecord[]
         </div>
       ) : (
         <div className="review-list-modern">
-          {reviews.map((review) => (
-            <article key={getString(review, 'id')}>
-              <InitialAvatar name={getString(review, 'reviewerNickname') || '사용자'} size="md" />
-              <div>
-                <header>
-                  <strong>{getString(review, 'reviewerNickname') || '사용자'}</strong>
-                  <span>{formatFullDate(review.createdAt)}</span>
-                  <RatingStars rating={getNumber(review, 'rating')} />
-                </header>
-                <h2>{getString(review, 'postTitle') || '거래 후기'}</h2>
-                <p>{getString(review, 'content') || '후기 내용이 없습니다.'}</p>
-              </div>
-            </article>
-          ))}
+          {reviews.map((review) => {
+            const reviewerName = getString(review, 'reviewerNickname') || '사용자'
+            return (
+              <article key={getString(review, 'id')}>
+                <InitialAvatar
+                  name={reviewerName}
+                  size="md"
+                  imageUrl={normalizeDisplayImageUrl(getString(review, 'reviewerAvatarUrl')) || undefined}
+                  defaultAvatarKey={getString(review, 'reviewerDefaultAvatarKey') || undefined}
+                />
+                <div>
+                  <header>
+                    <strong>{reviewerName}</strong>
+                    <span>{formatFullDate(review.createdAt)}</span>
+                    <RatingStars rating={getNumber(review, 'rating')} />
+                  </header>
+                  <h2>{getString(review, 'postTitle') || '거래 후기'}</h2>
+                  <p>{getString(review, 'content') || '후기 내용이 없습니다.'}</p>
+                </div>
+              </article>
+            )
+          })}
         </div>
       )}
     </section>
@@ -1888,16 +1896,27 @@ function ManageScreen({
       <div className="review-card">
         <h2>최근 받은 후기</h2>
         {recentReviews.length > 0 ? (
-          recentReviews.slice(0, 3).map((review) => (
-            <article key={getString(review, 'id')}>
-              <div>
-                <strong>{getString(review, 'reviewerNickname') || '사용자'}</strong>
-                <time>{formatDate(review.createdAt)}</time>
-              </div>
-              <RatingStars rating={getNumber(review, 'rating')} />
-              <p>{getString(review, 'content') || '후기 내용이 없습니다.'}</p>
-            </article>
-          ))
+          recentReviews.slice(0, 3).map((review) => {
+            const reviewerName = getString(review, 'reviewerNickname') || '사용자'
+            return (
+              <article key={getString(review, 'id')}>
+                <InitialAvatar
+                  name={reviewerName}
+                  size="sm"
+                  imageUrl={normalizeDisplayImageUrl(getString(review, 'reviewerAvatarUrl')) || undefined}
+                  defaultAvatarKey={getString(review, 'reviewerDefaultAvatarKey') || undefined}
+                />
+                <div className="review-card-content">
+                  <div className="review-card-author">
+                    <strong>{reviewerName}</strong>
+                    <time>{formatDate(review.createdAt)}</time>
+                  </div>
+                  <RatingStars rating={getNumber(review, 'rating')} />
+                  <p>{getString(review, 'content') || '후기 내용이 없습니다.'}</p>
+                </div>
+              </article>
+            )
+          })
         ) : (
           <div className="empty-state compact">
             <strong>아직 받은 후기가 없어요</strong>
@@ -2169,7 +2188,17 @@ function ManageRow({
   )
 }
 
-function InitialAvatar({ name, size, imageUrl }: { name: string; size: 'sm' | 'md' | 'lg'; imageUrl?: string }) {
+function InitialAvatar({
+  name,
+  size,
+  imageUrl,
+  defaultAvatarKey,
+}: {
+  name: string
+  size: 'sm' | 'md' | 'lg'
+  imageUrl?: string
+  defaultAvatarKey?: string
+}) {
   if (imageUrl) {
     return (
       <span className={`initial-avatar initial-avatar-${size} is-photo`}>
@@ -2179,8 +2208,9 @@ function InitialAvatar({ name, size, imageUrl }: { name: string; size: 'sm' | 'm
     )
   }
 
+  const avatarIndex = Number(String(defaultAvatarKey ?? '').replace(/[^0-9]/g, '')) || 1
   return (
-    <span className={`initial-avatar initial-avatar-${size}`}>
+    <span className={`initial-avatar initial-avatar-${size} ${defaultAvatarKey ? `is-default default-${avatarIndex}` : ''}`}>
       {name.trim().slice(0, 1) || '만'}
     </span>
   )

@@ -162,6 +162,8 @@ async function sendFirebaseMessage(token: string, payload: NotificationPayload, 
           priority: 'high',
           notification: {
             sound: 'default',
+            icon: 'ic_notification',
+            color: '#FF4800',
           },
         },
       },

@@ -7522,6 +7522,18 @@ html.native-ios-shell .auth-ios-only-button {
   background: #f5f5f6;
 }
 
+.initial-avatar.is-default.default-2 {
+  background: #e9f6ef;
+}
+
+.initial-avatar.is-default.default-3 {
+  background: #f7eef1;
+}
+
+.initial-avatar.is-default.default-4 {
+  background: #edf1fa;
+}
+
 .initial-avatar.is-photo img {
   display: block;
   width: 100%;
@@ -11064,19 +11076,32 @@ button.my-activity-card:focus-visible {
 
 .review-card article {
   display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
   gap: 6px;
+  column-gap: 10px;
+  align-items: start;
   padding-top: 12px;
   border-top: 1px solid var(--line);
 }
 
-.review-card article > div {
+.review-card-content {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.review-card-author {
   display: flex;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
 }
 
 .review-card strong {
+  overflow: hidden;
   font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .review-card time {

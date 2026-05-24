@@ -2621,11 +2621,21 @@ export async function getMyActivity(userId: string) {
     sql`
       select
         r.*,
-        reviewer.nickname as reviewer_nickname,
-        reviewer.avatar_url as reviewer_avatar_url,
+        coalesce(reviewer_profile.nickname, reviewer_default_profile.nickname, reviewer.nickname) as reviewer_nickname,
+        coalesce(reviewer_profile.avatar_url, reviewer_default_profile.avatar_url, reviewer.avatar_url) as reviewer_avatar_url,
+        coalesce(reviewer_profile.default_avatar_key, reviewer_default_profile.default_avatar_key) as reviewer_default_avatar_key,
         p.title as post_title
       from manwon_happiness.reviews r
       join manwon_happiness.users reviewer on reviewer.id = r.reviewer_id
+      left join manwon_happiness.activity_profiles reviewer_profile on reviewer_profile.id = r.reviewer_profile_id
+      left join lateral (
+        select nickname, avatar_url, default_avatar_key
+        from manwon_happiness.activity_profiles
+        where user_id = reviewer.id
+          and is_active = true
+        order by created_at asc
+        limit 1
+      ) reviewer_default_profile on true
       left join manwon_happiness.deals d on d.id = r.deal_id
       left join manwon_happiness.task_posts p on p.id = d.post_id
       where r.reviewee_id = ${userId}
