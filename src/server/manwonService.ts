@@ -1418,19 +1418,6 @@ export async function updateDealStatus(userId: string, dealId: string, input: Up
         skipNotification: true,
       }
     }
-    if (input.status === 'completed') {
-      const turnRows = await tx`
-        select count(distinct m.sender_id)::integer as sender_count
-        from manwon_happiness.conversations c
-        join manwon_happiness.deals d on d.id = c.deal_id
-        join manwon_happiness.messages m on m.conversation_id = c.id
-        where c.deal_id = ${dealId}
-          and m.message_type <> 'system'
-          and m.created_at > coalesce(d.started_at, d.accepted_at, c.created_at)
-      `
-      if (Number(turnRows[0]?.senderCount ?? 0) < 2) return null
-    }
-
     const rows = isReportCompletion
       ? await tx`
           update manwon_happiness.deals
