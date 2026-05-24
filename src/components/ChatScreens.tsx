@@ -1137,22 +1137,16 @@ function TradeActionPanel({
       <div className="request-complete-panel">
         <div>
           <strong>지원자가 완료 요청을 보냈습니다.</strong>
-          <span>
-            {chat.hasChatAfterStarted
-              ? '물건을 전달받았거나 작업을 확인했다면 승인해주세요.'
-              : '진행 시작 후 양쪽 대화가 1턴 이상 있어야 승인할 수 있어요.'}
-          </span>
+          <span>물건을 전달받았거나 작업을 확인했다면 승인해주세요.</span>
         </div>
-        {chat.hasChatAfterStarted && (
-          <div className="two-buttons">
-            <BrandButton className={actionClass('complete')} disabled={busy || !dealId} onClick={() => dealId && requestConfirmation('complete', () => updateDealStatus(dealId, 'completed'))}>
-              {actionText('complete', '완료 승인')}
-            </BrandButton>
-            <BrandButton className={actionClass('dispute')} variant="outline" disabled={busy || !dealId} onClick={() => dealId && setShowCompletionReport(true)}>
-              {actionText('dispute', '문제 신고')}
-            </BrandButton>
-          </div>
-        )}
+        <div className="two-buttons">
+          <BrandButton className={actionClass('complete')} disabled={busy || !dealId} onClick={() => dealId && requestConfirmation('complete', () => updateDealStatus(dealId, 'completed'))}>
+            {actionText('complete', '완료 승인')}
+          </BrandButton>
+          <BrandButton className={actionClass('dispute')} variant="outline" disabled={busy || !dealId} onClick={() => dealId && setShowCompletionReport(true)}>
+            {actionText('dispute', '문제 신고')}
+          </BrandButton>
+        </div>
         {error && <p className="inline-status is-error">{error}</p>}
       </div>,
     )

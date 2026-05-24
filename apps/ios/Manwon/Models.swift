@@ -1,35 +1,172 @@
 import CoreLocation
 import Foundation
 
-enum PostStatus: String, Codable {
+enum PostStatus: Codable, Hashable {
     case open
     case pending
-    case inProgress = "in_progress"
+    case inProgress
     case completed
     case cancelled
     case hidden
+    case closed
+    case unknown(String)
+
+    var rawValue: String {
+        switch self {
+        case .open: return "open"
+        case .pending: return "pending"
+        case .inProgress: return "in_progress"
+        case .completed: return "completed"
+        case .cancelled: return "cancelled"
+        case .hidden: return "hidden"
+        case .closed: return "closed"
+        case .unknown(let value): return value
+        }
+    }
+
+    init?(rawValue: String) {
+        switch rawValue {
+        case "open": self = .open
+        case "pending": self = .pending
+        case "in_progress": self = .inProgress
+        case "completed": self = .completed
+        case "cancelled": self = .cancelled
+        case "hidden": self = .hidden
+        case "closed": self = .closed
+        default: self = .unknown(rawValue)
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self)
+        self = PostStatus(rawValue: value) ?? .unknown(value)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
-enum RequestMode: String, Codable {
+enum RequestMode: Codable, Hashable {
     case nearby
     case online
     case both
+    case unknown(String)
+
+    var rawValue: String {
+        switch self {
+        case .nearby: return "nearby"
+        case .online: return "online"
+        case .both: return "both"
+        case .unknown(let value): return value
+        }
+    }
+
+    init?(rawValue: String) {
+        switch rawValue {
+        case "nearby": self = .nearby
+        case "online": self = .online
+        case "both": self = .both
+        default: self = .unknown(rawValue)
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self)
+        self = RequestMode(rawValue: value) ?? .unknown(value)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
-enum DealStatus: String, Codable {
+enum DealStatus: Codable, Hashable {
     case pending
     case accepted
-    case inProgress = "in_progress"
-    case completeRequested = "complete_requested"
+    case inProgress
+    case completeRequested
     case completed
     case cancelled
     case disputed
+    case unknown(String)
+
+    var rawValue: String {
+        switch self {
+        case .pending: return "pending"
+        case .accepted: return "accepted"
+        case .inProgress: return "in_progress"
+        case .completeRequested: return "complete_requested"
+        case .completed: return "completed"
+        case .cancelled: return "cancelled"
+        case .disputed: return "disputed"
+        case .unknown(let value): return value
+        }
+    }
+
+    init?(rawValue: String) {
+        switch rawValue {
+        case "pending": self = .pending
+        case "accepted": self = .accepted
+        case "in_progress": self = .inProgress
+        case "complete_requested": self = .completeRequested
+        case "completed": self = .completed
+        case "cancelled": self = .cancelled
+        case "disputed": self = .disputed
+        default: self = .unknown(rawValue)
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self)
+        self = DealStatus(rawValue: value) ?? .unknown(value)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
-enum MessageType: String, Codable {
+enum MessageType: Codable, Hashable {
     case text
     case image
     case system
+    case unknown(String)
+
+    var rawValue: String {
+        switch self {
+        case .text: return "text"
+        case .image: return "image"
+        case .system: return "system"
+        case .unknown(let value): return value
+        }
+    }
+
+    init?(rawValue: String) {
+        switch rawValue {
+        case "text": self = .text
+        case "image": self = .image
+        case "system": self = .system
+        default: self = .unknown(rawValue)
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let value = try container.decode(String.self)
+        self = MessageType(rawValue: value) ?? .unknown(value)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
 struct Profile: Codable, Identifiable {

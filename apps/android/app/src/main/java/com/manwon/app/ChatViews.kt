@@ -512,7 +512,6 @@ class ChatDetailView(
         val isPostWriter = postCreatorId != null && postCreatorId == currentUserId
         val isApplicant = currentUserId != null && postCreatorId != null && currentUserId != postCreatorId
         val hasPendingApplication = conversation.applicationId != null && conversation.applicationStatus == "applied" && conversation.dealId == null
-        val hasChatAfterStarted = conversation.hasChatAfterStarted == true
         val blockedMessage = if (conversation.dealChatBlockedAt != null) conversation.chatBlockedMessage(currentUserId) else null
         val panel = LinearLayout(context).apply {
             orientation = VERTICAL
@@ -544,12 +543,9 @@ class ChatDetailView(
             blockedMessage != null -> {
                 helperText = conversation.chatBlockedDetail(currentUserId)
             }
-            conversation.dealStatus == "complete_requested" && isPostWriter && hasChatAfterStarted -> {
+            conversation.dealStatus == "complete_requested" && isPostWriter -> {
                 actions.addView(actionButton("완료 승인") { confirmDealStatus("completed") }, LinearLayout.LayoutParams(0, context.dp(44), 1f))
                 actions.addView(actionButton("문제 신고", secondary = true) { confirmDealStatus("disputed") }, LinearLayout.LayoutParams(0, context.dp(44), 1f).apply { leftMargin = context.dp(8) })
-            }
-            conversation.dealStatus == "complete_requested" && isPostWriter -> {
-                helperText = "진행 시작 후 양쪽 대화가 1턴 이상 있어야 승인할 수 있어요."
             }
             conversation.dealStatus == "complete_requested" -> {
                 helperText = "게시글 작성자의 완료 승인을 기다리고 있어요."

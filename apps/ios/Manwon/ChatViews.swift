@@ -927,6 +927,7 @@ struct ChatDetailView: View {
     @State private var moderationBusy = false
     @State private var pendingTradeConfirmation: ChatTradeAction?
     @State private var pendingQuickMessage: QuickMessageSuggestion?
+    @State private var keyboardBottomInset: CGFloat = 0
     @FocusState private var composerFocused: Bool
 
     init(conversationId: String) {
@@ -951,6 +952,13 @@ struct ChatDetailView: View {
             .navigationBarBackButtonHidden(true)
             .toolbar(.hidden, for: .navigationBar)
             .simultaneousGesture(swipeBackGesture)
+            .ignoresSafeArea(.keyboard, edges: .bottom)
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
+                updateKeyboardBottomInset(notification)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { notification in
+                updateKeyboardBottomInset(notification, forceHidden: true)
+            }
             .task {
                 await viewModel.load()
                 syncReviewPrompt()
@@ -1129,6 +1137,31 @@ struct ChatDetailView: View {
         if composerFocused {
             composerFocused = false
         }
+    }
+
+    private func updateKeyboardBottomInset(_ notification: Notification, forceHidden: Bool = false) {
+        let nextInset = forceHidden ? 0 : keyboardBottomInset(from: notification)
+        let duration = (notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?.doubleValue ?? 0.25
+        withAnimation(.easeOut(duration: max(duration, 0.01))) {
+            keyboardBottomInset = nextInset
+        }
+    }
+
+    private func keyboardBottomInset(from notification: Notification) -> CGFloat {
+        guard let endFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
+            return 0
+        }
+
+        let window = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first { $0.isKeyWindow }
+        let keyboardFrame = window?.convert(endFrame, from: nil) ?? endFrame
+        let screenHeight = window?.bounds.height ?? UIScreen.main.bounds.height
+        let safeAreaBottom = window?.safeAreaInsets.bottom ?? 0
+        let overlap = max(0, screenHeight - keyboardFrame.minY)
+
+        return max(0, overlap - safeAreaBottom)
     }
 
     private func submitModerationReport(reason: String, description: String, blockAfterReport: Bool) {
@@ -1310,6 +1343,7 @@ struct ChatDetailView: View {
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 bottomComposerInset
+                    .padding(.bottom, keyboardBottomInset)
             }
         }
     }
@@ -2450,10 +2484,6 @@ private struct TradeActionPanel: View {
         hasPendingApplication && isPostWriter
     }
 
-    private var hasChatAfterStarted: Bool {
-        conversation.hasChatAfterStarted ?? false
-    }
-
     private var busy: Bool {
         viewModel.pendingTradeAction != nil
     }
@@ -2488,19 +2518,13 @@ private struct TradeActionPanel: View {
                 .foregroundStyle(ManwonColor.muted)
         } else if conversation.dealStatus == .completeRequested {
             if isPostWriter {
-                if hasChatAfterStarted {
-                    HStack {
-                        Button(actionTitle(DealStatus.completed.rawValue, "완료 승인")) { runDealAction(.completed) }
-                            .buttonStyle(PrimaryButtonStyle())
-                            .disabled(busy)
-                        Button(actionTitle(DealStatus.disputed.rawValue, "문제 신고")) { onRequestReport() }
-                            .buttonStyle(PrimaryButtonStyle(isSecondary: true))
-                            .disabled(busy)
-                    }
-                } else {
-                    Text("진행 시작 후 양쪽 대화가 1턴 이상 있어야 승인할 수 있어요.")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(ManwonColor.muted)
+                HStack {
+                    Button(actionTitle(DealStatus.completed.rawValue, "완료 승인")) { runDealAction(.completed) }
+                        .buttonStyle(PrimaryButtonStyle())
+                        .disabled(busy)
+                    Button(actionTitle(DealStatus.disputed.rawValue, "문제 신고")) { onRequestReport() }
+                        .buttonStyle(PrimaryButtonStyle(isSecondary: true))
+                        .disabled(busy)
                 }
             } else {
                 Text("게시글 작성자의 완료 승인을 기다리고 있어요.")

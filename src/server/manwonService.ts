@@ -319,6 +319,8 @@ export async function listTaskPosts(input: ListPostsInput, viewerId?: string | n
   return sql`
     select
       p.*,
+      p.latitude::float8 as latitude,
+      p.longitude::float8 as longitude,
       p.creator_profile_id as creator_profile_id,
       coalesce(creator_profile.nickname, creator.nickname) as creator_nickname,
       coalesce(nullif(creator_profile.avatar_url, ''), nullif(creator.avatar_url, '')) as creator_avatar_url,
@@ -336,7 +338,7 @@ export async function listTaskPosts(input: ListPostsInput, viewerId?: string | n
         else null
       end as remaining_count,
       case
-        when ${lat}::numeric is not null and ${lng}::numeric is not null and p.latitude is not null and p.longitude is not null then
+        when ${lat}::numeric is not null and ${lng}::numeric is not null and p.latitude is not null and p.longitude is not null then (
           6371000 * acos(
             least(
               1,
@@ -345,6 +347,7 @@ export async function listTaskPosts(input: ListPostsInput, viewerId?: string | n
               sin(radians(${lat}::numeric)) * sin(radians(p.latitude))
             )
           )
+        )::float8
         else null
       end as distance_meters,
       coalesce(
@@ -440,6 +443,8 @@ export async function getTaskPost(postId: string, viewerId?: string | null, opti
   const rows = await sql`
     select
       p.*,
+      p.latitude::float8 as latitude,
+      p.longitude::float8 as longitude,
       p.creator_profile_id as creator_profile_id,
       coalesce(creator_profile.nickname, creator.nickname) as creator_nickname,
       coalesce(nullif(creator_profile.avatar_url, ''), nullif(creator.avatar_url, '')) as creator_avatar_url,

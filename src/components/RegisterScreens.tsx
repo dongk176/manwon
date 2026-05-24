@@ -122,7 +122,7 @@ const capacityTypeOptions: Array<{ value: CapacityType; label: string }> = [
 export function RegisterScreens({
   onFlowActiveChange,
 }: {
-  onRegistered?: () => void
+  onRegistered?: (postId: string) => void
   onFlowActiveChange?: (active: boolean) => void
 }) {
   const router = useRouter()
@@ -206,7 +206,7 @@ function CapacityStepCard({
   )
 }
 
-export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () => void; onRegistered?: () => void }) {
+export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () => void; onRegistered?: (postId: string) => void }) {
   const [step, setStep] = useState<RequestStep>(1)
   const [sheet, setSheet] = useState<SheetKind>(null)
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false)
@@ -329,7 +329,7 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
     setSaveState('saving')
     setErrors({})
     try {
-      await createTaskPost({
+      const createdPost = await createTaskPost({
         profileId: selectedProfileId,
         postType: 'request',
         title: title.trim(),
@@ -354,7 +354,7 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
         images: toPersistedImages(images),
       })
       requestIOSPushPermission('post_created')
-      if (onRegistered) window.setTimeout(onRegistered, 350)
+      if (onRegistered) window.setTimeout(() => onRegistered(createdPost.id), 350)
     } catch (error) {
       if (isPhoneVerificationRequired(error)) {
         setSaveState('idle')
@@ -680,7 +680,7 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
   )
 }
 
-export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => void; onRegistered?: () => void }) {
+export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => void; onRegistered?: (postId: string) => void }) {
   const [step, setStep] = useState<OfferStep>(1)
   const [sheet, setSheet] = useState<SheetKind>(null)
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false)
@@ -846,7 +846,7 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
     setSaveState('saving')
     setErrors({})
     try {
-      await createTaskPost({
+      const createdPost = await createTaskPost({
         profileId: selectedProfileId,
         postType: 'offer',
         title: title.trim(),
@@ -880,7 +880,7 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
         workSampleImages: toPersistedImages(sampleImages),
       })
       requestIOSPushPermission('post_created')
-      if (onRegistered) window.setTimeout(onRegistered, 350)
+      if (onRegistered) window.setTimeout(() => onRegistered(createdPost.id), 350)
     } catch (error) {
       if (isPhoneVerificationRequired(error)) {
         setSaveState('idle')
