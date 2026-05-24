@@ -2678,6 +2678,11 @@ export async function getMyPage(userId: string) {
   const rows = await sql`
     select
       p.*,
+      default_activity_profile.id as default_activity_profile_id,
+      default_activity_profile.avatar_url as default_activity_profile_avatar_url,
+      default_activity_profile.default_avatar_key as default_activity_profile_default_avatar_key,
+      default_activity_profile.nickname as default_activity_profile_nickname,
+      default_activity_profile.bio as default_activity_profile_bio,
       (select count(*)::integer from manwon_happiness.task_posts where creator_id = ${userId} and status <> 'hidden') as posts_count,
       (select count(*)::integer from manwon_happiness.deals where helper_id = ${userId}) as helping_count,
       (select count(*)::integer from manwon_happiness.task_posts where creator_id = ${userId} and status in ('open', 'pending', 'in_progress')) as active_posts_count,
@@ -2691,6 +2696,14 @@ export async function getMyPage(userId: string) {
       ) as favorite_count,
       (select count(*)::integer from manwon_happiness.reviews where reviewee_id = ${userId}) as received_review_count
     from manwon_happiness.users p
+    left join lateral (
+      select id, avatar_url, default_avatar_key, nickname, bio
+      from manwon_happiness.activity_profiles
+      where user_id = p.id
+        and is_active = true
+      order by created_at asc
+      limit 1
+    ) default_activity_profile on true
     where p.id = ${userId}
     limit 1
   `

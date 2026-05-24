@@ -110,7 +110,7 @@ export function UserProfileSheet({ user, onClose }: { user: UserProfile; onClose
               </section>
             )}
             {workSampleImages.length > 0 && (
-              <section className="profile-sheet-detail">
+              <section className="profile-sheet-detail profile-sheet-photo-section">
                 <strong>사진</strong>
                 <div className="profile-sheet-photo-grid">
                   {workSampleImages.map((image, index) => (

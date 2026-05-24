@@ -11,15 +11,25 @@ final class ChatListViewModel: ObservableObject {
 
     func load(silent: Bool = false) async {
         if !silent { isLoading = true }
+        defer {
+            if !silent {
+                isLoading = false
+            }
+        }
+
         do {
             let nextConversations = try await APIClient.shared.fetchConversations()
             conversations = nextConversations
             unreadCount = Self.totalUnreadCount(nextConversations)
             errorMessage = nil
         } catch {
-            errorMessage = error.localizedDescription
+            if Self.isCancellation(error) {
+                return
+            }
+            if !silent || conversations.isEmpty {
+                errorMessage = error.localizedDescription
+            }
         }
-        isLoading = false
     }
 
     private static func totalUnreadCount(_ conversations: [Conversation]) -> Int {
@@ -36,6 +46,12 @@ final class ChatListViewModel: ObservableObject {
             try? await Task.sleep(nanoseconds: 8_000_000_000)
             await load(silent: true)
         }
+    }
+
+    private static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
     }
 }
 
@@ -132,7 +148,7 @@ struct ChatListView: View {
             .scrollContentBackground(.hidden)
             .animation(ManwonMotion.fade, value: viewModel.conversations.count)
             .refreshable {
-                await viewModel.load()
+                await viewModel.load(silent: true)
             }
             .background(ManwonColor.surface)
         }

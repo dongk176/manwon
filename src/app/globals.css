@@ -2570,12 +2570,15 @@ html.native-ios-shell [role="button"] {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+  min-width: 0;
 }
 
 .profile-sheet-photo-grid button {
-  display: block;
+  display: flex;
   overflow: hidden;
   aspect-ratio: 1;
+  align-items: center;
+  justify-content: center;
   border: 0;
   border-radius: 12px;
   background: #f0f0f2;
@@ -2592,7 +2595,23 @@ html.native-ios-shell [role="button"] {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+  object-position: center center;
+}
+
+.profile-sheet-photo-section {
+  display: block;
+  overflow: visible;
+}
+
+.profile-sheet-photo-section > strong {
+  display: block;
+  margin-bottom: 10px;
+  line-height: 1.35;
+}
+
+.profile-sheet-photo-section .profile-sheet-photo-grid {
+  clear: both;
 }
 
 .profile-sheet-reviews {
@@ -6214,6 +6233,13 @@ html.native-ios-shell [role="button"] {
   padding: 18px 16px 14px;
 }
 
+.profile-card .activity-profile-image {
+  width: 64px;
+  height: 64px;
+  align-self: start;
+  font-size: 22px;
+}
+
 .profile-main h2 {
   display: flex;
   align-items: center;
@@ -9357,6 +9383,40 @@ button.my-activity-card:focus-visible {
 
 .profile-flow-primary:disabled {
   opacity: 0.55;
+}
+
+.profile-save-toast {
+  position: fixed;
+  z-index: 95;
+  top: 50%;
+  left: 50%;
+  width: min(300px, calc(100vw - 56px));
+  margin: 0;
+  padding: 15px 18px;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 16px;
+  background: rgba(22, 22, 24, 0.94);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 850;
+  line-height: 1.45;
+  text-align: center;
+  pointer-events: none;
+  animation: profile-save-toast-in 180ms ease-out both;
+}
+
+@keyframes profile-save-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -46%) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
 }
 
 .profile-flow-subtitle {

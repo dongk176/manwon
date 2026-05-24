@@ -335,9 +335,10 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
     )
   }
 
-  const nickname = getString(myPage ?? {}, 'nickname') || '뭐든해줌'
-  const avatarUrl = getString(myPage ?? {}, 'avatarUrl')
-  const fallbackAvatarUrl = getDefaultProfileImageByGender(userGender)
+  const nickname = getString(myPage ?? {}, 'defaultActivityProfileNickname') || getString(myPage ?? {}, 'nickname') || '뭐든해줌'
+  const profileBio = getString(myPage ?? {}, 'defaultActivityProfileBio') || '뭐든해줌에서 안전하게 부탁을 주고받아보세요.'
+  const avatarUrl = getString(myPage ?? {}, 'defaultActivityProfileAvatarUrl') || getString(myPage ?? {}, 'avatarUrl')
+  const defaultAvatarKey = getString(myPage ?? {}, 'defaultActivityProfileDefaultAvatarKey') || null
   const ratingAvg = getNumber(myPage ?? {}, 'ratingAvg')
   const completedCount = getNumber(myPage ?? {}, 'completedCount')
   const favoriteCount = getNumber(myPage ?? {}, 'favoriteCount', activity.favorites.length)
@@ -360,13 +361,13 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
       <AppHeader title="마이" />
       {loadState === 'error' && <p className="inline-status is-error">마이페이지 정보를 불러오지 못했습니다.</p>}
       <div className="profile-card">
-        <InitialAvatar name={nickname} size="lg" imageUrl={avatarUrl || fallbackAvatarUrl || undefined} />
+        <ProfileImage profile={{ avatarUrl: avatarUrl || null, defaultAvatarKey, nickname, gender: userGender }} />
         <div className="profile-main">
           <h2>
             {nickname}
             <ChevronRight size={20} />
           </h2>
-          <p>뭐든해줌에서 안전하게 부탁을 주고받아보세요.</p>
+          <p>{profileBio}</p>
         </div>
         <div className="profile-stats">
           <span>
@@ -568,6 +569,7 @@ function ActivityProfilesScreen({
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'error'>('idle')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [message, setMessage] = useState('')
+  const [successToast, setSuccessToast] = useState('')
   const activeFormState = useMemo(() => {
     if (!formState) return formState
 
@@ -585,6 +587,14 @@ function ActivityProfilesScreen({
     }
     return nextForm
   }, [formState, onboarding, profileDefaults, userGender])
+
+  useEffect(() => {
+    if (!successToast) return undefined
+    const toastTimer = window.setTimeout(() => {
+      setSuccessToast('')
+    }, 2200)
+    return () => window.clearTimeout(toastTimer)
+  }, [successToast])
 
   useEffect(() => {
     if (onboarding) return
@@ -609,6 +619,7 @@ function ActivityProfilesScreen({
   function openEdit(profile: ActivityProfile) {
     setErrors({})
     setMessage('')
+    setSuccessToast('')
     setSaveState('idle')
     setFormState(activityProfileToForm(profile))
   }
@@ -620,6 +631,7 @@ function ActivityProfilesScreen({
 
     setSaveState('saving')
     setMessage('')
+    setSuccessToast('')
     try {
       const payload = activityProfileFormToPayload(nextForm)
       const saved = nextForm.id
@@ -642,7 +654,7 @@ function ActivityProfilesScreen({
       })
       setFormState(activityProfileToForm(savedWithGender))
       setSaveState('idle')
-      setMessage(nextForm.id ? '프로필이 수정되었습니다.' : '프로필이 등록되었습니다.')
+      setSuccessToast(nextForm.id ? '프로필이 수정되었습니다.' : '프로필이 등록되었습니다.')
     } catch (error) {
       setSaveState('error')
       setMessage(error instanceof Error ? error.message : '프로필을 저장하지 못했습니다.')
@@ -672,6 +684,7 @@ function ActivityProfilesScreen({
         errors={errors}
         saveState={saveState}
         message={message}
+        successToast={successToast}
         onChange={setFormState}
         onErrorsChange={setErrors}
         hideBack={onboarding}
@@ -759,6 +772,7 @@ function ActivityProfileFormScreen({
   errors,
   saveState,
   message,
+  successToast,
   onChange,
   onErrorsChange,
   hideBack = false,
@@ -770,6 +784,7 @@ function ActivityProfileFormScreen({
   errors: Record<string, string>
   saveState: 'idle' | 'saving' | 'error'
   message?: string
+  successToast?: string
   onChange: (form: ActivityProfileFormState) => void
   onErrorsChange: (errors: Record<string, string>) => void
   hideBack?: boolean
@@ -902,7 +917,7 @@ function ActivityProfileFormScreen({
   return (
     <section className="screen my-sub-screen activity-profile-form-page profile-flow-page is-create-step">
       <ProfileFlowHeader title={title} onBack={onBack} hideBack={hideBack} />
-      {message && <p className={`inline-status ${saveState === 'error' ? 'is-error' : ''}`}>{message}</p>}
+      {message && saveState === 'error' && <p className="inline-status is-error">{message}</p>}
       <div className="profile-flow-stack">
         <section className="profile-flow-photo-card">
           <button className="profile-flow-photo-button" type="button" onClick={() => avatarInputRef.current?.click()} aria-label="프로필 사진 등록">
@@ -945,6 +960,11 @@ function ActivityProfileFormScreen({
 
       {uploadState === 'uploading' && <p className="inline-status">이미지를 업로드하는 중입니다.</p>}
       {uploadState === 'error' && <p className="inline-status is-error">이미지 업로드에 실패했습니다.</p>}
+      {successToast && (
+        <p className="profile-save-toast" role="status" aria-live="polite">
+          {successToast}
+        </p>
+      )}
       {showNeighborhoodSheet && (
         <NeighborhoodSelectSheet
           searchMode="region"
