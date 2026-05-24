@@ -181,6 +181,13 @@ export interface ApiUserReview {
   postTitle?: string | null
 }
 
+export interface ApiReviewReminder {
+  dealId: string
+  conversationId?: string | null
+  dueAt?: string | null
+  otherNickname?: string | null
+}
+
 export interface ActivityProfile {
   id: string
   userId: string
@@ -851,14 +858,14 @@ export async function createReview(input: { dealId: string; rating: number; cont
 }
 
 export async function scheduleReviewReminder(dealId: string) {
-  return apiFetch('/api/review-reminders', {
+  return apiFetch<ApiReviewReminder | null>('/api/review-reminders', {
     method: 'POST',
     body: JSON.stringify({ dealId }),
   })
 }
 
 export async function fetchDueReviewReminder() {
-  return apiFetch<{ dealId: string; conversationId?: string | null; dueAt?: string | null } | null>('/api/review-reminders')
+  return apiFetch<ApiReviewReminder | null>('/api/review-reminders')
 }
 
 export async function createSupportInquiry(input: {

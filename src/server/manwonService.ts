@@ -830,7 +830,7 @@ function canTransitionDealStatus(current: string, next: string) {
     in_progress: ['complete_requested', 'cancelled'],
     complete_requested: ['completed', 'cancelled', 'disputed'],
     disputed: [],
-    completed: [],
+    completed: ['disputed'],
     cancelled: [],
   }
 
@@ -1408,7 +1408,7 @@ export async function updateDealStatus(userId: string, dealId: string, input: Up
     const reportTargetUserId = String(existing.requesterId) === userId ? String(existing.helperId) : String(existing.requesterId)
     if (input.status === 'in_progress' && !isPostCreator) return null
     if (input.status === 'complete_requested' && !isApplicant) return null
-    if ((input.status === 'completed' || input.status === 'disputed') && !isPostCreator) return null
+    if (input.status === 'completed' && !isPostCreator) return null
     if (existing.status === input.status) {
       return {
         deal: existing,
@@ -1418,7 +1418,7 @@ export async function updateDealStatus(userId: string, dealId: string, input: Up
         skipNotification: true,
       }
     }
-    if (input.status === 'completed' || input.status === 'disputed') {
+    if (input.status === 'completed') {
       const turnRows = await tx`
         select count(distinct m.sender_id)::integer as sender_count
         from manwon_happiness.conversations c
@@ -1479,7 +1479,7 @@ export async function updateDealStatus(userId: string, dealId: string, input: Up
     const deal = rows[0]
     if (!deal) return null
 
-    if (input.status === 'completed' || isReportCompletion) {
+    if ((input.status === 'completed' || isReportCompletion) && existing.status !== 'completed') {
       await tx`
         update manwon_happiness.users
         set completed_count = completed_count + 1
@@ -2206,7 +2206,13 @@ export async function sendMessage(userId: string, conversationId: string, input:
         d.chat_blocked_at as deal_chat_blocked_at,
         d.report_reason as deal_report_reason,
         a.status as application_status,
-        sender.nickname as sender_nickname,
+        coalesce(
+          case
+            when c.requester_id = ${userId} then requester_activity.nickname
+            else helper_activity.nickname
+          end,
+          sender.nickname
+        ) as sender_nickname,
         case when c.requester_id = ${userId} then c.helper_id else c.requester_id end as other_user_id
       from manwon_happiness.conversations c
       left join manwon_happiness.task_posts p on p.id = c.post_id
@@ -2217,6 +2223,22 @@ export async function sendMessage(userId: string, conversationId: string, input:
           (p.post_type = 'request' and a.applicant_id = c.helper_id)
           or (p.post_type = 'offer' and a.applicant_id = c.requester_id)
         )
+      left join manwon_happiness.activity_profiles requester_activity on requester_activity.id = coalesce(
+        d.requester_profile_id,
+        case
+          when p.post_type = 'request' then p.creator_profile_id
+          when p.post_type = 'offer' then a.applicant_profile_id
+          else null
+        end
+      )
+      left join manwon_happiness.activity_profiles helper_activity on helper_activity.id = coalesce(
+        d.helper_profile_id,
+        case
+          when p.post_type = 'request' then a.applicant_profile_id
+          when p.post_type = 'offer' then p.creator_profile_id
+          else null
+        end
+      )
       left join manwon_happiness.users sender on sender.id = ${userId}
       where c.id = ${conversationId}
         and (c.requester_id = ${userId} or c.helper_id = ${userId})
@@ -2437,24 +2459,35 @@ export async function listUserReceivedReviews(userId: string, limit = 50) {
 export async function scheduleReviewReminder(userId: string, input: ReviewReminderInput) {
   const sql = getSql()
   const rows = await sql`
-    insert into manwon_happiness.review_reminders (deal_id, user_id, due_at)
-    select d.id, ${userId}, now() + interval '1 day'
-    from manwon_happiness.deals d
-    where d.id = ${input.dealId}
-      and d.status = 'completed'
-      and (d.requester_id = ${userId} or d.helper_id = ${userId})
-      and not exists (
-        select 1
-        from manwon_happiness.reviews r
-        where r.deal_id = d.id
-          and r.reviewer_id = ${userId}
-      )
-    on conflict (deal_id, user_id) do update
-      set due_at = now() + interval '1 day',
-          sent_at = null,
-          cancelled_at = null,
-          updated_at = now()
-    returning *
+    with eligible as (
+      select d.id, coalesce(d.completed_at, d.updated_at, now()) + interval '2 hours' as due_at
+      from manwon_happiness.deals d
+      where d.id = ${input.dealId}
+        and d.status = 'completed'
+        and (d.requester_id = ${userId} or d.helper_id = ${userId})
+        and not exists (
+          select 1
+          from manwon_happiness.reviews r
+          where r.deal_id = d.id
+            and r.reviewer_id = ${userId}
+        )
+    ),
+    inserted as (
+      insert into manwon_happiness.review_reminders (deal_id, user_id, due_at)
+      select id, ${userId}, due_at
+      from eligible
+      on conflict (deal_id, user_id) do nothing
+      returning *
+    )
+    select *
+    from inserted
+    union all
+    select rr.*
+    from manwon_happiness.review_reminders rr
+    join eligible e on e.id = rr.deal_id
+    where rr.user_id = ${userId}
+      and not exists (select 1 from inserted)
+    limit 1
   `
 
   return rows[0] ?? null
@@ -2466,11 +2499,24 @@ export async function getDueReviewReminder(userId: string) {
     select
       rr.*,
       c.id as conversation_id,
-      p.title as post_title
+      p.title as post_title,
+      coalesce(other_deal_profile.nickname, other_default_profile.nickname, other_user.nickname, '상대방') as other_nickname
     from manwon_happiness.review_reminders rr
     join manwon_happiness.deals d on d.id = rr.deal_id
     join manwon_happiness.task_posts p on p.id = d.post_id
     left join manwon_happiness.conversations c on c.deal_id = d.id
+    left join manwon_happiness.users other_user
+      on other_user.id = case when d.requester_id = rr.user_id then d.helper_id else d.requester_id end
+    left join manwon_happiness.activity_profiles other_deal_profile
+      on other_deal_profile.id = case when d.requester_id = rr.user_id then d.helper_profile_id else d.requester_profile_id end
+    left join lateral (
+      select nickname
+      from manwon_happiness.activity_profiles
+      where user_id = other_user.id
+        and is_active = true
+      order by created_at asc
+      limit 1
+    ) other_default_profile on true
     where rr.user_id = ${userId}
       and rr.due_at <= now()
       and rr.cancelled_at is null
@@ -2498,11 +2544,24 @@ export async function processDueReviewReminders(limit = 100) {
         rr.user_id,
         rr.deal_id,
         c.id as conversation_id,
-        p.title as post_title
+        p.title as post_title,
+        coalesce(other_deal_profile.nickname, other_default_profile.nickname, other_user.nickname, '상대방') as other_nickname
       from manwon_happiness.review_reminders rr
       join manwon_happiness.deals d on d.id = rr.deal_id
       join manwon_happiness.task_posts p on p.id = d.post_id
       left join manwon_happiness.conversations c on c.deal_id = d.id
+      left join manwon_happiness.users other_user
+        on other_user.id = case when d.requester_id = rr.user_id then d.helper_id else d.requester_id end
+      left join manwon_happiness.activity_profiles other_deal_profile
+        on other_deal_profile.id = case when d.requester_id = rr.user_id then d.helper_profile_id else d.requester_profile_id end
+      left join lateral (
+        select nickname
+        from manwon_happiness.activity_profiles
+        where user_id = other_user.id
+          and is_active = true
+        order by created_at asc
+        limit 1
+      ) other_default_profile on true
       where rr.due_at <= now()
         and rr.sent_at is null
         and rr.cancelled_at is null
@@ -2523,15 +2582,15 @@ export async function processDueReviewReminders(limit = 100) {
           updated_at = now()
       from due
       where rr.id = due.id
-      returning rr.id, rr.user_id, rr.deal_id, due.conversation_id, due.post_title
+      returning rr.id, rr.user_id, rr.deal_id, due.conversation_id, due.post_title, due.other_nickname
     )
     select * from updated
   `)
 
   await Promise.all(reminders.map((reminder) => createNotificationEvent(String(reminder.userId), {
     type: 'review.reminder',
-    title: '거래 후기를 남겨주세요',
-    body: reminder.postTitle ? `"${String(reminder.postTitle)}" 거래는 어떠셨나요?` : '완료된 거래는 어떠셨나요?',
+    title: reviewReminderTitle(reminder.otherNickname),
+    body: '후기를 작성해 주세요.',
     data: chatNotificationData({
       type: 'review.reminder',
       conversationId: reminder.conversationId ? String(reminder.conversationId) : null,
@@ -2540,6 +2599,11 @@ export async function processDueReviewReminders(limit = 100) {
   }).catch(() => undefined)))
 
   return { processed: reminders.length }
+}
+
+function reviewReminderTitle(otherNickname: unknown) {
+  const nickname = typeof otherNickname === 'string' && otherNickname.trim() ? otherNickname.trim() : '상대방'
+  return `${nickname} 과의 거래는 어떠셨나요?`
 }
 
 export async function getMyActivity(userId: string) {

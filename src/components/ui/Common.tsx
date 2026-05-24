@@ -22,7 +22,6 @@ import {
   Settings,
   Star,
   UserRound,
-  UsersRound,
   X,
 } from 'lucide-react'
 import { categories, formatPrice, getCategoryIconSrc, type Category, type PostStatus, type RequestPost, type TradeStatus } from '@/data/mockData'
@@ -430,7 +429,6 @@ export function RequestCard({ request, onPrimary, onOpen, onReport, reportDisabl
       </div>
       <div className="request-side">
         <span className="request-price">{formatPrice(request.price)}</span>
-        {variant === 'home' && <PostCapacityLine request={request} />}
         {showPrimaryAction && (
           <BrandButton
             variant="outline"
@@ -445,39 +443,6 @@ export function RequestCard({ request, onPrimary, onOpen, onReport, reportDisabl
         )}
       </div>
     </article>
-  )
-}
-
-function PostCapacityLine({ request }: { request: RequestPost }) {
-  const activeChatCount = Math.max(Number(request.activeChatCount ?? 0), 0)
-  if (request.capacityType === 'limited') {
-    const occupiedCount = Math.max(Number(request.occupiedCount ?? 0), 0)
-    const capacityLimit = Math.max(Number(request.capacityLimit ?? 0), 0)
-    return (
-      <span className="request-capacity-line" aria-label={`마감 ${occupiedCount}/${capacityLimit}명, 채팅 ${activeChatCount}건`}>
-        <span>
-          <UserRound size={15} />
-          {occupiedCount}/{capacityLimit}
-        </span>
-        <span>
-          <MessageCircle size={15} />
-          {activeChatCount}
-        </span>
-      </span>
-    )
-  }
-
-  return (
-    <span className="request-capacity-line" aria-label={`상시 모집, 채팅 ${activeChatCount}건`}>
-      <span>
-        <UsersRound size={15} />
-        상시
-      </span>
-      <span>
-        <MessageCircle size={15} />
-        {activeChatCount}
-      </span>
-    </span>
   )
 }
 

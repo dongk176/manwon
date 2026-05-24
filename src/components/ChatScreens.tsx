@@ -1,6 +1,6 @@
 'use client'
 
-import { type PointerEvent as ReactPointerEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, Bell, LockKeyhole, MoreVertical, Plus, Send, Smile, Star } from 'lucide-react'
 import {
@@ -693,8 +693,8 @@ function ReviewPromptSheet({
     setBusy('later')
     setError('')
     try {
-      await scheduleReviewReminder(dealId)
-      deferReviewPrompt(dealId)
+      const reminder = await scheduleReviewReminder(dealId)
+      deferReviewPrompt(dealId, reminder?.dueAt)
       onDeferred()
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '리마인더를 설정하지 못했습니다.')
@@ -722,7 +722,7 @@ function ReviewPromptSheet({
               aria-checked={value === rating}
               aria-label={`${value}점`}
             >
-              <Star size={28} fill="currentColor" />
+              <Star size={23} fill="currentColor" />
             </button>
           ))}
         </div>
@@ -738,10 +738,10 @@ function ReviewPromptSheet({
         </label>
         {error && <p className="inline-status is-error">{error}</p>}
         <div className="review-prompt-actions">
-          <BrandButton variant="outline" disabled={busy !== null} onClick={() => void remindLater()}>
+          <BrandButton variant="outline" size="sm" disabled={busy !== null} onClick={() => void remindLater()}>
             {busy === 'later' ? '설정 중' : '나중에'}
           </BrandButton>
-          <BrandButton disabled={busy !== null} onClick={() => void submit()}>
+          <BrandButton size="sm" disabled={busy !== null} onClick={() => void submit()}>
             {busy === 'submit' ? '저장 중' : '후기 남기기'}
           </BrandButton>
         </div>
@@ -793,9 +793,11 @@ function ReportSheet({
 }) {
   const [reason, setReason] = useState<string>(reportReasons[0])
   const [description, setDescription] = useState('')
+  const keyboardInset = useVisualViewportKeyboardInset()
+  const overlayStyle = { '--sheet-keyboard-inset': `${keyboardInset}px` } as CSSProperties
 
   return (
-    <div className="sheet-overlay" role="presentation" onClick={onClose}>
+    <div className="sheet-overlay" role="presentation" onClick={onClose} style={overlayStyle}>
       <div className="report-sheet" role="dialog" aria-modal="true" aria-labelledby="report-sheet-title" onClick={(event) => event.stopPropagation()}>
         <div className="drag-handle" />
         <button className="sheet-x" type="button" onClick={onClose} aria-label="닫기">
@@ -856,10 +858,12 @@ function CompletionReportSheet({
 }) {
   const [reason, setReason] = useState<string>(reportReasons[0])
   const [description, setDescription] = useState('')
+  const keyboardInset = useVisualViewportKeyboardInset()
+  const overlayStyle = { '--sheet-keyboard-inset': `${keyboardInset}px` } as CSSProperties
 
   return (
-    <div className="sheet-overlay" role="presentation" onClick={busy ? undefined : onClose}>
-      <div className="report-sheet" role="dialog" aria-modal="true" aria-labelledby="completion-report-title" onClick={(event) => event.stopPropagation()}>
+    <div className="sheet-overlay" role="presentation" onClick={busy ? undefined : onClose} style={overlayStyle}>
+      <div className="report-sheet is-completion-report" role="dialog" aria-modal="true" aria-labelledby="completion-report-title" onClick={(event) => event.stopPropagation()}>
         <div className="drag-handle" />
         <button className="sheet-x" type="button" onClick={onClose} aria-label="닫기" disabled={busy}>
           ×
@@ -901,6 +905,33 @@ function CompletionReportSheet({
       </div>
     </div>
   )
+}
+
+function useVisualViewportKeyboardInset() {
+  const [inset, setInset] = useState(0)
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.visualViewport) return undefined
+
+    const viewport = window.visualViewport
+    const updateInset = () => {
+      const nextInset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)
+      setInset(Math.round(nextInset))
+    }
+
+    updateInset()
+    viewport.addEventListener('resize', updateInset)
+    viewport.addEventListener('scroll', updateInset)
+    window.addEventListener('orientationchange', updateInset)
+
+    return () => {
+      viewport.removeEventListener('resize', updateInset)
+      viewport.removeEventListener('scroll', updateInset)
+      window.removeEventListener('orientationchange', updateInset)
+    }
+  }, [])
+
+  return inset
 }
 
 type TradeActionId = 'accept' | 'reject' | 'complete' | 'dispute' | 'requestComplete' | 'cancel' | 'start'
@@ -1642,6 +1673,8 @@ function reviewPromptStorageKey(dealId: string) {
   return `manwon_review_prompt_deferred_until:${dealId}`
 }
 
+const reviewPromptDeferredFallbackMs = 2 * 60 * 60 * 1000
+
 function getDeferredReviewUntil(dealId: string) {
   if (typeof window === 'undefined') return null
   const value = window.localStorage.getItem(reviewPromptStorageKey(dealId))
@@ -1650,9 +1683,12 @@ function getDeferredReviewUntil(dealId: string) {
   return Number.isFinite(timestamp) ? timestamp : null
 }
 
-function deferReviewPrompt(dealId: string) {
+function deferReviewPrompt(dealId: string, dueAt?: string | null) {
   if (typeof window === 'undefined') return
-  window.localStorage.setItem(reviewPromptStorageKey(dealId), String(Date.now() + 24 * 60 * 60 * 1000))
+  const parsedDueAt = dueAt ? Date.parse(dueAt) : Number.NaN
+  const fallbackDueAt = Date.now() + reviewPromptDeferredFallbackMs
+  const deferredUntil = Number.isFinite(parsedDueAt) && parsedDueAt > Date.now() ? parsedDueAt : fallbackDueAt
+  window.localStorage.setItem(reviewPromptStorageKey(dealId), String(deferredUntil))
 }
 
 function clearDeferredReview(dealId: string) {

@@ -2215,12 +2215,18 @@ html.native-ios-shell [role="button"] {
 
 .report-sheet {
   position: relative;
+  display: flex;
+  flex-direction: column;
   width: min(100%, 430px);
-  max-height: 82dvh;
+  max-height: min(82dvh, calc(100dvh - var(--sheet-keyboard-inset, 0px) - 16px));
   overflow-y: auto;
   padding: 12px 20px calc(22px + env(safe-area-inset-bottom));
   border-radius: 22px 22px 0 0;
   background: #fff;
+}
+
+.report-sheet.is-completion-report {
+  max-height: min(82dvh, calc(100dvh - var(--sheet-keyboard-inset, 0px) - 16px));
 }
 
 .report-sheet h2 {
@@ -2292,10 +2298,15 @@ html.native-ios-shell [role="button"] {
 }
 
 .report-sheet-actions {
+  position: sticky;
+  bottom: calc(-1 * env(safe-area-inset-bottom));
   display: grid;
   grid-template-columns: 1fr 1.2fr;
   gap: 10px;
   margin-top: 14px;
+  padding-top: 10px;
+  padding-bottom: env(safe-area-inset-bottom);
+  background: #fff;
 }
 
 .report-sheet-actions.is-single {
@@ -2304,23 +2315,23 @@ html.native-ios-shell [role="button"] {
 
 .review-prompt-sheet {
   position: relative;
-  width: min(100%, 430px);
-  padding: 22px 20px calc(20px + env(safe-area-inset-bottom));
-  border-radius: 22px;
+  width: min(100%, 390px);
+  padding: 18px 16px calc(16px + env(safe-area-inset-bottom));
+  border-radius: 18px;
   background: #fff;
   box-shadow: 0 22px 70px rgba(0, 0, 0, 0.24);
 }
 
 .review-prompt-sheet h2 {
-  margin: 0 34px 8px 0;
+  margin: 0 34px 6px 0;
   color: var(--text);
-  font-size: 21px;
+  font-size: 19px;
   font-weight: 900;
   line-height: 1.25;
 }
 
 .review-prompt-sheet > p {
-  margin: 0 0 16px;
+  margin: 0 0 12px;
   color: #707076;
   font-size: 13px;
   font-weight: 600;
@@ -2329,18 +2340,18 @@ html.native-ios-shell [role="button"] {
 
 .review-star-row {
   display: flex;
-  gap: 7px;
-  margin-bottom: 16px;
+  gap: 6px;
+  margin-bottom: 12px;
 }
 
 .review-star-row button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 42px;
-  height: 42px;
+  width: 36px;
+  height: 36px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
   background: #fff;
   color: #c6c6cc;
 }
@@ -2353,23 +2364,23 @@ html.native-ios-shell [role="button"] {
 
 .review-textarea {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .review-textarea span {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 900;
 }
 
 .review-textarea textarea {
-  min-height: 124px;
+  min-height: 76px;
   resize: none;
-  padding: 13px;
+  padding: 10px;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 12px;
   background: #fff;
   color: var(--text);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.5;
 }
 
@@ -2383,9 +2394,15 @@ html.native-ios-shell [role="button"] {
 
 .review-prompt-actions {
   display: grid;
-  grid-template-columns: 1fr 1.25fr;
-  gap: 10px;
-  margin-top: 14px;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.review-prompt-actions .brand-button {
+  min-height: 34px;
+  border-radius: 10px;
+  font-size: 13px;
 }
 
 .profile-sheet {
@@ -6117,8 +6134,10 @@ html.native-ios-shell [role="button"] {
   display: flex;
   align-items: flex-end;
   justify-content: center;
+  padding-bottom: var(--sheet-keyboard-inset, 0px);
   overscroll-behavior: contain;
   background: rgba(0, 0, 0, 0.58);
+  transition: padding-bottom 0.2s ease;
 }
 
 .sheet-overlay.is-centered {

@@ -763,14 +763,13 @@ final class ChatDetailViewModel: ObservableObject {
         }
     }
 
-    func scheduleReviewReminder() async -> Bool {
-        guard let dealId = conversation?.dealId else { return false }
+    func scheduleReviewReminder() async -> DueReviewReminder? {
+        guard let dealId = conversation?.dealId else { return nil }
         do {
-            try await APIClient.shared.scheduleReviewReminder(dealId: dealId)
-            return true
+            return try await APIClient.shared.scheduleReviewReminder(dealId: dealId)
         } catch {
             errorMessage = error.localizedDescription
-            return false
+            return nil
         }
     }
 
@@ -1030,8 +1029,8 @@ struct ChatDetailView: View {
                     ReviewPromptOverlay(
                         conversation: conversation,
                         onLater: {
-                            if await viewModel.scheduleReviewReminder(), let dealId = conversation.dealId {
-                                deferReviewPrompt(dealId: dealId)
+                            if let reminder = await viewModel.scheduleReviewReminder(), let dealId = conversation.dealId {
+                                deferReviewPrompt(dealId: dealId, dueAt: reminder.dueAt)
                                 showReviewPrompt = false
                             }
                         },
@@ -1046,6 +1045,7 @@ struct ChatDetailView: View {
                 if showReportOverlay, let conversation = viewModel.conversation {
                     ChatReportOverlay(
                         userName: conversation.otherNickname ?? "상대방",
+                        keyboardBottomInset: keyboardBottomInset,
                         busy: moderationBusy,
                         onCancel: {
                             showReportOverlay = false
@@ -1065,6 +1065,7 @@ struct ChatDetailView: View {
                         title: "완료 요청 신고하기",
                         message: "거래 문제를 신고하면 거래는 완료 처리되고 이 채팅방의 메시지 전송이 양쪽 모두 차단됩니다.",
                         allowsBlock: false,
+                        keyboardBottomInset: keyboardBottomInset,
                         busy: viewModel.pendingTradeAction == DealStatus.disputed.rawValue,
                         onCancel: {
                             showCompletionReportOverlay = false
@@ -1443,6 +1444,7 @@ private struct ChatReportOverlay: View {
     var title: String? = nil
     var message: String = "신고 내용과 채팅 정보는 운영팀 검토용으로 접수됩니다."
     var allowsBlock: Bool = true
+    var keyboardBottomInset: CGFloat = 0
     let busy: Bool
     let onCancel: () -> Void
     let onSubmit: (String, String, Bool) -> Void
@@ -1450,98 +1452,113 @@ private struct ChatReportOverlay: View {
     @State private var description = ""
 
     var body: some View {
-        ZStack {
-            Color.black.opacity(0.45)
-                .ignoresSafeArea()
-                .onTapGesture {
-                    if !busy { onCancel() }
-                }
-
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 7) {
-                    Text(title ?? "\(userName)님 신고하기")
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundStyle(ManwonColor.text)
-                    Text(message)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(ManwonColor.muted)
-                        .lineSpacing(2)
-                }
-
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                    ForEach(chatReportReasons, id: \.self) { item in
-                        Button {
-                            reason = item
-                        } label: {
-                            Text(item)
-                                .font(.system(size: 13, weight: .bold))
-                                .foregroundStyle(reason == item ? ManwonColor.brand : ManwonColor.text)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 38)
-                                .background(reason == item ? ManwonColor.brandSoft : Color(red: 0.965, green: 0.965, blue: 0.97))
-                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .stroke(reason == item ? ManwonColor.brand.opacity(0.35) : ManwonColor.line, lineWidth: 1)
-                                )
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(busy)
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("상세 내용")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(ManwonColor.text)
-                    TextEditor(text: $description)
-                        .frame(minHeight: 100)
-                        .padding(8)
-                        .background(Color.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(ManwonColor.line, lineWidth: 1)
-                        )
-                        .disabled(busy)
-                        .onChange(of: description) { value in
-                            if value.count > 1000 {
-                                description = String(value.prefix(1000))
-                            }
-                        }
-                    Text("\(description.count)/1000")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(ManwonColor.muted)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                }
-
-                VStack(spacing: 9) {
-                    HStack(spacing: 10) {
-                        Button("취소", action: onCancel)
-                            .buttonStyle(PrimaryButtonStyle(isSecondary: true))
-                            .disabled(busy)
-                        Button(busy ? "접수 중" : allowsBlock ? "신고하기" : "신고하고 거래 완료 처리") {
-                            onSubmit(reason, description, false)
-                        }
-                        .buttonStyle(PrimaryButtonStyle())
-                        .disabled(busy)
+        GeometryReader { geometry in
+            ZStack(alignment: .bottom) {
+                Color.black.opacity(0.45)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        if !busy { onCancel() }
                     }
 
-                    if allowsBlock {
-                        Button(busy ? "접수 중" : "차단하고 신고하기") {
-                            onSubmit(reason, description, true)
-                        }
-                        .buttonStyle(PrimaryButtonStyle())
-                        .disabled(busy)
+                ScrollView {
+                    sheetContent
+                }
+                .scrollDismissesKeyboard(.interactively)
+                .frame(maxWidth: .infinity, maxHeight: max(220, geometry.size.height - keyboardBottomInset - 24), alignment: .bottom)
+                .padding(.horizontal, 18)
+                .padding(.top, 16)
+                .padding(.bottom, max(12, keyboardBottomInset + 12))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .animation(.easeOut(duration: 0.22), value: keyboardBottomInset)
+            }
+            .ignoresSafeArea(.container, edges: .bottom)
+        }
+    }
+
+    private var sheetContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 7) {
+                Text(title ?? "\(userName)님 신고하기")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(ManwonColor.text)
+                Text(message)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(ManwonColor.muted)
+                    .lineSpacing(2)
+            }
+
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                ForEach(chatReportReasons, id: \.self) { item in
+                    Button {
+                        reason = item
+                    } label: {
+                        Text(item)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(reason == item ? ManwonColor.brand : ManwonColor.text)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 38)
+                            .background(reason == item ? ManwonColor.brandSoft : Color(red: 0.965, green: 0.965, blue: 0.97))
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(reason == item ? ManwonColor.brand.opacity(0.35) : ManwonColor.line, lineWidth: 1)
+                            )
                     }
+                    .buttonStyle(.plain)
+                    .disabled(busy)
                 }
             }
-            .padding(20)
-            .background(ManwonColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .padding(.horizontal, 18)
-            .shadow(color: .black.opacity(0.18), radius: 28, y: 14)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("상세 내용")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(ManwonColor.text)
+                TextEditor(text: $description)
+                    .frame(minHeight: 100)
+                    .padding(8)
+                    .background(Color.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(ManwonColor.line, lineWidth: 1)
+                    )
+                    .disabled(busy)
+                    .onChange(of: description) { value in
+                        if value.count > 1000 {
+                            description = String(value.prefix(1000))
+                        }
+                    }
+                Text("\(description.count)/1000")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(ManwonColor.muted)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+
+            VStack(spacing: 9) {
+                HStack(spacing: 10) {
+                    Button("취소", action: onCancel)
+                        .buttonStyle(PrimaryButtonStyle(isSecondary: true))
+                        .disabled(busy)
+                    Button(busy ? "접수 중" : allowsBlock ? "신고하기" : "신고하고 거래 완료 처리") {
+                        onSubmit(reason, description, false)
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .disabled(busy)
+                }
+
+                if allowsBlock {
+                    Button(busy ? "접수 중" : "차단하고 신고하기") {
+                        onSubmit(reason, description, true)
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .disabled(busy)
+                }
+            }
         }
+        .padding(20)
+        .background(ManwonColor.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .shadow(color: .black.opacity(0.18), radius: 28, y: 14)
     }
 }
 
@@ -1600,11 +1617,11 @@ private struct ReviewPromptOverlay: View {
         ZStack {
             Color.black.opacity(0.45)
                 .ignoresSafeArea()
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("거래 후기를 남겨주세요")
-                            .font(.system(size: 21, weight: .bold))
+                            .font(.system(size: 19, weight: .bold))
                             .foregroundStyle(ManwonColor.text)
                         Text("\(conversation.otherNickname ?? "상대방")님과의 거래는 어떠셨나요?")
                             .font(.system(size: 13, weight: .semibold))
@@ -1615,26 +1632,26 @@ private struct ReviewPromptOverlay: View {
                         Task { await runLater() }
                     } label: {
                         Image(systemName: "xmark")
-                            .font(.system(size: 15, weight: .bold))
+                            .font(.system(size: 14, weight: .bold))
                             .foregroundStyle(ManwonColor.muted)
-                            .frame(width: 32, height: 32)
+                            .frame(width: 28, height: 28)
                     }
                     .disabled(busyAction != nil)
                 }
 
-                HStack(spacing: 7) {
+                HStack(spacing: 6) {
                     ForEach(1...5, id: \.self) { value in
                         Button {
                             rating = value
                         } label: {
                             Image(systemName: "star.fill")
-                                .font(.system(size: 27, weight: .bold))
+                                .font(.system(size: 23, weight: .bold))
                                 .foregroundStyle(value <= rating ? Color.orange : Color(red: 0.78, green: 0.78, blue: 0.82))
-                                .frame(width: 42, height: 42)
+                                .frame(width: 36, height: 36)
                                 .background(value <= rating ? Color.orange.opacity(0.11) : Color.white)
-                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
                                         .stroke(value <= rating ? Color.orange.opacity(0.28) : ManwonColor.line, lineWidth: 1)
                                 )
                         }
@@ -1644,15 +1661,15 @@ private struct ReviewPromptOverlay: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("후기")
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.system(size: 13, weight: .bold))
                         .foregroundStyle(ManwonColor.text)
                     TextEditor(text: $content)
-                        .frame(minHeight: 110)
-                        .padding(8)
+                        .frame(minHeight: 72)
+                        .padding(6)
                         .background(Color.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
                                 .stroke(ManwonColor.line, lineWidth: 1)
                         )
                     Text("\(content.count)/1000")
@@ -1665,19 +1682,20 @@ private struct ReviewPromptOverlay: View {
                     Button(busyAction == "later" ? "설정 중" : "나중에") {
                         Task { await runLater() }
                     }
-                    .buttonStyle(PrimaryButtonStyle(isSecondary: true))
+                    .buttonStyle(CompactReviewButtonStyle(isSecondary: true))
                     .disabled(busyAction != nil)
                     Button(busyAction == "submit" ? "저장 중" : "후기 남기기") {
                         Task { await runSubmit() }
                     }
-                    .buttonStyle(PrimaryButtonStyle())
+                    .buttonStyle(CompactReviewButtonStyle())
                     .disabled(busyAction != nil)
                 }
             }
-            .padding(20)
+            .padding(16)
             .background(ManwonColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .padding(.horizontal, 18)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .frame(maxWidth: 390)
+            .padding(.horizontal, 22)
             .shadow(color: .black.opacity(0.18), radius: 28, y: 14)
         }
     }
@@ -1697,6 +1715,23 @@ private struct ReviewPromptOverlay: View {
     }
 }
 
+private struct CompactReviewButtonStyle: ButtonStyle {
+    var isSecondary = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13, weight: .bold))
+            .foregroundStyle(isSecondary ? ManwonColor.brand : Color.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 34)
+            .background(isSecondary ? ManwonColor.brandSoft : ManwonColor.brand)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .scaleEffect(configuration.isPressed ? 0.975 : 1)
+            .opacity(configuration.isPressed ? 0.82 : 1)
+            .animation(ManwonMotion.press, value: configuration.isPressed)
+    }
+}
+
 private func reviewPromptDefaultsKey(dealId: String) -> String {
     "manwon_review_prompt_deferred_until:\(dealId)"
 }
@@ -1706,12 +1741,28 @@ private func deferredReviewUntil(dealId: String) -> TimeInterval? {
     return value > 0 ? value : nil
 }
 
-private func deferReviewPrompt(dealId: String) {
-    UserDefaults.standard.set(Date().addingTimeInterval(24 * 60 * 60).timeIntervalSince1970, forKey: reviewPromptDefaultsKey(dealId: dealId))
+private let reviewPromptDeferredFallbackInterval: TimeInterval = 2 * 60 * 60
+
+private func deferReviewPrompt(dealId: String, dueAt: String? = nil) {
+    let parsedDueAt = reviewPromptTimestamp(from: dueAt)
+    let fallbackDueAt = Date().addingTimeInterval(reviewPromptDeferredFallbackInterval).timeIntervalSince1970
+    let deferredUntil = parsedDueAt.map { $0 > Date().timeIntervalSince1970 ? $0 : fallbackDueAt } ?? fallbackDueAt
+    UserDefaults.standard.set(deferredUntil, forKey: reviewPromptDefaultsKey(dealId: dealId))
 }
 
 private func clearDeferredReview(dealId: String) {
     UserDefaults.standard.removeObject(forKey: reviewPromptDefaultsKey(dealId: dealId))
+}
+
+private func reviewPromptTimestamp(from value: String?) -> TimeInterval? {
+    guard let value, !value.isEmpty else { return nil }
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if let date = formatter.date(from: value) {
+        return date.timeIntervalSince1970
+    }
+    formatter.formatOptions = [.withInternetDateTime]
+    return formatter.date(from: value)?.timeIntervalSince1970
 }
 
 private struct ChatDetailHeader: View {

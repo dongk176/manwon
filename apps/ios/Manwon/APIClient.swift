@@ -605,8 +605,23 @@ final class APIClient {
         try await request("/api/users/\(userId)/reviews")
     }
 
-    func scheduleReviewReminder(dealId: String) async throws {
-        try await requestNoData("/api/review-reminders", method: "POST", body: ReviewReminderPayload(dealId: dealId))
+    func scheduleReviewReminder(dealId: String) async throws -> DueReviewReminder? {
+        var request = try await authorizedRequest(path: "/api/review-reminders", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(ReviewReminderPayload(dealId: dealId))
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIClientError.invalidResponse
+        }
+        if httpResponse.statusCode == 401 {
+            throw APIClientError.unauthenticated
+        }
+
+        let envelope = try decoder.decode(APIEnvelope<DueReviewReminder>.self, from: data)
+        guard (200..<300).contains(httpResponse.statusCode), envelope.ok else {
+            throw APIClientError.server(envelope.error ?? "요청에 실패했습니다.")
+        }
+        return envelope.data
     }
 
     func createReport(

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
-import { Check, CheckCircle2, ChevronLeft, ChevronRight, Clock, Clock3, Globe2, Heart, MapPin, MessageCircle, MoreHorizontal, Navigation, Share2, ShieldCheck, Trash2, UserRound, UsersRound, X } from 'lucide-react'
+import { Check, CheckCircle2, ChevronLeft, ChevronRight, Clock, Clock3, Globe2, Heart, MapPin, MoreHorizontal, Navigation, Share2, ShieldCheck, Trash2, UsersRound, X } from 'lucide-react'
 import { ActionGuideOverlay, BrandButton, CategoryImageFrame, MoreMenu, RatingStars, ReportConfirmSheet } from '@/components/ui/Common'
 import { UserProfileSheet } from '@/components/UserProfileSheet'
 import { Avatar } from '@/components/ui/Illustration'
@@ -63,7 +63,6 @@ type PriceOption = '5000' | '10000' | '15000' | '20000' | 'custom'
 type DeadlineOption = 'now' | 'today' | 'tomorrow' | 'custom'
 type AvailableTimeOption = 'now' | 'today' | 'weekday' | 'weekend' | 'custom'
 type GenderVisibility = 'private' | 'male' | 'female'
-type CapacityType = 'unlimited' | 'limited'
 type DetailEditSheet = 'category' | 'categoryCustom' | 'categoryDetail' | 'categoryDetailCustom' | 'mode' | 'availableTime' | 'availableTimeCustom' | null
 type ViewerInteractionLock = 'applied' | 'accepted' | 'in_progress' | 'complete_requested' | 'completed' | 'cancelled' | 'disputed'
 
@@ -87,8 +86,6 @@ interface DetailEditDraft {
   customDeadlineText: string
   availableTimeOption: AvailableTimeOption
   customAvailableTime: string
-  capacityType: CapacityType
-  capacityLimit: string
   genderVisibility: GenderVisibility
   serviceIntro: string
   serviceScope: string[]
@@ -130,10 +127,6 @@ const genderVisibilityOptions = [
 ] as const
 
 const responseTimeOptions = ['바로 답장 가능', '1시간 내 답장', '오늘 안에 답장', '일정 확인 후 답장'] as const
-const capacityTypeOptions: Array<{ value: CapacityType; label: string }> = [
-  { value: 'unlimited', label: '상시 모집' },
-  { value: 'limited', label: '인원 제한' },
-]
 const customCategoryMaxLength = 9
 const availableTimeMaxLength = 8
 const requiredFieldMessage = '필수 항목이에요.'
@@ -667,8 +660,8 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
         portfolioLinks: isRequest ? [] : portfolioLinks,
         responseTimeText: isRequest ? null : nullableText(editDraft.responseTime),
         responseTime: isRequest ? null : nullableText(editDraft.responseTime),
-        capacityType: editDraft.capacityType,
-        capacityLimit: editDraft.capacityType === 'limited' ? getCapacityLimitValue(editDraft.capacityLimit) : null,
+        capacityType: 'unlimited',
+        capacityLimit: null,
         images: toPersistedImages(editDraft.images),
         trustExampleImages: isRequest ? [] : toPersistedImages(editDraft.workSampleImages),
         workSampleImages: isRequest ? [] : toPersistedImages(editDraft.workSampleImages),
@@ -842,8 +835,6 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
                   <Info key={row.label} icon={row.icon} label={row.label} value={row.value} />
                 ))}
               </section>
-
-              {post && <PostCapacityPanel post={post} />}
 
               <section className="detail-section-card">
                 <h3>상세 설명</h3>
@@ -1394,33 +1385,6 @@ function Info({ icon, label, value }: { icon: React.ReactNode; label: string; va
   )
 }
 
-function PostCapacityPanel({ post }: { post: ApiTaskPost }) {
-  const activeChatCount = Math.max(Number(post.activeChatCount ?? 0), 0)
-  const occupiedCount = Math.max(Number(post.occupiedCount ?? 0), 0)
-  const capacityLimit = Math.max(Number(post.capacityLimit ?? 0), 0)
-  const isLimited = post.capacityType === 'limited'
-
-  return (
-    <section className="offer-capacity-panel" aria-label="모집 현황">
-      {isLimited ? (
-        <span>
-          <UserRound size={18} />
-          <strong>마감 {occupiedCount}/{capacityLimit}명</strong>
-        </span>
-      ) : (
-        <span>
-          <UsersRound size={18} />
-          <strong>상시 모집</strong>
-        </span>
-      )}
-      <span>
-        <MessageCircle size={18} />
-        <strong>채팅 {activeChatCount}</strong>
-      </span>
-    </section>
-  )
-}
-
 function ExtraPostSections({ post }: { post: ApiTaskPost }) {
   const isOffer = post.postType === 'offer'
   const [workSampleViewerIndex, setWorkSampleViewerIndex] = useState<number | null>(null)
@@ -1692,25 +1656,6 @@ function PostDetailEditForm({
               onClick={() => onSheetChange('availableTime')}
             />
           </>
-        )}
-        <DetailOptionGrid
-          value={draft.capacityType}
-          onChange={(capacityType) => update({
-            capacityType,
-            capacityLimit: capacityType === 'limited' && !draft.capacityLimit.trim() ? (isRequest ? '1' : '5') : draft.capacityLimit,
-          })}
-          options={capacityTypeOptions}
-          columns={2}
-        />
-        {draft.capacityType === 'limited' && (
-          <DetailTextInput
-            value={draft.capacityLimit}
-            onChange={(capacityLimit) => update({ capacityLimit: capacityLimit.replace(/[^0-9]/g, '') })}
-            placeholder="목표 인원"
-            inputMode="numeric"
-            suffix="명"
-            error={errors.capacityLimit}
-          />
         )}
       </section>
 
@@ -2121,8 +2066,6 @@ function createEditDraft(post: ApiTaskPost, displayPost: RequestPost): DetailEdi
     customDeadlineText: deadlineOption === 'custom' ? post.deadlineText ?? displayPost.deadline : '',
     availableTimeOption,
     customAvailableTime: availableTimeOption === 'custom' ? post.availableTimeText ?? displayPost.deadline : '',
-    capacityType: post.capacityType ?? 'unlimited',
-    capacityLimit: post.capacityLimit != null ? String(post.capacityLimit) : '5',
     genderVisibility: post.genderVisibility,
     serviceIntro: post.serviceIntro ?? '',
     serviceScope: Array.isArray(post.serviceScope) ? post.serviceScope : [],
@@ -2161,12 +2104,6 @@ function validateEditDraft(draft: DetailEditDraft, postType: 'request' | 'offer'
   }
   if (postType === 'request' && draft.deadlineOption === 'custom' && !draft.customDeadlineText.trim()) {
     errors.customDeadlineText = requiredFieldMessage
-  }
-  if (draft.capacityType === 'limited') {
-    const capacityLimit = getCapacityLimitValue(draft.capacityLimit)
-    if (!capacityLimit) errors.capacityLimit = '목표 인원을 입력해주세요.'
-    else if (capacityLimit < 1) errors.capacityLimit = '1명 이상 입력해주세요.'
-    else if (capacityLimit > 999) errors.capacityLimit = '999명 이하로 입력해주세요.'
   }
   if (postType === 'offer') {
     if (!draft.availableTimeOption) errors.availableTimeOption = requiredFieldMessage
@@ -2277,10 +2214,6 @@ function getPriceValue(option: PriceOption, customPrice: string) {
 function formatNumberInput(value: number) {
   if (!Number.isFinite(value) || value <= 0) return ''
   return String(Math.floor(value)).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
-}
-
-function getCapacityLimitValue(value: string) {
-  return Number(value.replace(/[^0-9]/g, ''))
 }
 
 function getDeadlineIso(option: DeadlineOption) {
