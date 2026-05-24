@@ -197,33 +197,43 @@ final class AppRouter: ObservableObject {
         let normalized = path.isEmpty ? "/" : path
         let routeCameFromActiveTab = tab == selectedTab
         if requiresAuthentication(normalized) && !authenticated {
-            routeToLogin(next: normalized)
+            if routeCameFromActiveTab {
+                routeToLogin(next: normalized)
+            }
             return
         }
         if onboardingRequired {
-            routeToProfileOnboarding()
+            if routeCameFromActiveTab {
+                routeToProfileOnboarding()
+            }
             return
         }
 
         if matchesPath(normalized, "/activity") {
-            setWebPath(normalized, for: .nearby)
-            if tab != .nearby {
+            if routeCameFromActiveTab || tab == .nearby {
+                setWebPath(normalized, for: .nearby)
+            }
+            if routeCameFromActiveTab && tab != .nearby {
                 setSelectedTab(.nearby)
             }
             return
         }
 
         if matchesPath(normalized, "/my") {
-            setWebPath(normalized, for: .my)
-            if tab != .my {
+            if routeCameFromActiveTab || tab == .my {
+                setWebPath(normalized, for: .my)
+            }
+            if routeCameFromActiveTab && tab != .my {
                 setSelectedTab(.my)
             }
             return
         }
 
         if matchesPath(normalized, "/register") {
-            setWebPath(normalized, for: .register)
-            if tab != .register {
+            if routeCameFromActiveTab || tab == .register {
+                setWebPath(normalized, for: .register)
+            }
+            if routeCameFromActiveTab && tab != .register {
                 setSelectedTab(.register)
             }
             return

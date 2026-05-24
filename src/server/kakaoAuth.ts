@@ -40,6 +40,24 @@ function fallbackDisplayName(profile: KakaoProfile) {
   return profile.nickname?.trim() || profile.name?.trim() || `카카오 사용자 ${profile.kakaoId.slice(-4)}`
 }
 
+function normalizeKakaoImageUrl(value?: string | null) {
+  const imageUrl = value?.trim()
+  if (!imageUrl) return null
+
+  try {
+    const url = new URL(imageUrl)
+    const host = url.hostname.toLowerCase()
+    if (url.protocol === 'http:' && (host === 'k.kakaocdn.net' || host.endsWith('.kakaocdn.net'))) {
+      url.protocol = 'https:'
+      return url.toString()
+    }
+  } catch {
+    return imageUrl
+  }
+
+  return imageUrl
+}
+
 function normalizeKakaoGender(value?: string) {
   if (value === 'male' || value === 'female') return value
   return null
@@ -80,7 +98,7 @@ export async function getKakaoProfile(accessToken: string): Promise<KakaoProfile
     kakaoId: String(user.id),
     email: user.kakao_account?.email ?? null,
     nickname: user.kakao_account?.profile?.nickname ?? user.properties?.nickname ?? null,
-    avatarUrl: user.kakao_account?.profile?.profile_image_url ?? user.properties?.profile_image ?? null,
+    avatarUrl: normalizeKakaoImageUrl(user.kakao_account?.profile?.profile_image_url ?? user.properties?.profile_image),
     name: user.kakao_account?.name ?? null,
     gender: normalizeKakaoGender(user.kakao_account?.gender),
     birthDate: normalizeKakaoBirthDate(user.kakao_account?.birthyear, user.kakao_account?.birthday),
@@ -150,7 +168,7 @@ export async function signInWithKakao(profile: KakaoProfile) {
           else coalesce(${sql(schema)}.users.display_name, excluded.display_name)
         end,
         avatar_url = case
-          when ${sql(schema)}.users.profile_onboarding_completed then ${sql(schema)}.users.avatar_url
+          when ${sql(schema)}.users.profile_onboarding_completed then coalesce(${sql(schema)}.users.avatar_url, excluded.avatar_url)
           else coalesce(${sql(schema)}.users.avatar_url, excluded.avatar_url)
         end,
         gender = case

@@ -135,7 +135,37 @@ export async function listActivityProfiles(userId: string) {
       order by created_at asc
       limit 1
     )
-    select ap.*, (ap.id = default_profile.id) as is_default, p.gender, p.phone_verified, p.identity_verified, p.rating_avg::float8, p.review_count, p.completed_count
+    select
+      ap.id,
+      ap.user_id,
+      coalesce(nullif(ap.avatar_url, ''), nullif(p.avatar_url, '')) as avatar_url,
+      ap.default_avatar_key,
+      ap.nickname,
+      ap.bio,
+      ap.activity_mode,
+      ap.address_text,
+      ap.region_1depth,
+      ap.region_2depth,
+      ap.region_3depth,
+      ap.region_code,
+      ap.latitude,
+      ap.longitude,
+      ap.career_summary,
+      ap.career_description,
+      ap.portfolio_links,
+      ap.work_sample_images,
+      ap.available_time_text,
+      ap.base_price,
+      ap.is_active,
+      ap.created_at,
+      ap.updated_at,
+      (ap.id = default_profile.id) as is_default,
+      p.gender,
+      p.phone_verified,
+      p.identity_verified,
+      p.rating_avg::float8,
+      p.review_count,
+      p.completed_count
     from manwon_happiness.activity_profiles ap
     join manwon_happiness.users p on p.id = ap.user_id
     left join default_profile on true
@@ -291,7 +321,7 @@ export async function listTaskPosts(input: ListPostsInput, viewerId?: string | n
       p.*,
       p.creator_profile_id as creator_profile_id,
       coalesce(creator_profile.nickname, creator.nickname) as creator_nickname,
-      coalesce(creator_profile.avatar_url, creator.avatar_url) as creator_avatar_url,
+      coalesce(nullif(creator_profile.avatar_url, ''), nullif(creator.avatar_url, '')) as creator_avatar_url,
       creator_profile.bio as creator_bio,
       creator.gender as creator_gender,
       creator.phone_verified as creator_phone_verified,
@@ -412,7 +442,7 @@ export async function getTaskPost(postId: string, viewerId?: string | null, opti
       p.*,
       p.creator_profile_id as creator_profile_id,
       coalesce(creator_profile.nickname, creator.nickname) as creator_nickname,
-      coalesce(creator_profile.avatar_url, creator.avatar_url) as creator_avatar_url,
+      coalesce(nullif(creator_profile.avatar_url, ''), nullif(creator.avatar_url, '')) as creator_avatar_url,
       creator_profile.default_avatar_key as creator_default_avatar_key,
       creator_profile.bio as creator_bio,
       creator.gender as creator_gender,
@@ -1563,14 +1593,14 @@ export async function listConversations(userId: string) {
       a.status as application_status,
       a.applicant_id as application_applicant_id,
       coalesce(requester_activity.nickname, requester.nickname) as requester_nickname,
-      coalesce(requester_activity.avatar_url, requester.avatar_url) as requester_avatar_url,
+      coalesce(nullif(requester_activity.avatar_url, ''), nullif(requester.avatar_url, '')) as requester_avatar_url,
       requester_activity.bio as requester_bio,
       coalesce(helper_activity.nickname, helper.nickname) as helper_nickname,
-      coalesce(helper_activity.avatar_url, helper.avatar_url) as helper_avatar_url,
+      coalesce(nullif(helper_activity.avatar_url, ''), nullif(helper.avatar_url, '')) as helper_avatar_url,
       helper_activity.bio as helper_bio,
       case when c.requester_id = ${userId} then c.helper_id else c.requester_id end as other_user_id,
       case when c.requester_id = ${userId} then coalesce(helper_activity.nickname, helper.nickname) else coalesce(requester_activity.nickname, requester.nickname) end as other_nickname,
-      case when c.requester_id = ${userId} then coalesce(helper_activity.avatar_url, helper.avatar_url) else coalesce(requester_activity.avatar_url, requester.avatar_url) end as other_avatar_url,
+      case when c.requester_id = ${userId} then coalesce(nullif(helper_activity.avatar_url, ''), nullif(helper.avatar_url, '')) else coalesce(nullif(requester_activity.avatar_url, ''), nullif(requester.avatar_url, '')) end as other_avatar_url,
       case when c.requester_id = ${userId} then helper_activity.default_avatar_key else requester_activity.default_avatar_key end as other_default_avatar_key,
       case when c.requester_id = ${userId} then helper_activity.bio else requester_activity.bio end as other_bio,
       case when c.requester_id = ${userId} then helper.gender else requester.gender end as other_gender,
@@ -2376,13 +2406,21 @@ export async function listUserReceivedReviews(userId: string, limit = 50) {
       r.rating,
       r.content,
       r.created_at,
-      coalesce(reviewer_profile.nickname, reviewer.nickname) as reviewer_nickname,
-      coalesce(reviewer_profile.avatar_url, reviewer.avatar_url) as reviewer_avatar_url,
-      reviewer_profile.default_avatar_key as reviewer_default_avatar_key,
+      coalesce(reviewer_profile.nickname, reviewer_default_profile.nickname, reviewer.nickname) as reviewer_nickname,
+      coalesce(nullif(reviewer_profile.avatar_url, ''), nullif(reviewer_default_profile.avatar_url, ''), nullif(reviewer.avatar_url, '')) as reviewer_avatar_url,
+      coalesce(reviewer_profile.default_avatar_key, reviewer_default_profile.default_avatar_key) as reviewer_default_avatar_key,
       p.title as post_title
     from manwon_happiness.reviews r
     join manwon_happiness.users reviewer on reviewer.id = r.reviewer_id
     left join manwon_happiness.activity_profiles reviewer_profile on reviewer_profile.id = r.reviewer_profile_id
+    left join lateral (
+      select nickname, avatar_url, default_avatar_key
+      from manwon_happiness.activity_profiles
+      where user_id = reviewer.id
+        and is_active = true
+      order by created_at asc
+      limit 1
+    ) reviewer_default_profile on true
     left join manwon_happiness.deals d on d.id = r.deal_id
     left join manwon_happiness.task_posts p on p.id = d.post_id
     where r.reviewee_id = ${userId}
@@ -2622,7 +2660,7 @@ export async function getMyActivity(userId: string) {
       select
         r.*,
         coalesce(reviewer_profile.nickname, reviewer_default_profile.nickname, reviewer.nickname) as reviewer_nickname,
-        coalesce(reviewer_profile.avatar_url, reviewer_default_profile.avatar_url, reviewer.avatar_url) as reviewer_avatar_url,
+        coalesce(nullif(reviewer_profile.avatar_url, ''), nullif(reviewer_default_profile.avatar_url, ''), nullif(reviewer.avatar_url, '')) as reviewer_avatar_url,
         coalesce(reviewer_profile.default_avatar_key, reviewer_default_profile.default_avatar_key) as reviewer_default_avatar_key,
         p.title as post_title
       from manwon_happiness.reviews r
@@ -2689,7 +2727,7 @@ export async function getMyPage(userId: string) {
     select
       p.*,
       default_activity_profile.id as default_activity_profile_id,
-      default_activity_profile.avatar_url as default_activity_profile_avatar_url,
+      coalesce(nullif(default_activity_profile.avatar_url, ''), nullif(u.avatar_url, '')) as default_activity_profile_avatar_url,
       default_activity_profile.default_avatar_key as default_activity_profile_default_avatar_key,
       default_activity_profile.nickname as default_activity_profile_nickname,
       default_activity_profile.bio as default_activity_profile_bio,

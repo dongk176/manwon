@@ -690,7 +690,7 @@ final class APIClient {
     func absoluteURLString(_ value: String?) -> String? {
         guard let value, !value.isEmpty else { return nil }
         if URL(string: value)?.scheme != nil {
-            return value
+            return normalizedRemoteImageURLString(value)
         }
         return AppConfig.webURL(path: value).absoluteString
     }
@@ -721,6 +721,19 @@ final class APIClient {
             return nil
         }
         return normalizedImageStorageKey(url.path)
+    }
+
+    private func normalizedRemoteImageURLString(_ value: String) -> String {
+        guard var components = URLComponents(string: value),
+              components.scheme?.lowercased() == "http",
+              let host = components.host?.lowercased(),
+              host == "k.kakaocdn.net" || host.hasSuffix(".kakaocdn.net")
+        else {
+            return value
+        }
+
+        components.scheme = "https"
+        return components.string ?? value
     }
 
     private func normalizedImageStorageKey(_ value: String?) -> String? {

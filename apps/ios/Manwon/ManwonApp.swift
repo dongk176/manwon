@@ -34,6 +34,7 @@ struct RootTabView: View {
     @State private var keyboardVisible = false
     @State private var initialSessionChecked = false
     @State private var initialSessionCheckStarted = false
+    @State private var initializedTabs: Set<AppTab> = [.home]
 
     var body: some View {
         Group {
@@ -135,6 +136,7 @@ struct RootTabView: View {
             keyboardVisible = false
         }
         .onAppear {
+            initializedTabs.insert(router.selectedTab)
             Task {
                 guard initialSessionChecked else { return }
                 let session = await refreshSessionGate()
@@ -142,6 +144,9 @@ struct RootTabView: View {
                     await openDueReviewReminderIfNeeded()
                 }
             }
+        }
+        .onChange(of: router.selectedTab) { selectedTab in
+            initializedTabs.insert(selectedTab)
         }
         .onChange(of: scenePhase) { phase in
             guard phase == .active else { return }
@@ -206,13 +211,17 @@ struct RootTabView: View {
     }
 
     private func tabLayer<Content: View>(_ tab: AppTab, @ViewBuilder content: () -> Content) -> some View {
-        content()
-            .opacity(router.selectedTab == tab ? 1 : 0)
-            .scaleEffect(router.selectedTab == tab ? 1 : 0.992)
-            .allowsHitTesting(router.selectedTab == tab)
-            .accessibilityHidden(router.selectedTab != tab)
-            .zIndex(router.selectedTab == tab ? 1 : 0)
-            .animation(ManwonMotion.fade, value: router.selectedTab)
+        Group {
+            if initializedTabs.contains(tab) {
+                content()
+                    .opacity(router.selectedTab == tab ? 1 : 0)
+                    .scaleEffect(router.selectedTab == tab ? 1 : 0.992)
+                    .allowsHitTesting(router.selectedTab == tab)
+                    .accessibilityHidden(router.selectedTab != tab)
+                    .zIndex(router.selectedTab == tab ? 1 : 0)
+                    .animation(ManwonMotion.fade, value: router.selectedTab)
+            }
+        }
     }
 }
 

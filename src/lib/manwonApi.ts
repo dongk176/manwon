@@ -490,7 +490,25 @@ export function normalizeDisplayImageUrl(value?: string | null) {
 
   const storageKey = inferImageStorageKey(imageUrl)
   if (storageKey) return getStorageImageProxyUrl(storageKey)
+  return normalizeRemoteImageUrl(imageUrl)
+}
+
+function normalizeRemoteImageUrl(imageUrl: string) {
+  try {
+    const url = new URL(imageUrl)
+    if (url.protocol === 'http:' && isKakaoImageHost(url.hostname)) {
+      url.protocol = 'https:'
+      return url.toString()
+    }
+  } catch {
+    return imageUrl
+  }
   return imageUrl
+}
+
+function isKakaoImageHost(hostname: string) {
+  const host = hostname.toLowerCase()
+  return host === 'k.kakaocdn.net' || host.endsWith('.kakaocdn.net')
 }
 
 function getStorageImageProxyUrl(storageKey: string) {
