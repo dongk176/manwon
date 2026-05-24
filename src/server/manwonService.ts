@@ -2727,7 +2727,7 @@ export async function getMyPage(userId: string) {
     select
       p.*,
       default_activity_profile.id as default_activity_profile_id,
-      coalesce(nullif(default_activity_profile.avatar_url, ''), nullif(u.avatar_url, '')) as default_activity_profile_avatar_url,
+      coalesce(nullif(default_activity_profile.avatar_url, ''), nullif(p.avatar_url, '')) as default_activity_profile_avatar_url,
       default_activity_profile.default_avatar_key as default_activity_profile_default_avatar_key,
       default_activity_profile.nickname as default_activity_profile_nickname,
       default_activity_profile.bio as default_activity_profile_bio,
