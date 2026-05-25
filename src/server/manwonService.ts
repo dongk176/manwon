@@ -2970,7 +2970,7 @@ export async function processDueTradeEvents(limit = 100) {
 
   await Promise.all([
     ...result.beforeRows.flatMap((deal) => {
-      const body = '장소와 시간을 확인해주세요.'
+      const body = appointmentReminderBody(deal.appointmentMode)
       return [deal.requesterId, deal.helperId].map((userId) => createNotificationEvent(String(userId), {
         type: 'appointment.before',
         title: '약속 전 마지막 체크!',
@@ -3001,6 +3001,12 @@ export async function processDueTradeEvents(limit = 100) {
     completedProcessed: result.completedRows.length,
     reviewPromptProcessed: result.reviewRows.length,
   }
+}
+
+function appointmentReminderBody(appointmentMode?: string | null) {
+  return appointmentMode === 'online'
+    ? '약속 시간을 확인해주세요.'
+    : '장소와 시간을 확인해주세요.'
 }
 
 export async function processDueReviewReminders(limit = 100) {

@@ -318,76 +318,73 @@ private struct UnreadMessagesNoticeOverlay: View {
     let onConfirm: () -> Void
 
     var body: some View {
-        ZStack(alignment: .top) {
-            Color.clear
+        ZStack {
+            Rectangle()
+                .fill(.ultraThinMaterial)
                 .contentShape(Rectangle())
                 .ignoresSafeArea()
                 .onTapGesture {}
 
-            VStack(spacing: 0) {
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: "message.fill")
+            Color.black.opacity(0.18)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+
+            VStack(spacing: 16) {
+                Image(systemName: "message.fill")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(ManwonColor.brand)
+                    .frame(width: 50, height: 50)
+                    .background(ManwonColor.brandSoft)
+                    .clipShape(Circle())
+
+                VStack(spacing: 6) {
+                    Text("읽지 않은 메시지가 있어요")
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(ManwonColor.brand)
-                        .frame(width: 38, height: 38)
-                        .background(ManwonColor.brandSoft)
-                        .clipShape(Circle())
+                        .foregroundStyle(ManwonColor.text)
+                        .multilineTextAlignment(.center)
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("읽지 않은 메시지가 있어요")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundStyle(ManwonColor.text)
-                                .lineLimit(2)
-
-                            Text("채팅에 읽지 않은 메시지 \(unreadBadgeText)개가 있습니다.")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(ManwonColor.muted)
-                                .lineLimit(2)
-                                .lineSpacing(2)
-                        }
-
-                        HStack(spacing: 8) {
-                            Button(action: onSuppress) {
-                                Text("다시 보지 않기")
-                                    .font(.system(size: 13, weight: .bold))
-                                    .foregroundStyle(ManwonColor.muted)
-                                    .padding(.horizontal, 8)
-                                    .frame(height: 34)
-                            }
-                            .buttonStyle(PressableScaleButtonStyle(scale: 0.97, pressedOpacity: 0.86))
-
-                            Button(action: onConfirm) {
-                                Text("확인")
-                                    .font(.system(size: 13, weight: .bold))
-                                    .foregroundStyle(Color.white)
-                                    .padding(.horizontal, 14)
-                                    .frame(height: 34)
-                                    .background(ManwonColor.brand)
-                                    .clipShape(Capsule())
-                            }
-                            .buttonStyle(PressableScaleButtonStyle(scale: 0.97, pressedOpacity: 0.88))
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Text("채팅에 읽지 않은 메시지 \(unreadBadgeText)개가 있습니다.")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(ManwonColor.muted)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(2)
                 }
-                .padding(14)
-                .frame(maxWidth: 390)
-                .background(ManwonColor.surface)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(ManwonColor.line.opacity(0.9), lineWidth: 1)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .shadow(color: Color.black.opacity(0.12), radius: 18, x: 0, y: 8)
-                .padding(.horizontal, 14)
-                .padding(.top, 10)
 
-                Spacer(minLength: 0)
+                HStack(spacing: 10) {
+                    Button(action: onSuppress) {
+                        Text("다시 보지 않기")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(ManwonColor.muted)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(ManwonColor.background)
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .buttonStyle(PressableScaleButtonStyle(scale: 0.98, pressedOpacity: 0.86))
+
+                    Button(action: onConfirm) {
+                        Text("확인")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(Color.white)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(ManwonColor.brand)
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .buttonStyle(PressableScaleButtonStyle(scale: 0.98, pressedOpacity: 0.88))
+                }
             }
+            .padding(20)
+            .frame(maxWidth: 340)
+            .background(ManwonColor.surface)
+            .overlay(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(ManwonColor.line.opacity(0.95), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .shadow(color: Color.black.opacity(0.22), radius: 28, x: 0, y: 14)
+            .padding(.horizontal, 24)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .transition(.move(edge: .top).combined(with: .opacity))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .transition(.scale(scale: 0.96).combined(with: .opacity))
     }
 
     private var unreadBadgeText: String {

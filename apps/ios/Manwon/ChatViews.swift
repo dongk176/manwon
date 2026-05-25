@@ -868,6 +868,7 @@ struct ChatDetailView: View {
     @State private var showBlockConfirmation = false
     @State private var moderationBusy = false
     @State private var pendingQuickMessage: QuickMessageSuggestion?
+    @State private var appointmentResultMessage: String?
     @State private var keyboardBottomInset: CGFloat = 0
     @FocusState private var composerFocused: Bool
     let onOpenReport: (ChatReportMode) -> Void
@@ -975,6 +976,11 @@ struct ChatDetailView: View {
                             blockConversationUser()
                         }
                     )
+                }
+                if let appointmentResultMessage {
+                    ChatActionResultOverlay(message: appointmentResultMessage) {
+                        self.appointmentResultMessage = nil
+                    }
                 }
             }
             .confirmationDialog("채팅 관리", isPresented: $showModerationActions, titleVisibility: .visible) {
@@ -1098,6 +1104,8 @@ struct ChatDetailView: View {
                     } onRequestReview: {
                         dismissComposerKeyboard()
                         onOpenReview(.chatPrompt)
+                    } onAppointmentUpdated: { message in
+                        appointmentResultMessage = message
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 12)
@@ -1536,7 +1544,7 @@ private struct ChatReviewPage: View {
                         Text("거래 후기를 남겨주세요")
                             .font(.system(size: 22, weight: .bold))
                             .foregroundStyle(ManwonColor.text)
-                        Text("\(viewModel.conversation?.otherNickname ?? "상대방")님과의 거래는 어떠셨나요?")
+                        Text(reviewPromptText)
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(ManwonColor.muted)
                     }
@@ -1623,6 +1631,17 @@ private struct ChatReviewPage: View {
 
     private var hasDraft: Bool {
         rating != 5 || !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var reviewPromptText: String {
+        let nickname = trimmedText(viewModel.conversation?.otherNickname) ?? "상대방"
+        let postTitle = trimmedText(viewModel.conversation?.postTitle) ?? "거래"
+        return "\(nickname)님과의 \(postTitle) 거래는 어떠셨나요?"
+    }
+
+    private func trimmedText(_ value: String?) -> String? {
+        let text = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return text.isEmpty ? nil : text
     }
 
     private var swipeBackGesture: some Gesture {
@@ -2483,6 +2502,7 @@ private struct TradeActionPanel: View {
     let onProfile: () -> Void
     let onRequestReport: () -> Void
     let onRequestReview: () -> Void
+    let onAppointmentUpdated: (String) -> Void
     @State private var showAppointmentEditor = false
 
     var body: some View {
@@ -2501,8 +2521,11 @@ private struct TradeActionPanel: View {
                 .stroke(ManwonColor.line, lineWidth: 1)
         )
         .sheet(isPresented: $showAppointmentEditor) {
-            AppointmentEditorSheet(conversation: conversation, viewModel: viewModel) {
+            AppointmentEditorSheet(conversation: conversation, viewModel: viewModel) { message in
                 showAppointmentEditor = false
+                if let message {
+                    onAppointmentUpdated(message)
+                }
             }
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
@@ -2570,17 +2593,17 @@ private struct TradeActionPanel: View {
 private struct AppointmentEditorSheet: View {
     let conversation: Conversation
     @ObservedObject var viewModel: ChatDetailViewModel
-    let onClose: () -> Void
+    let onSaved: (String?) -> Void
     @State private var mode: String
     @State private var scheduledAt: Date
     @State private var locationText: String
     @State private var isSaving = false
     @State private var errorMessage: String?
 
-    init(conversation: Conversation, viewModel: ChatDetailViewModel, onClose: @escaping () -> Void) {
+    init(conversation: Conversation, viewModel: ChatDetailViewModel, onSaved: @escaping (String?) -> Void) {
         self.conversation = conversation
         self.viewModel = viewModel
-        self.onClose = onClose
+        self.onSaved = onSaved
         _mode = State(initialValue: conversation.appointmentMode ?? "online")
         _scheduledAt = State(initialValue: conversation.appointmentDate ?? Date().addingTimeInterval(3600))
         _locationText = State(initialValue: conversation.appointmentLocationText ?? "")
@@ -2618,9 +2641,11 @@ private struct AppointmentEditorSheet: View {
             }
 
             HStack(spacing: 10) {
-                Button("닫기", action: onClose)
-                    .buttonStyle(PrimaryButtonStyle(isSecondary: true))
-                    .disabled(isSaving)
+                Button("닫기") {
+                    onSaved(nil)
+                }
+                .buttonStyle(PrimaryButtonStyle(isSecondary: true))
+                .disabled(isSaving)
                 Button(isSaving ? "저장 중" : "저장하기") {
                     save()
                 }
@@ -2638,17 +2663,34 @@ private struct AppointmentEditorSheet: View {
         }
         isSaving = true
         errorMessage = nil
+        let resultMessage = conversation.appointmentScheduledAt == nil ? nil : appointmentUpdatedMessage
         Task {
             let succeeded = await viewModel.updateAppointment(mode: mode, scheduledAt: scheduledAt, locationText: locationText)
             await MainActor.run {
                 isSaving = false
                 if succeeded {
-                    onClose()
+                    onSaved(resultMessage)
                 } else {
                     errorMessage = viewModel.errorMessage ?? "약속을 저장하지 못했습니다."
                 }
             }
         }
+    }
+
+    private var appointmentUpdatedMessage: String {
+        let place = mode == "in_person" ? trimmedLocationText : "온라인"
+        return "약속이 \(formattedScheduledAt), \(place)으로 수정되었습니다."
+    }
+
+    private var formattedScheduledAt: String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ko_KR")
+        formatter.dateFormat = "M월 d일 a h:mm"
+        return formatter.string(from: scheduledAt)
+    }
+
+    private var trimmedLocationText: String {
+        locationText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

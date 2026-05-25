@@ -656,6 +656,7 @@ function ReviewPromptSheet({
   const [error, setError] = useState('')
   const overlayStyle = useVisualViewportOverlayStyle()
   const dealId = chat.dealId
+  const reviewPromptText = `${chat.user.name || '상대방'}님과의 ${chat.request.title || '거래'} 거래는 어떠셨나요?`
 
   async function submit() {
     if (!dealId || busy) return
@@ -679,7 +680,7 @@ function ReviewPromptSheet({
           ×
         </button>
         <h2 id="review-prompt-title">거래 후기를 남겨주세요</h2>
-        <p>{chat.user.name}님과의 거래는 어떠셨나요?</p>
+        <p>{reviewPromptText}</p>
         <div className="review-star-row" role="radiogroup" aria-label="별점">
           {[1, 2, 3, 4, 5].map((value) => (
             <button
@@ -852,6 +853,7 @@ function TradeActionPanel({
   onReport: () => void
 }) {
   const [showAppointmentSheet, setShowAppointmentSheet] = useState(false)
+  const [appointmentResultMessage, setAppointmentResultMessage] = useState('')
 
   if (chat.dealChatBlockedAt) {
     return (
@@ -902,10 +904,19 @@ function TradeActionPanel({
         <AppointmentSheet
           chat={chat}
           onClose={() => setShowAppointmentSheet(false)}
-          onSaved={async () => {
+          onSaved={async (message) => {
             setShowAppointmentSheet(false)
             await onRefresh()
+            if (message) {
+              setAppointmentResultMessage(message)
+            }
           }}
+        />
+      )}
+      {appointmentResultMessage && (
+        <AppointmentResultOverlay
+          message={appointmentResultMessage}
+          onConfirm={() => setAppointmentResultMessage('')}
         />
       )}
     </>
@@ -919,7 +930,7 @@ function AppointmentSheet({
 }: {
   chat: UiChat
   onClose: () => void
-  onSaved: () => Promise<void>
+  onSaved: (message?: string) => Promise<void>
 }) {
   const initialDate = getAppointmentInitialDate(chat.appointmentScheduledAt)
   const [mode, setMode] = useState<'online' | 'in_person'>(chat.appointmentMode ?? 'online')
@@ -952,6 +963,10 @@ function AppointmentSheet({
       return
     }
 
+    const resultMessage = chat.appointmentScheduledAt
+      ? formatAppointmentUpdatedMessage(scheduledAt, mode, locationText)
+      : undefined
+
     setBusy(true)
     try {
       await updateConversationAppointment(chat.id, {
@@ -959,7 +974,7 @@ function AppointmentSheet({
         scheduledAt,
         locationText: mode === 'in_person' ? locationText.trim() : null,
       })
-      await onSaved()
+      await onSaved(resultMessage)
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '약속을 저장하지 못했습니다.')
     } finally {
@@ -1013,6 +1028,28 @@ function AppointmentSheet({
   )
 }
 
+function AppointmentResultOverlay({
+  message,
+  onConfirm,
+}: {
+  message: string
+  onConfirm: () => void
+}) {
+  return (
+    <div className="modal-overlay" role="presentation">
+      <div className="confirm-dialog action-guide-dialog" role="dialog" aria-modal="true" aria-labelledby="appointment-result-title">
+        <h2 id="appointment-result-title">약속 수정 완료</h2>
+        <p>{message}</p>
+        <div className="dialog-actions">
+          <button type="button" onClick={onConfirm}>
+            확인
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function getAppointmentInitialDate(value?: string | null) {
   if (value) {
     const parsed = new Date(value)
@@ -1046,6 +1083,11 @@ function localDateTimeToISOString(date: string, time: string) {
 function formatAppointmentSummary(chat: UiChat) {
   const mode = chat.appointmentMode === 'in_person' ? '직접 만남' : '온라인'
   return `${mode} · ${formatFullDateTime(chat.appointmentScheduledAt)}`
+}
+
+function formatAppointmentUpdatedMessage(scheduledAt: string, mode: 'online' | 'in_person', locationText: string) {
+  const place = mode === 'in_person' ? locationText.trim() : '온라인'
+  return `약속이 ${formatFullDateTime(scheduledAt)}, ${place}으로 수정되었습니다.`
 }
 
 function formatFullDateTime(value?: string | null) {
