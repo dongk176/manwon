@@ -11,7 +11,8 @@
     "ios:list": "xcodebuild -list -project apps/ios/Manwon.xcodeproj",
     "db:manwon:migrate": "node --env-file=.env.local scripts/apply-manwon-migration.mjs",
     "db:manwon:check": "node --env-file=.env.local scripts/check-manwon-db.mjs",
-    "db:manwon:seed-my-page": "node --env-file=.env.local scripts/seed-my-page-data.mjs"
+    "db:manwon:seed-my-page": "node --env-file=.env.local scripts/seed-my-page-data.mjs",
+    "db:manwon:seed-promo": "node --env-file=.env.local scripts/seed-promo-posts.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1049.0",
