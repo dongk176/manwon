@@ -62,7 +62,7 @@ const createPostBaseSchema = z.object({
   categoryDetail: z.string().trim().min(1).max(60).nullable().optional(),
   description: z.string().trim().min(1).max(1200),
   mode: taskModeSchema,
-  price: z.number().int().min(1).max(1000000),
+  price: z.number().int().min(1).max(6000000),
   deadlineAt: z.string().datetime().nullable().optional(),
   deadlineText: z.string().trim().max(80).nullable().optional(),
   availableTimeText: z.string().trim().max(80).nullable().optional(),
@@ -214,7 +214,7 @@ export const activityProfileSchema = z.object({
   portfolioLinks: z.array(portfolioLinkInputSchema).max(8).default([]),
   workSampleImages: z.array(imageRecordInputSchema).max(5).default([]),
   availableTimeText: z.string().trim().max(80).nullable().optional(),
-  basePrice: z.number().int().min(0).max(1000000).nullable().optional(),
+  basePrice: z.number().int().min(0).max(6000000).nullable().optional(),
 })
 
 export const updateActivityProfileSchema = activityProfileSchema.partial()

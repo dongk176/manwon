@@ -130,7 +130,7 @@ const customCategoryMaxLength = 9
 const availableTimeMaxLength = 8
 const requiredFieldMessage = '필수 항목이에요.'
 const offerMinPrice = 1000
-const offerMaxPrice = 10000
+const offerMaxPrice = 6000000
 const emptyImageRecords: ImageRecord[] = []
 
 const modeOptions: Array<{
@@ -1668,7 +1668,7 @@ function PostDetailEditForm({
           <DetailTextInput
             value={draft.customPrice}
             onChange={handleOfferPriceChange}
-            placeholder="10,000원 이하"
+            placeholder="6,000,000원 이하"
             inputMode="numeric"
             suffix="원"
             error={errors.customPrice}
@@ -2139,7 +2139,7 @@ function validateEditDraft(draft: DetailEditDraft, postType: 'request' | 'offer'
   const price = getPriceValue(draft.priceOption, draft.customPrice)
   if (price <= 0) errors.customPrice = '금액을 입력해주세요.'
   else if (postType === 'offer' && price < offerMinPrice) errors.customPrice = '최소 1,000원'
-  else if (postType === 'offer' && price > offerMaxPrice) errors.customPrice = '최대 1만원'
+  else if (postType === 'offer' && price > offerMaxPrice) errors.customPrice = '최대 6,000,000원'
   if ((draft.mode === 'nearby' || draft.mode === 'both') && !draft.addressText.trim()) {
     errors.location = requiredFieldMessage
   }

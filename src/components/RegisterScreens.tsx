@@ -92,7 +92,8 @@ const deadlineOptions = [
 ] as const
 
 const requestMinPrice = 1000
-const requestMaxPrice = 10000
+const requestMaxPrice = 6000000
+const defaultRequestPrice = 10000
 const customCategoryMaxLength = 9
 const availableTimeMaxLength = 8
 const requiredFieldMessage = '필수 항목이에요.'
@@ -184,7 +185,7 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
   const [mode, setMode] = useState<RequestMode | null>(null)
   const [locationRegion, setLocationRegion] = useState<LocationRegion | null>(null)
   const priceOption: PriceOption = 'custom'
-  const [customPrice, setCustomPrice] = useState(formatNumberInput(requestMaxPrice))
+  const [customPrice, setCustomPrice] = useState(formatNumberInput(defaultRequestPrice))
   const [priceNotice, setPriceNotice] = useState('')
   const [deadlineOption, setDeadlineOption] = useState<DeadlineOption>('asap')
   const [customDeadlineText, setCustomDeadlineText] = useState('')
@@ -374,7 +375,7 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
     const amount = Number(digits)
     if (amount > requestMaxPrice) {
       setCustomPrice(formatNumberInput(requestMaxPrice))
-      setPriceNotice('최대 1만원')
+      setPriceNotice('최대 6,000,000원')
       return
     }
     setCustomPrice(formatNumberInput(amount))
@@ -454,7 +455,7 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
               label="금액"
               value={customPrice}
               onChange={handleRequestPriceChange}
-              placeholder="10,000원 이하"
+              placeholder="6,000,000원 이하"
               inputMode="numeric"
               suffix="원"
               error={errors.customPrice}
@@ -643,7 +644,7 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
   const [availableTimeOption, setAvailableTimeOption] = useState<AvailableTimeOption | null>(null)
   const [customAvailableTime, setCustomAvailableTime] = useState('')
   const priceOption: PriceOption = 'custom'
-  const [customPrice, setCustomPrice] = useState(formatNumberInput(requestMaxPrice))
+  const [customPrice, setCustomPrice] = useState(formatNumberInput(defaultRequestPrice))
   const [priceNotice, setPriceNotice] = useState('')
   const [description, setDescription] = useState('')
   const [careerSummary, setCareerSummary] = useState('')
@@ -881,7 +882,7 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
     const amount = Number(digits)
     if (amount > requestMaxPrice) {
       setCustomPrice(formatNumberInput(requestMaxPrice))
-      setPriceNotice('최대 1만원')
+      setPriceNotice('최대 6,000,000원')
       return
     }
     setCustomPrice(formatNumberInput(amount))
@@ -917,7 +918,7 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
               label="금액"
               value={customPrice}
               onChange={handleOfferCustomPriceChange}
-              placeholder="10,000원 이하"
+              placeholder="6,000,000원 이하"
               inputMode="numeric"
               suffix="원"
               error={errors.customPrice}
@@ -2098,7 +2099,7 @@ function validateRequestStep(
     const price = getPriceValue(input.priceOption, input.customPrice)
     if (price <= 0) errors.customPrice = '금액을 입력해주세요.'
     else if (price < requestMinPrice) errors.customPrice = '최소 1,000원'
-    else if (price > requestMaxPrice) errors.customPrice = '최대 1만원'
+    else if (price > requestMaxPrice) errors.customPrice = '최대 6,000,000원'
     if (input.deadlineOption === 'custom') {
       const selectedDate = parseDateInput(input.customDeadlineText)
       if (!selectedDate) errors.customDeadlineText = requiredFieldMessage
@@ -2153,7 +2154,7 @@ function validateOfferStep(
     const price = getPriceValue(input.priceOption, input.customPrice)
     if (price <= 0) errors.customPrice = '금액을 입력해주세요.'
     else if (price < requestMinPrice) errors.customPrice = '최소 1,000원'
-    else if (price > requestMaxPrice) errors.customPrice = '최대 1만원'
+    else if (price > requestMaxPrice) errors.customPrice = '최대 6,000,000원'
     if (!input.description.trim()) errors.description = requiredFieldMessage
   }
   if (step === 2) {
