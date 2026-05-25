@@ -318,66 +318,73 @@ private struct UnreadMessagesNoticeOverlay: View {
     let onConfirm: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "message.fill")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(ManwonColor.brand)
-                    .frame(width: 38, height: 38)
-                    .background(ManwonColor.brandSoft)
-                    .clipShape(Circle())
+        ZStack(alignment: .top) {
+            Color.clear
+                .contentShape(Rectangle())
+                .ignoresSafeArea()
+                .onTapGesture {}
 
-                VStack(alignment: .leading, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("읽지 않은 메시지가 있어요")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(ManwonColor.text)
-                            .lineLimit(2)
+            VStack(spacing: 0) {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: "message.fill")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(ManwonColor.brand)
+                        .frame(width: 38, height: 38)
+                        .background(ManwonColor.brandSoft)
+                        .clipShape(Circle())
 
-                        Text("채팅에 읽지 않은 메시지 \(unreadBadgeText)개가 있습니다.")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(ManwonColor.muted)
-                            .lineLimit(2)
-                            .lineSpacing(2)
-                    }
+                    VStack(alignment: .leading, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("읽지 않은 메시지가 있어요")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundStyle(ManwonColor.text)
+                                .lineLimit(2)
 
-                    HStack(spacing: 8) {
-                        Button(action: onSuppress) {
-                            Text("다시 보지 않기")
-                                .font(.system(size: 13, weight: .bold))
+                            Text("채팅에 읽지 않은 메시지 \(unreadBadgeText)개가 있습니다.")
+                                .font(.system(size: 13, weight: .medium))
                                 .foregroundStyle(ManwonColor.muted)
-                                .padding(.horizontal, 8)
-                                .frame(height: 34)
+                                .lineLimit(2)
+                                .lineSpacing(2)
                         }
-                        .buttonStyle(PressableScaleButtonStyle(scale: 0.97, pressedOpacity: 0.86))
 
-                        Button(action: onConfirm) {
-                            Text("확인")
-                                .font(.system(size: 13, weight: .bold))
-                                .foregroundStyle(Color.white)
-                                .padding(.horizontal, 14)
-                                .frame(height: 34)
-                                .background(ManwonColor.brand)
-                                .clipShape(Capsule())
+                        HStack(spacing: 8) {
+                            Button(action: onSuppress) {
+                                Text("다시 보지 않기")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundStyle(ManwonColor.muted)
+                                    .padding(.horizontal, 8)
+                                    .frame(height: 34)
+                            }
+                            .buttonStyle(PressableScaleButtonStyle(scale: 0.97, pressedOpacity: 0.86))
+
+                            Button(action: onConfirm) {
+                                Text("확인")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundStyle(Color.white)
+                                    .padding(.horizontal, 14)
+                                    .frame(height: 34)
+                                    .background(ManwonColor.brand)
+                                    .clipShape(Capsule())
+                            }
+                            .buttonStyle(PressableScaleButtonStyle(scale: 0.97, pressedOpacity: 0.88))
                         }
-                        .buttonStyle(PressableScaleButtonStyle(scale: 0.97, pressedOpacity: 0.88))
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .padding(14)
-            .frame(maxWidth: 390)
-            .background(ManwonColor.surface)
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(ManwonColor.line.opacity(0.9), lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .shadow(color: Color.black.opacity(0.12), radius: 18, x: 0, y: 8)
-            .padding(.horizontal, 14)
-            .padding(.top, 10)
+                .padding(14)
+                .frame(maxWidth: 390)
+                .background(ManwonColor.surface)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(ManwonColor.line.opacity(0.9), lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .shadow(color: Color.black.opacity(0.12), radius: 18, x: 0, y: 8)
+                .padding(.horizontal, 14)
+                .padding(.top, 10)
 
-            Spacer(minLength: 0)
+                Spacer(minLength: 0)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .transition(.move(edge: .top).combined(with: .opacity))

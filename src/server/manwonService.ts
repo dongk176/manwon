@@ -2970,10 +2970,10 @@ export async function processDueTradeEvents(limit = 100) {
 
   await Promise.all([
     ...result.beforeRows.flatMap((deal) => {
-      const body = `약속 1시간 전입니다. ${formatAppointmentMode(deal.appointmentMode)} · ${formatAppointmentTime(deal.appointmentScheduledAt)}`
+      const body = '장소와 시간을 확인해주세요.'
       return [deal.requesterId, deal.helperId].map((userId) => createNotificationEvent(String(userId), {
         type: 'appointment.before',
-        title: '약속 1시간 전이에요',
+        title: '약속 전 마지막 체크!',
         body,
         data: chatNotificationData({
           type: 'appointment.before',
