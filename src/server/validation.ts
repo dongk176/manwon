@@ -8,6 +8,7 @@ export const closedReasonSchema = z.enum(['capacity_full', 'manual'])
 export const genderVisibilitySchema = z.enum(['private', 'male', 'female'])
 export const locationSourceSchema = z.enum(['gps', 'manual'])
 export const dealStatusSchema = z.enum(['pending', 'accepted', 'in_progress', 'complete_requested', 'completed', 'cancelled', 'disputed'])
+export const appointmentModeSchema = z.enum(['online', 'in_person'])
 export const messageTypeSchema = z.enum(['text', 'image', 'system'])
 
 const imageRecordInputSchema = z.object({
@@ -236,6 +237,20 @@ export const createReviewSchema = z.object({
 
 export const reviewReminderSchema = z.object({
   dealId: z.string().uuid(),
+})
+
+export const appointmentSchema = z.object({
+  mode: appointmentModeSchema,
+  scheduledAt: z.string().datetime(),
+  locationText: z.string().trim().max(120).nullable().optional(),
+}).superRefine((input, context) => {
+  if (input.mode === 'in_person' && !input.locationText?.trim()) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['locationText'],
+      message: '직접 만나는 약속은 장소를 입력해주세요.',
+    })
+  }
 })
 
 export const createConversationSchema = z.object({

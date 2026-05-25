@@ -160,10 +160,7 @@ struct RootTabView: View {
             initializedTabs.insert(router.selectedTab)
             Task {
                 guard initialSessionChecked else { return }
-                let session = await refreshSessionGate()
-                if session?.authenticated == true {
-                    await openDueReviewReminderIfNeeded()
-                }
+                await refreshSessionGate()
             }
         }
         .onChange(of: router.selectedTab) { selectedTab in
@@ -178,7 +175,6 @@ struct RootTabView: View {
                 let session = await refreshSessionGate()
                 if session?.authenticated == true {
                     await refreshUnreadState(showStartupNotice: false)
-                    await openDueReviewReminderIfNeeded()
                 } else {
                     router.chatUnreadCount = 0
                     unreadNotice = nil
@@ -199,7 +195,6 @@ struct RootTabView: View {
 
         if session?.authenticated == true {
             await refreshUnreadState(showStartupNotice: true)
-            await openDueReviewReminderIfNeeded()
         } else {
             router.chatUnreadCount = 0
         }
@@ -231,15 +226,6 @@ struct RootTabView: View {
         }
 
         return latestSession
-    }
-
-    private func openDueReviewReminderIfNeeded() async {
-        guard !router.onboardingRequired else { return }
-        guard !(router.selectedTab == .chat && router.chatDetailActive) else { return }
-        guard let reminder = try? await APIClient.shared.fetchDueReviewReminder(), let conversationId = reminder.conversationId else {
-            return
-        }
-        router.openChatReview(conversationId: conversationId, source: .reminder)
     }
 
     private func refreshUnreadState(showStartupNotice: Bool) async {

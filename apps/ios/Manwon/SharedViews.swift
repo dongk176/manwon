@@ -415,12 +415,11 @@ private func parseAPIDate(_ value: String) -> Date? {
 }
 
 func statusText(_ conversation: Conversation) -> String {
-    if conversation.dealChatBlockedAt != nil { return "완료·신고" }
+    if conversation.dealChatBlockedAt != nil { return "신고" }
     if conversation.dealStatus == .completed { return "거래완료" }
     if conversation.dealStatus == .cancelled { return "취소됨" }
-    if conversation.dealStatus == .inProgress { return "진행중" }
-    if conversation.dealStatus == .completeRequested { return "완료요청" }
-    if conversation.dealStatus == .accepted { return "수락대기" }
-    if conversation.applicationStatus == "rejected" || conversation.applicationStatus == "cancelled" { return "지원종료" }
-    return conversation.applicationStatus == "applied" ? "지원됨" : "문의"
+    if conversation.dealStatus == .disputed { return "신고" }
+    if conversation.applicationStatus == "rejected" || conversation.applicationStatus == "cancelled" { return "취소됨" }
+    if conversation.appointmentScheduledAt != nil { return "약속" }
+    return "문의"
 }

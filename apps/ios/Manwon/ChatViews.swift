@@ -708,8 +708,6 @@ final class ChatDetailViewModel: ObservableObject {
         if conversation.dealChatBlockedAt != nil {
             return .reported(conversation.chatBlockedMessage(currentUserId: currentUserId))
         }
-        if conversation.hasPendingApplicationBeforeAcceptance { return .pendingApplication }
-        if conversation.isClosed { return .closed }
         return nil
     }
 
@@ -776,13 +774,23 @@ final class ChatDetailViewModel: ObservableObject {
         }
     }
 
-    func scheduleReviewReminder() async -> DueReviewReminder? {
-        guard let dealId = conversation?.dealId else { return nil }
+    func updateAppointment(mode: String, scheduledAt: Date, locationText: String?) async -> Bool {
+        guard let conversation else { return false }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let trimmedLocation = locationText?.trimmingCharacters(in: .whitespacesAndNewlines)
         do {
-            return try await APIClient.shared.scheduleReviewReminder(dealId: dealId)
+            try await APIClient.shared.updateConversationAppointment(
+                conversationId: conversation.id,
+                mode: mode,
+                scheduledAt: formatter.string(from: scheduledAt),
+                locationText: mode == "in_person" ? trimmedLocation : nil
+            )
+            await load(silent: true)
+            return true
         } catch {
             errorMessage = error.localizedDescription
-            return nil
+            return false
         }
     }
 
@@ -848,81 +856,6 @@ final class ChatDetailViewModel: ObservableObject {
     }
 }
 
-private enum ChatTradeAction: Identifiable, Equatable {
-    case deal(DealStatus)
-    case application(String)
-
-    var id: String {
-        switch self {
-        case .deal(let status): return "deal:\(status.rawValue)"
-        case .application(let status): return "application:\(status)"
-        }
-    }
-
-    var title: String {
-        switch self {
-        case .application("accepted"):
-            return "지원자를 수락할까요?"
-        case .application("rejected"):
-            return "지원을 거절할까요?"
-        case .deal(.completed):
-            return "완료 승인할까요?"
-        case .deal(.disputed):
-            return "문제를 신고할까요?"
-        case .deal(.completeRequested):
-            return "완료 요청을 보낼까요?"
-        case .deal(.cancelled):
-            return "거래를 취소할까요?"
-        case .deal(.inProgress):
-            return "거래를 시작할까요?"
-        default:
-            return "상태를 변경할까요?"
-        }
-    }
-
-    var message: String {
-        switch self {
-        case .application("accepted"):
-            return "수락하면 거래가 만들어지고 채팅에서 진행을 시작할 수 있습니다."
-        case .application("rejected"):
-            return "거절 후에는 이 채팅에서 거래를 진행할 수 없습니다."
-        case .deal(.completed):
-            return "승인하면 거래가 완료되고 후기 작성 단계로 넘어갑니다."
-        case .deal(.disputed):
-            return "거래에 문제가 있으면 신고 상태로 전환됩니다."
-        case .deal(.completeRequested):
-            return "작업이 끝났다면 작성자에게 완료 승인을 요청합니다."
-        case .deal(.cancelled):
-            return "취소 후에는 이 거래를 다시 진행할 수 없습니다."
-        case .deal(.inProgress):
-            return "시작 후 지원자가 완료 요청을 보낼 수 있습니다."
-        default:
-            return "이 작업은 거래 상태에 바로 반영됩니다."
-        }
-    }
-
-    var confirmTitle: String {
-        switch self {
-        case .application("accepted"):
-            return "수락하기"
-        case .application("rejected"):
-            return "거절하기"
-        case .deal(.completed):
-            return "완료 승인"
-        case .deal(.disputed):
-            return "신고하기"
-        case .deal(.completeRequested):
-            return "요청 보내기"
-        case .deal(.cancelled):
-            return "취소하기"
-        case .deal(.inProgress):
-            return "시작하기"
-        default:
-            return "확인"
-        }
-    }
-}
-
 struct ChatDetailView: View {
     private static let scrollBottomAnchorId = "chat-scroll-bottom-anchor"
 
@@ -934,10 +867,8 @@ struct ChatDetailView: View {
     @State private var showModerationActions = false
     @State private var showBlockConfirmation = false
     @State private var moderationBusy = false
-    @State private var pendingTradeConfirmation: ChatTradeAction?
     @State private var pendingQuickMessage: QuickMessageSuggestion?
     @State private var keyboardBottomInset: CGFloat = 0
-    @State private var reviewPromptNavigationDealId: String?
     @FocusState private var composerFocused: Bool
     let onOpenReport: (ChatReportMode) -> Void
     let onOpenReview: (ChatReviewSource) -> Void
@@ -979,7 +910,6 @@ struct ChatDetailView: View {
             }
             .task {
                 await viewModel.load()
-                syncReviewPrompt()
                 await viewModel.startRealtime()
             }
             .onDisappear {
@@ -1006,13 +936,11 @@ struct ChatDetailView: View {
                 guard notification.userInfo?["conversationId"] as? String == viewModel.conversationId else { return }
                 Task {
                     await viewModel.refreshForPushNotification()
-                    syncReviewPrompt()
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .manwonAppDidBecomeActive)) { _ in
                 Task {
                     await viewModel.refreshForForegroundResume()
-                    syncReviewPrompt()
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .manwonConversationStateChanged)) { notification in
@@ -1022,27 +950,9 @@ struct ChatDetailView: View {
                 }
                 Task {
                     await viewModel.load(silent: true)
-                    syncReviewPrompt()
                 }
-            }
-            .onChange(of: viewModel.conversation?.dealStatus) { _ in
-                syncReviewPrompt()
-            }
-            .onChange(of: viewModel.conversation?.myReviewId) { _ in
-                syncReviewPrompt()
             }
             .overlay {
-                if let action = pendingTradeConfirmation {
-                    TradeActionConfirmationOverlay(
-                        action: action,
-                        onCancel: {
-                            pendingTradeConfirmation = nil
-                        },
-                        onConfirm: {
-                            confirmTradeAction(action)
-                        }
-                    )
-                }
                 if let quickMessage = pendingQuickMessage {
                     QuickMessageConfirmationOverlay(
                         message: quickMessage.text,
@@ -1092,7 +1002,7 @@ struct ChatDetailView: View {
     private var swipeBackGesture: some Gesture {
         DragGesture(minimumDistance: 18, coordinateSpace: .local)
             .onEnded { value in
-                guard pendingTradeConfirmation == nil, pendingQuickMessage == nil else { return }
+                guard pendingQuickMessage == nil else { return }
                 guard shouldDismissForSwipeBack(value) else { return }
 
                 dismissComposerKeyboard()
@@ -1163,49 +1073,12 @@ struct ChatDetailView: View {
         }
     }
 
-    private func confirmTradeAction(_ action: ChatTradeAction) {
-        pendingTradeConfirmation = nil
-        Task {
-            let succeeded: Bool
-            switch action {
-            case .deal(let status):
-                succeeded = await viewModel.updateDealStatus(status)
-            case .application(let status):
-                succeeded = await viewModel.updateApplicationStatus(status)
-            }
-            if succeeded {
-                permissionPrompts.requestPush(context: .dealAction)
-            }
-        }
-    }
-
     private func confirmQuickMessage(_ quickMessage: QuickMessageSuggestion) {
         pendingQuickMessage = nil
         dismissComposerKeyboard()
         Task {
             await viewModel.sendQuickMessage(quickMessage.text)
         }
-    }
-
-    private func syncReviewPrompt() {
-        guard
-            let conversation = viewModel.conversation,
-            conversation.dealStatus == .completed,
-            conversation.dealReportedAt == nil,
-            let dealId = conversation.dealId,
-            conversation.myReviewId == nil
-        else {
-            reviewPromptNavigationDealId = nil
-            return
-        }
-
-        if let deferredUntil = deferredReviewUntil(dealId: dealId), Date().timeIntervalSince1970 < deferredUntil {
-            return
-        }
-
-        guard reviewPromptNavigationDealId != dealId else { return }
-        reviewPromptNavigationDealId = dealId
-        onOpenReview(.chatPrompt)
     }
 
     @ViewBuilder
@@ -1221,10 +1094,10 @@ struct ChatDetailView: View {
                         showProfileSheet = true
                     } onRequestReport: {
                         dismissComposerKeyboard()
-                        onOpenReport(.completionDispute)
-                    } onRequestConfirmation: { action in
+                        onOpenReport(.conversation)
+                    } onRequestReview: {
                         dismissComposerKeyboard()
-                        pendingTradeConfirmation = action
+                        onOpenReview(.chatPrompt)
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 12)
@@ -1340,44 +1213,6 @@ struct ChatDetailView: View {
             }
         } else {
             proxy.scrollTo(Self.scrollBottomAnchorId, anchor: .bottom)
-        }
-    }
-}
-
-private struct TradeActionConfirmationOverlay: View {
-    let action: ChatTradeAction
-    let onCancel: () -> Void
-    let onConfirm: () -> Void
-
-    var body: some View {
-        ZStack {
-            Color.black.opacity(0.45)
-                .ignoresSafeArea()
-                .onTapGesture(perform: onCancel)
-
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 7) {
-                    Text(action.title)
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundStyle(ManwonColor.text)
-                    Text(action.message)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(ManwonColor.muted)
-                        .lineSpacing(2)
-                }
-
-                HStack(spacing: 10) {
-                    Button("돌아가기", action: onCancel)
-                        .buttonStyle(PrimaryButtonStyle(isSecondary: true))
-                    Button(action.confirmTitle, action: onConfirm)
-                        .buttonStyle(PrimaryButtonStyle())
-                }
-            }
-            .padding(20)
-            .background(ManwonColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .padding(.horizontal, 18)
-            .shadow(color: .black.opacity(0.18), radius: 28, y: 14)
         }
     }
 }
@@ -1548,23 +1383,15 @@ private struct ChatReportPage: View {
 
     private var reportActions: some View {
         VStack(spacing: 10) {
-            if mode == .conversation {
-                HStack(spacing: 10) {
-                    Button(actionTitle(for: "report", fallback: "신고하기")) {
-                        submit(blockAfterReport: false)
-                    }
-                    .buttonStyle(PrimaryButtonStyle(isSecondary: true))
-                    .disabled(busyAction != nil)
-
-                    Button(actionTitle(for: "block", fallback: "차단하고 신고하기")) {
-                        submit(blockAfterReport: true)
-                    }
-                    .buttonStyle(PrimaryButtonStyle())
-                    .disabled(busyAction != nil)
-                }
-            } else {
-                Button(actionTitle(for: "dispute", fallback: "신고하고 거래 완료 처리")) {
+            HStack(spacing: 10) {
+                Button(actionTitle(for: "report", fallback: "신고하기")) {
                     submit(blockAfterReport: false)
+                }
+                .buttonStyle(PrimaryButtonStyle(isSecondary: true))
+                .disabled(busyAction != nil)
+
+                Button(actionTitle(for: "block", fallback: "차단하고 신고하기")) {
+                    submit(blockAfterReport: true)
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .disabled(busyAction != nil)
@@ -1582,21 +1409,15 @@ private struct ChatReportPage: View {
     }
 
     private var headerTitle: String {
-        mode == .conversation ? "신고하기" : "문제 신고"
+        "신고하기"
     }
 
     private var title: String {
-        guard mode == .completionDispute else {
-            return "\(viewModel.conversation?.otherNickname ?? "상대방")님을 신고할까요?"
-        }
-        return "완료 요청을 신고할까요?"
+        "\(viewModel.conversation?.otherNickname ?? "상대방")님을 신고할까요?"
     }
 
     private var message: String {
-        guard mode == .completionDispute else {
-            return "신고 내용과 채팅 정보는 운영팀 검토용으로 접수됩니다."
-        }
-        return "거래 문제를 신고하면 거래는 완료 처리되고 이 채팅방의 메시지 전송이 양쪽 모두 차단됩니다."
+        "신고 내용과 채팅 정보는 운영팀 검토용으로 접수됩니다."
     }
 
     private func actionTitle(for action: String, fallback: String) -> String {
@@ -1605,27 +1426,16 @@ private struct ChatReportPage: View {
 
     private func submit(blockAfterReport: Bool) {
         guard busyAction == nil else { return }
-        let action = mode == .completionDispute ? "dispute" : (blockAfterReport ? "block" : "report")
+        let action = blockAfterReport ? "block" : "report"
         busyAction = action
         descriptionFocused = false
 
         Task {
-            let succeeded: Bool
-            switch mode {
-            case .conversation:
-                succeeded = await viewModel.reportConversation(
-                    reason: reason,
-                    description: description,
-                    blockAfterReport: blockAfterReport
-                )
-            case .completionDispute:
-                let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
-                succeeded = await viewModel.updateDealStatus(
-                    .disputed,
-                    reportReason: reason,
-                    reportDescription: trimmedDescription.isEmpty ? nil : trimmedDescription
-                )
-            }
+            let succeeded = await viewModel.reportConversation(
+                reason: reason,
+                description: description,
+                blockAfterReport: blockAfterReport
+            )
 
             await MainActor.run {
                 busyAction = nil
@@ -1642,9 +1452,6 @@ private struct ChatReportPage: View {
     }
 
     private func completionCopy(blockAfterReport: Bool) -> String {
-        if mode == .completionDispute {
-            return "신고하고 거래 완료 처리했어요."
-        }
         return blockAfterReport ? "차단하고 신고가 완료되었어요." : "신고가 접수되었어요."
     }
 }
@@ -1697,13 +1504,12 @@ private struct ChatReviewPage: View {
         .overlay {
             if showExitConfirmation {
                 ChatReviewExitOverlay(
-                    busy: busyAction == "later",
                     onCancel: {
                         showExitConfirmation = false
                     },
                     onConfirm: {
                         showExitConfirmation = false
-                        runLater()
+                        closeWithoutSaving()
                     }
                 )
             }
@@ -1792,8 +1598,8 @@ private struct ChatReviewPage: View {
 
     private var reviewActions: some View {
         HStack(spacing: 10) {
-            Button(busyAction == "later" ? "설정 중" : "나중에") {
-                runLater()
+            Button("닫기") {
+                requestExit()
             }
             .buttonStyle(PrimaryButtonStyle(isSecondary: true))
             .disabled(busyAction != nil)
@@ -1847,21 +1653,14 @@ private struct ChatReviewPage: View {
         if hasDraft {
             showExitConfirmation = true
         } else {
-            runLater()
+            closeWithoutSaving()
         }
     }
 
-    private func runLater() {
+    private func closeWithoutSaving() {
         guard busyAction == nil else { return }
-        busyAction = "later"
         contentFocused = false
-        Task {
-            await deferReviewForLater()
-            await MainActor.run {
-                busyAction = nil
-                finishExit()
-            }
-        }
+        finishExit()
     }
 
     private func submitReview() {
@@ -1873,9 +1672,6 @@ private struct ChatReviewPage: View {
             await MainActor.run {
                 busyAction = nil
                 guard succeeded else { return }
-                if let dealId = viewModel.conversation?.dealId {
-                    clearDeferredReview(dealId: dealId)
-                }
                 NotificationCenter.default.post(
                     name: .manwonConversationStateChanged,
                     object: nil,
@@ -1884,15 +1680,6 @@ private struct ChatReviewPage: View {
                 showCompletionOverlay = true
             }
         }
-    }
-
-    private func deferReviewForLater() async {
-        guard let reminder = await viewModel.scheduleReviewReminder(),
-              let dealId = viewModel.conversation?.dealId
-        else {
-            return
-        }
-        deferReviewPrompt(dealId: dealId, dueAt: reminder.dueAt)
     }
 
     private func finishExit() {
@@ -1932,7 +1719,6 @@ private struct ChatActionResultOverlay: View {
 }
 
 private struct ChatReviewExitOverlay: View {
-    let busy: Bool
     let onCancel: () -> Void
     let onConfirm: () -> Void
 
@@ -1950,10 +1736,8 @@ private struct ChatReviewExitOverlay: View {
                 HStack(spacing: 10) {
                     Button("계속 작성", action: onCancel)
                         .buttonStyle(PrimaryButtonStyle(isSecondary: true))
-                        .disabled(busy)
-                    Button(busy ? "처리 중" : "나가기", action: onConfirm)
+                    Button("나가기", action: onConfirm)
                         .buttonStyle(PrimaryButtonStyle())
-                        .disabled(busy)
                 }
             }
             .padding(20)
@@ -2006,39 +1790,6 @@ private struct BlockUserConfirmationOverlay: View {
             .shadow(color: .black.opacity(0.18), radius: 28, y: 14)
         }
     }
-}
-
-private func reviewPromptDefaultsKey(dealId: String) -> String {
-    "manwon_review_prompt_deferred_until:\(dealId)"
-}
-
-private func deferredReviewUntil(dealId: String) -> TimeInterval? {
-    let value = UserDefaults.standard.double(forKey: reviewPromptDefaultsKey(dealId: dealId))
-    return value > 0 ? value : nil
-}
-
-private let reviewPromptDeferredFallbackInterval: TimeInterval = 2 * 60 * 60
-
-private func deferReviewPrompt(dealId: String, dueAt: String? = nil) {
-    let parsedDueAt = reviewPromptTimestamp(from: dueAt)
-    let fallbackDueAt = Date().addingTimeInterval(reviewPromptDeferredFallbackInterval).timeIntervalSince1970
-    let deferredUntil = parsedDueAt.map { $0 > Date().timeIntervalSince1970 ? $0 : fallbackDueAt } ?? fallbackDueAt
-    UserDefaults.standard.set(deferredUntil, forKey: reviewPromptDefaultsKey(dealId: dealId))
-}
-
-private func clearDeferredReview(dealId: String) {
-    UserDefaults.standard.removeObject(forKey: reviewPromptDefaultsKey(dealId: dealId))
-}
-
-private func reviewPromptTimestamp(from value: String?) -> TimeInterval? {
-    guard let value, !value.isEmpty else { return nil }
-    let formatter = ISO8601DateFormatter()
-    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    if let date = formatter.date(from: value) {
-        return date.timeIntervalSince1970
-    }
-    formatter.formatOptions = [.withInternetDateTime]
-    return formatter.date(from: value)?.timeIntervalSince1970
 }
 
 private struct ChatDetailHeader: View {
@@ -2731,31 +2482,14 @@ private struct TradeActionPanel: View {
     @ObservedObject var viewModel: ChatDetailViewModel
     let onProfile: () -> Void
     let onRequestReport: () -> Void
-    let onRequestConfirmation: (ChatTradeAction) -> Void
+    let onRequestReview: () -> Void
+    @State private var showAppointmentEditor = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
                 .font(.system(size: 15, weight: .bold))
                 .foregroundStyle(ManwonColor.text)
-            if showsProfilePrompt {
-                Button(action: onProfile) {
-                    HStack {
-                        Text("수락 전에 지원자 프로필을 확인해보세요.")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(ManwonColor.muted)
-                        Spacer()
-                        Text("프로필 보기")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(ManwonColor.brand)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(ManwonColor.brandSoft.opacity(0.55))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-                .buttonStyle(PressableScaleButtonStyle(scale: 0.98, pressedOpacity: 0.86))
-            }
             actions
         }
         .padding(14)
@@ -2766,75 +2500,23 @@ private struct TradeActionPanel: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(ManwonColor.line, lineWidth: 1)
         )
+        .sheet(isPresented: $showAppointmentEditor) {
+            AppointmentEditorSheet(conversation: conversation, viewModel: viewModel) {
+                showAppointmentEditor = false
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
     }
 
     private var title: String {
         if conversation.dealChatBlockedAt != nil {
             return conversation.chatBlockedMessage(currentUserId: viewModel.currentUserId)
         }
-        if conversation.dealStatus == .completed { return "거래가 완료되었어요." }
-        if conversation.dealStatus == .cancelled { return "거래가 취소되었어요." }
-        if conversation.applicationStatus == "rejected" { return "지원이 거절되었어요." }
-        if conversation.applicationStatus == "cancelled" { return "지원이 취소되었어요." }
-        if hasPendingApplication && !isPostWriter { return "지원 수락을 기다리고 있어요." }
-        if conversation.dealStatus == .completeRequested {
-            return isPostWriter ? "지원자가 완료 요청을 보냈어요." : "완료 요청을 보냈어요."
+        if conversation.hasMutualUserMessages {
+            return conversation.dealStatus == .completed ? "거래가 종료되었어요." : "다음 작업을 선택하세요."
         }
-        if conversation.dealStatus == .accepted {
-            return isPostWriter ? "거래를 시작할 수 있어요." : "작성자의 진행 시작을 기다리고 있어요."
-        }
-        if conversation.dealStatus == .inProgress {
-            return isApplicant ? "완료 요청을 보낼 수 있어요." : "진행 중인 거래입니다."
-        }
-        if conversation.applicationId != nil { return "지원 요청이 도착했어요." }
-        return conversation.postTitle ?? "거래 대화"
-    }
-
-    private var postCreatorId: String? {
-        conversation.postCreatorId ?? conversation.requesterId
-    }
-
-    private var isPostWriter: Bool {
-        postCreatorId == viewModel.currentUserId
-    }
-
-    private var isApplicant: Bool {
-        guard let currentUserId = viewModel.currentUserId, let postCreatorId else { return false }
-        return currentUserId != postCreatorId
-    }
-
-    private var hasPendingApplication: Bool {
-        conversation.applicationId != nil && conversation.applicationStatus == "applied" && conversation.dealId == nil
-    }
-
-    private var showsProfilePrompt: Bool {
-        hasPendingApplication && isPostWriter
-    }
-
-    private var busy: Bool {
-        viewModel.pendingTradeAction != nil
-    }
-
-    private func actionTitle(_ id: String, _ normal: String) -> String {
-        guard viewModel.pendingTradeAction == id else { return normal }
-        switch id {
-        case "accepted": return "수락 중"
-        case "rejected": return "거절 중"
-        case "in_progress": return "시작 중"
-        case "complete_requested": return "요청 중"
-        case "completed": return "승인 중"
-        case "cancelled": return "취소 중"
-        case "disputed": return "신고 중"
-        default: return "처리 중"
-        }
-    }
-
-    private func runDealAction(_ status: DealStatus) {
-        onRequestConfirmation(.deal(status))
-    }
-
-    private func runApplicationAction(_ status: String) {
-        onRequestConfirmation(.application(status))
+        return "먼저 대화를 나눠보세요."
     }
 
     @ViewBuilder
@@ -2843,72 +2525,129 @@ private struct TradeActionPanel: View {
             Text(conversation.chatBlockedDetail(currentUserId: viewModel.currentUserId))
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(ManwonColor.muted)
-        } else if conversation.dealStatus == .completeRequested {
-            if isPostWriter {
-                HStack {
-                    Button(actionTitle(DealStatus.completed.rawValue, "완료 승인")) { runDealAction(.completed) }
-                        .buttonStyle(PrimaryButtonStyle())
-                        .disabled(busy)
-                    Button(actionTitle(DealStatus.disputed.rawValue, "문제 신고")) { onRequestReport() }
-                        .buttonStyle(PrimaryButtonStyle(isSecondary: true))
-                        .disabled(busy)
-                }
-            } else {
-                Text("게시글 작성자의 완료 승인을 기다리고 있어요.")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(ManwonColor.muted)
-            }
-        } else if conversation.dealStatus == .accepted {
-            if isPostWriter {
-                HStack {
-                    Button(actionTitle(DealStatus.inProgress.rawValue, "진행 시작")) {
-                        runDealAction(.inProgress)
+        } else if !conversation.hasMutualUserMessages {
+            Text("서로 한 번씩 메시지를 주고받으면 후기 작성, 약속 잡기, 신고를 사용할 수 있습니다.")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(ManwonColor.muted)
+        } else {
+            if let appointmentText = conversation.appointmentSummaryText {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "calendar.badge.clock")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(ManwonColor.brand)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(appointmentText)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(ManwonColor.text)
+                        if let location = conversation.appointmentLocationText, !location.isEmpty {
+                            Text(location)
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(ManwonColor.muted)
+                        }
                     }
-                    .buttonStyle(PrimaryButtonStyle())
-                    .disabled(busy)
-                    Button(actionTitle(DealStatus.cancelled.rawValue, "취소")) { runDealAction(.cancelled) }
-                        .buttonStyle(PrimaryButtonStyle(isSecondary: true))
-                        .disabled(busy)
                 }
-            } else {
-                Text("진행 시작 후 완료 요청을 보낼 수 있습니다.")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(ManwonColor.muted)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(ManwonColor.brandSoft.opacity(0.55))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
-        } else if conversation.dealStatus == .inProgress {
-            if isApplicant {
-                HStack {
-                    Button(actionTitle(DealStatus.completeRequested.rawValue, "완료 요청 보내기")) {
-                        runDealAction(.completeRequested)
-                    }
-                    .buttonStyle(PrimaryButtonStyle())
-                    .disabled(busy)
-                    Button(actionTitle(DealStatus.cancelled.rawValue, "취소")) { runDealAction(.cancelled) }
-                        .buttonStyle(PrimaryButtonStyle(isSecondary: true))
-                        .disabled(busy)
-                }
-            } else {
-                Text("지원자가 완료 요청을 보내면 승인할 수 있습니다.")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(ManwonColor.muted)
-            }
-        } else if hasPendingApplication && isPostWriter {
-            HStack {
-                Button(actionTitle("accepted", "수락하기")) { runApplicationAction("accepted") }
-                    .buttonStyle(PrimaryButtonStyle())
-                    .disabled(busy)
-                Button(actionTitle("rejected", "거절하기")) { runApplicationAction("rejected") }
+            HStack(spacing: 8) {
+                Button(conversation.myReviewId == nil ? "후기 작성" : "후기 완료") { onRequestReview() }
                     .buttonStyle(PrimaryButtonStyle(isSecondary: true))
-                    .disabled(busy)
+                    .disabled(conversation.myReviewId != nil || conversation.dealId == nil)
+                Button(conversation.appointmentScheduledAt == nil ? "약속 잡기" : "약속 수정") {
+                    showAppointmentEditor = true
+                }
+                .buttonStyle(PrimaryButtonStyle(isSecondary: true))
+                .disabled(conversation.dealId == nil || conversation.dealStatus == .completed)
+                Button("신고") { onRequestReport() }
+                    .buttonStyle(PrimaryButtonStyle(isSecondary: true))
             }
-        } else if hasPendingApplication {
-            Text("작성자가 수락하면 거래가 시작됩니다.")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(ManwonColor.muted)
-        } else if conversation.applicationStatus == "rejected" || conversation.applicationStatus == "cancelled" {
-            Text("필요하면 게시물 상세에서 다시 지원할 수 있습니다.")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(ManwonColor.muted)
+        }
+    }
+}
+
+private struct AppointmentEditorSheet: View {
+    let conversation: Conversation
+    @ObservedObject var viewModel: ChatDetailViewModel
+    let onClose: () -> Void
+    @State private var mode: String
+    @State private var scheduledAt: Date
+    @State private var locationText: String
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+
+    init(conversation: Conversation, viewModel: ChatDetailViewModel, onClose: @escaping () -> Void) {
+        self.conversation = conversation
+        self.viewModel = viewModel
+        self.onClose = onClose
+        _mode = State(initialValue: conversation.appointmentMode ?? "online")
+        _scheduledAt = State(initialValue: conversation.appointmentDate ?? Date().addingTimeInterval(3600))
+        _locationText = State(initialValue: conversation.appointmentLocationText ?? "")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(conversation.appointmentScheduledAt == nil ? "약속 잡기" : "약속 수정")
+                .font(.system(size: 22, weight: .bold))
+                .foregroundStyle(ManwonColor.text)
+
+            Picker("약속 방식", selection: $mode) {
+                Text("온라인").tag("online")
+                Text("직접 만나서").tag("in_person")
+            }
+            .pickerStyle(.segmented)
+
+            DatePicker("날짜와 시간", selection: $scheduledAt, in: Date()..., displayedComponents: [.date, .hourAndMinute])
+                .datePickerStyle(.compact)
+                .font(.system(size: 14, weight: .semibold))
+
+            if mode == "in_person" {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("장소")
+                        .font(.system(size: 13, weight: .bold))
+                    TextField("만날 장소를 입력해주세요", text: $locationText)
+                        .textFieldStyle(.roundedBorder)
+                }
+            }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.red)
+            }
+
+            HStack(spacing: 10) {
+                Button("닫기", action: onClose)
+                    .buttonStyle(PrimaryButtonStyle(isSecondary: true))
+                    .disabled(isSaving)
+                Button(isSaving ? "저장 중" : "저장하기") {
+                    save()
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(isSaving)
+            }
+        }
+        .padding(20)
+    }
+
+    private func save() {
+        if mode == "in_person" && locationText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            errorMessage = "직접 만나는 약속은 장소를 입력해주세요."
+            return
+        }
+        isSaving = true
+        errorMessage = nil
+        Task {
+            let succeeded = await viewModel.updateAppointment(mode: mode, scheduledAt: scheduledAt, locationText: locationText)
+            await MainActor.run {
+                isSaving = false
+                if succeeded {
+                    onClose()
+                } else {
+                    errorMessage = viewModel.errorMessage ?? "약속을 저장하지 못했습니다."
+                }
+            }
         }
     }
 }
@@ -3054,8 +2793,22 @@ private struct TypingIndicatorBubble: View {
 }
 
 fileprivate extension Conversation {
-    var hasPendingApplicationBeforeAcceptance: Bool {
-        postType == "request" && applicationId != nil && applicationStatus == "applied" && dealId == nil
+    var hasMutualUserMessages: Bool {
+        hasChatAfterStarted == true
+    }
+
+    var appointmentDate: Date? {
+        guard let appointmentScheduledAt, !appointmentScheduledAt.isEmpty else { return nil }
+        return chatDate(from: appointmentScheduledAt)
+    }
+
+    var appointmentSummaryText: String? {
+        guard let date = appointmentDate else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ko_KR")
+        formatter.dateFormat = "M월 d일 a h:mm"
+        let modeText = appointmentMode == "in_person" ? "직접 만나서" : "온라인"
+        return "\(modeText) · \(formatter.string(from: date))"
     }
 
     func chatBlockedMessage(currentUserId: String?) -> String {
@@ -3070,9 +2823,9 @@ fileprivate extension Conversation {
 
     func chatBlockedDetail(currentUserId: String?) -> String {
         if dealReportedUserId == currentUserId {
-            return "거래는 완료 처리되었고, 이 채팅방에서는 더 이상 메시지를 보낼 수 없습니다."
+            return "신고 접수로 이 채팅방의 메시지 전송이 제한되었습니다."
         }
-        return "거래는 완료 처리되었고, 양쪽 모두 이 채팅방에서 더 이상 메시지를 보낼 수 없습니다."
+        return "신고 접수로 양쪽 모두 이 채팅방에서 더 이상 메시지를 보낼 수 없습니다."
     }
 
     func quickMessageSuggestionTexts(currentUserId: String?) -> [String] {
@@ -3085,7 +2838,7 @@ fileprivate extension Conversation {
             return ["안녕하세요!", "문의 주셔서 감사합니다!"]
         }
 
-        guard postType == "request", dealId != nil || applicationStatus == "accepted" else { return [] }
+        guard postType == "request" else { return [] }
         if helperId == currentUserId || applicationApplicantId == currentUserId {
             return ["안녕하세요!", "어떤게 필요하실까요?"]
         }
@@ -3097,6 +2850,39 @@ fileprivate extension Conversation {
     }
 }
 
+private func chatDate(from value: String) -> Date? {
+    let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: " ", with: "T")
+
+    let isoWithFraction = ISO8601DateFormatter()
+    isoWithFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if let date = isoWithFraction.date(from: normalized) {
+        return date
+    }
+
+    let iso = ISO8601DateFormatter()
+    iso.formatOptions = [.withInternetDateTime]
+    if let date = iso.date(from: normalized) {
+        return date
+    }
+
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone.current
+    for format in [
+        "yyyy-MM-dd'T'HH:mm:ss.SSSXXXXX",
+        "yyyy-MM-dd'T'HH:mm:ss.SSSSSSXXXXX",
+        "yyyy-MM-dd'T'HH:mm:ssXXXXX",
+        "yyyy-MM-dd'T'HH:mm:ss.SSS",
+        "yyyy-MM-dd'T'HH:mm:ss"
+    ] {
+        formatter.dateFormat = format
+        if let date = formatter.date(from: normalized) {
+            return date
+        }
+    }
+    return nil
+}
+
 fileprivate struct QuickMessageSuggestion: Identifiable, Hashable {
     let text: String
 
@@ -3106,16 +2892,10 @@ fileprivate struct QuickMessageSuggestion: Identifiable, Hashable {
 }
 
 fileprivate enum ChatComposerBlockedReason {
-    case pendingApplication
-    case closed
     case reported(String)
 
     var message: String {
         switch self {
-        case .pendingApplication:
-            return "지원 요청이 수락되면 채팅을 할 수 있습니다."
-        case .closed:
-            return "종료된 거래라 메시지를 보낼 수 없어요."
         case .reported(let message):
             return message
         }
@@ -3123,10 +2903,8 @@ fileprivate enum ChatComposerBlockedReason {
 
     var textColor: Color {
         switch self {
-        case .pendingApplication, .reported:
+        case .reported:
             return ManwonColor.brand
-        case .closed:
-            return ManwonColor.muted
         }
     }
 }

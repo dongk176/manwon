@@ -1,7 +1,7 @@
 {
   "crons": [
     {
-      "path": "/api/cron/review-reminders",
+      "path": "/api/cron/trade-events",
       "schedule": "*/5 * * * *"
     }
   ]

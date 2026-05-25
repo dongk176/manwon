@@ -4,6 +4,7 @@ import { createNotificationEvent } from '@/server/notifications'
 import { assertPhoneVerified } from '@/server/phoneVerification'
 import type {
   activityProfileSchema,
+  appointmentSchema,
   blockSchema,
   createApplicationSchema,
   createConversationSchema,
@@ -27,6 +28,7 @@ import type { z } from 'zod'
 
 type ListPostsInput = z.infer<typeof listPostsSchema>
 type ActivityProfileInput = z.infer<typeof activityProfileSchema>
+type AppointmentInput = z.infer<typeof appointmentSchema>
 type UpdateActivityProfileInput = z.infer<typeof updateActivityProfileSchema>
 type CreatePostInput = z.infer<typeof createPostSchema>
 type UpdatePostInput = z.infer<typeof updatePostSchema>
@@ -373,6 +375,7 @@ export async function listTaskPosts(input: ListPostsInput, viewerId?: string | n
       select
         count(d.id) filter (
           where d.status = 'completed'
+             or (d.appointment_scheduled_at is not null and d.status <> 'cancelled')
         )::integer as occupied_count
       from manwon_happiness.deals d
       where d.post_id = p.id
@@ -516,6 +519,7 @@ export async function getTaskPost(postId: string, viewerId?: string | null, opti
       select
         count(d.id) filter (
           where d.status = 'completed'
+             or (d.appointment_scheduled_at is not null and d.status <> 'cancelled')
         )::integer as occupied_count
       from manwon_happiness.deals d
       where d.post_id = p.id
@@ -768,6 +772,7 @@ async function getPostCapacitySnapshot(sql: SqlExecutor, postId: string) {
       p.closed_reason,
       count(d.id) filter (
         where d.status = 'completed'
+           or (d.appointment_scheduled_at is not null and d.status <> 'cancelled')
       )::integer as occupied_count,
       (
         select count(distinct a.applicant_id)::integer
@@ -915,6 +920,35 @@ function chatNotificationData(input: {
     applicationId: input.applicationId ?? null,
     messageId: input.messageId ?? null,
   }
+}
+
+function formatAppointmentMode(mode: unknown) {
+  return mode === 'in_person' ? '직접 만남' : '온라인'
+}
+
+function formatAppointmentTime(value: unknown) {
+  const date = value instanceof Date ? value : new Date(String(value))
+  if (Number.isNaN(date.getTime())) return '약속 시간'
+  return new Intl.DateTimeFormat('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
+function appointmentSystemMessage(input: { updated: boolean; mode: unknown; scheduledAt: unknown; locationText?: unknown }) {
+  const prefix = input.updated ? '약속이 수정되었어요.' : '약속이 잡혔어요.'
+  const location = typeof input.locationText === 'string' && input.locationText.trim()
+    ? ` · ${input.locationText.trim()}`
+    : ''
+  return `${prefix} ${formatAppointmentMode(input.mode)} · ${formatAppointmentTime(input.scheduledAt)}${location}`
+}
+
+function reviewReminderTitle(otherNickname: unknown) {
+  const nickname = typeof otherNickname === 'string' && otherNickname.trim() ? otherNickname.trim() : '상대방'
+  return `${nickname}님과의 거래는 어땠나요?`
 }
 
 function getApplicationFromStatusResult(result: unknown): Record<string, unknown> | null {
@@ -1113,7 +1147,10 @@ export async function createApplication(userId: string, input: CreateApplication
           select count(d.id)
           from manwon_happiness.deals d
           where d.post_id = p.id
-            and d.status = 'completed'
+            and (
+              d.status = 'completed'
+              or (d.appointment_scheduled_at is not null and d.status <> 'cancelled')
+            )
         ) < p.capacity_limit
       )
       and not exists (
@@ -1164,6 +1201,7 @@ export async function updateApplicationStatus(userId: string, applicationId: str
         select
           count(d.id) filter (
             where d.status = 'completed'
+               or (d.appointment_scheduled_at is not null and d.status <> 'cancelled')
           )::integer as occupied_count
         from manwon_happiness.deals d
         where d.post_id = p.id
@@ -1483,6 +1521,7 @@ export async function updateDealStatus(userId: string, dealId: string, input: Up
         set completed_count = completed_count + 1
         where id in (${deal.requesterId}, ${deal.helperId})
       `
+      await refreshPostCapacity(tx, String(deal.postId))
     }
     await refreshPostCapacity(tx, String(deal.postId))
 
@@ -1558,6 +1597,146 @@ export async function updateDealStatus(userId: string, dealId: string, input: Up
   return result.deal
 }
 
+export async function setConversationAppointment(userId: string, conversationId: string, input: AppointmentInput) {
+  await assertPhoneVerified(userId)
+
+  const scheduledAt = new Date(input.scheduledAt)
+  if (Number.isNaN(scheduledAt.getTime())) throw new HttpError('약속 시간을 확인할 수 없습니다.', 400)
+  if (scheduledAt.getTime() <= Date.now()) throw new HttpError('현재 이후의 약속 시간을 선택해주세요.', 400)
+
+  const locationText = input.mode === 'in_person' ? input.locationText?.trim() || null : null
+  if (input.mode === 'in_person' && !locationText) throw new HttpError('직접 만나는 약속은 장소를 입력해주세요.', 400)
+
+  const sql = getSql()
+  const result = await sql.begin(async (tx) => {
+    const rows = await tx`
+      select
+        c.id as conversation_id,
+        c.post_id,
+        c.requester_id,
+        c.helper_id,
+        d.id as deal_id,
+        d.status as deal_status,
+        d.appointment_scheduled_at,
+        d.chat_blocked_at,
+        p.title as post_title,
+        p.capacity_type,
+        p.capacity_limit,
+        case when c.requester_id = ${userId} then c.helper_id else c.requester_id end as notify_user_id
+      from manwon_happiness.conversations c
+      join manwon_happiness.deals d on d.id = c.deal_id
+      left join manwon_happiness.task_posts p on p.id = c.post_id
+      where c.id = ${conversationId}
+        and (c.requester_id = ${userId} or c.helper_id = ${userId})
+      for update of d
+      limit 1
+    `
+    const conversation = rows[0]
+    if (!conversation) return null
+    if (conversation.chatBlockedAt) throw new HttpError('신고로 차단된 채팅에서는 약속을 수정할 수 없습니다.', 403)
+    if (conversation.dealStatus === 'completed' || conversation.dealStatus === 'cancelled') {
+      throw new HttpError('종료된 거래에서는 약속을 수정할 수 없습니다.', 400)
+    }
+
+    const blockedRows = await tx`
+      select 1
+      from manwon_happiness.blocks b
+      where (
+        b.blocker_id = ${userId}
+        and b.blocked_user_id = ${conversation.notifyUserId}
+      )
+      or (
+        b.blocker_id = ${conversation.notifyUserId}
+        and b.blocked_user_id = ${userId}
+      )
+      limit 1
+    `
+    if (blockedRows[0]) throw new HttpError('차단된 사용자와는 약속을 잡을 수 없습니다.', 403)
+
+    const isNewAppointment = !conversation.appointmentScheduledAt
+    const capacityLimit = conversation.capacityLimit == null ? null : Number(conversation.capacityLimit)
+    if (isNewAppointment && conversation.capacityType === 'limited' && capacityLimit !== null) {
+      const [capacity] = await tx`
+        select count(d.id)::integer as occupied_count
+        from manwon_happiness.deals d
+        where d.post_id = ${conversation.postId}
+          and d.id <> ${conversation.dealId}
+          and (
+            d.status = 'completed'
+            or (d.appointment_scheduled_at is not null and d.status <> 'cancelled')
+          )
+      `
+      if (Number(capacity?.occupiedCount ?? 0) >= capacityLimit) {
+        await refreshPostCapacity(tx, String(conversation.postId))
+        throw new HttpError('모집 인원이 마감되어 약속을 잡을 수 없습니다.', 409)
+      }
+    }
+
+    const dealRows = await tx`
+      update manwon_happiness.deals
+      set appointment_mode = ${input.mode},
+          appointment_scheduled_at = ${scheduledAt},
+          appointment_location_text = ${locationText},
+          appointment_created_by = coalesce(appointment_created_by, ${userId}),
+          appointment_updated_by = ${userId},
+          appointment_set_at = now(),
+          appointment_before_notified_at = null,
+          appointment_review_prompt_notified_at = null,
+          updated_at = now()
+      where id = ${conversation.dealId}
+      returning *
+    `
+    const deal = dealRows[0]
+    if (!deal) return null
+
+    const systemMessage = appointmentSystemMessage({
+      updated: !isNewAppointment,
+      mode: deal.appointmentMode,
+      scheduledAt: deal.appointmentScheduledAt,
+      locationText: deal.appointmentLocationText,
+    })
+    await tx`
+      insert into manwon_happiness.messages (conversation_id, sender_id, message_type, body)
+      values (${conversationId}, ${userId}, 'system', ${systemMessage})
+    `
+    await tx`
+      update manwon_happiness.conversations
+      set last_message = ${systemMessage},
+          last_message_at = now(),
+          updated_at = now()
+      where id = ${conversationId}
+    `
+    if (conversation.postId) await refreshPostCapacity(tx, String(conversation.postId))
+
+    return {
+      deal,
+      conversationId,
+      postId: conversation.postId ? String(conversation.postId) : null,
+      postTitle: conversation.postTitle ? String(conversation.postTitle) : null,
+      notifyUserId: String(conversation.notifyUserId),
+      updated: !isNewAppointment,
+      systemMessage,
+    }
+  })
+
+  if (!result) return null
+
+  const title = result.updated ? '약속이 수정됐어요' : '약속이 잡혔어요'
+  void createNotificationEvent(result.notifyUserId, {
+    type: result.updated ? 'appointment.updated' : 'appointment.created',
+    title,
+    body: result.systemMessage,
+    data: chatNotificationData({
+      type: result.updated ? 'appointment.updated' : 'appointment.created',
+      conversationId,
+      postId: result.postId,
+      dealId: String(result.deal.id),
+    }),
+  }).catch(() => undefined)
+
+  return result.deal
+}
+
 export async function listConversations(userId: string) {
   const sql = getSql()
   return sql`
@@ -1570,12 +1749,19 @@ export async function listConversations(userId: string) {
       p.creator_id as post_creator_id,
       p.post_type as post_type,
       d.status as deal_status,
+      d.completed_at as deal_completed_at,
       d.reported_at as deal_reported_at,
       d.reported_by as deal_reported_by,
       d.reported_user_id as deal_reported_user_id,
       d.report_reason as deal_report_reason,
       d.report_description as deal_report_description,
       d.chat_blocked_at as deal_chat_blocked_at,
+      d.appointment_mode as appointment_mode,
+      d.appointment_scheduled_at as appointment_scheduled_at,
+      d.appointment_location_text as appointment_location_text,
+      d.appointment_created_by as appointment_created_by,
+      d.appointment_updated_by as appointment_updated_by,
+      d.appointment_set_at as appointment_set_at,
       coalesce(
         d.requester_profile_id,
         case
@@ -1868,6 +2054,7 @@ export async function startConversationForPost(userId: string, postId: string, p
         select
           count(d.id) filter (
             where d.status = 'completed'
+               or (d.appointment_scheduled_at is not null and d.status <> 'cancelled')
           )::integer as occupied_count
         from manwon_happiness.deals d
         where d.post_id = p.id
@@ -1884,74 +2071,141 @@ export async function startConversationForPost(userId: string, postId: string, p
           where b.blocker_id = p.creator_id and b.blocked_user_id = ${userId}
         )
       limit 1
+      for update of p
     `
     const post = postRows[0]
     if (!post) return null
-    if (post.capacityType === 'limited' && post.capacityLimit != null && Number(post.occupiedCount ?? 0) >= Number(post.capacityLimit)) {
+
+    const requesterId = post.postType === 'request' ? post.creatorId : userId
+    const helperId = post.postType === 'request' ? userId : post.creatorId
+    const requesterProfileId = post.postType === 'request' ? post.creatorProfileId : profileId
+    const helperProfileId = post.postType === 'request' ? profileId : post.creatorProfileId
+    if (!requesterProfileId || !helperProfileId) return null
+
+    const existingConversationRows = await tx`
+      select *
+      from manwon_happiness.conversations
+      where post_id = ${postId}
+        and requester_id = ${requesterId}
+        and helper_id = ${helperId}
+        and recruitment_round = ${post.recruitmentRound}
+      limit 1
+    `
+    const existingConversation = existingConversationRows[0] ?? null
+
+    if (!existingConversation && post.capacityType === 'limited' && post.capacityLimit != null && Number(post.occupiedCount ?? 0) >= Number(post.capacityLimit)) {
       await refreshPostCapacity(tx, postId)
       return null
     }
 
-    const requesterId = post.postType === 'request' ? post.creatorId : userId
-    const helperId = post.postType === 'request' ? userId : post.creatorId
-    const postTitle = post.title ? String(post.title).trim() : ''
-    const applicationSystemMessage = postTitle
-      ? `"${postTitle}"에 지원 요청이 도착했어요. 작성자가 수락하면 거래가 시작됩니다.`
-      : '지원 요청이 도착했어요. 작성자가 수락하면 거래가 시작됩니다.'
-    const initialLastMessage = post.postType === 'request' ? applicationSystemMessage : message ?? '문의가 시작되었어요.'
-
     let previousApplicationStatus: string | null = null
     let applicationId: string | null = null
-    if (post.postType === 'request' || post.postType === 'offer') {
-      const [existingApplication] = await tx`
-        select status
-        from manwon_happiness.applications
-        where post_id = ${postId}
-          and applicant_id = ${userId}
-          and recruitment_round = ${post.recruitmentRound}
-        limit 1
-      `
-      previousApplicationStatus = existingApplication?.status ? String(existingApplication.status) : null
-      if (previousApplicationStatus !== null && previousApplicationStatus !== 'rejected') {
-        throw new HttpError('이미 보낸 요청입니다. 거절된 경우에만 다시 보낼 수 있습니다.', 409)
-      }
+    const [existingApplication] = await tx`
+      select id, status
+      from manwon_happiness.applications
+      where post_id = ${postId}
+        and applicant_id = ${userId}
+        and recruitment_round = ${post.recruitmentRound}
+      limit 1
+    `
+    previousApplicationStatus = existingApplication?.status ? String(existingApplication.status) : null
+    applicationId = existingApplication?.id ? String(existingApplication.id) : null
 
+    if (!applicationId || previousApplicationStatus === 'rejected') {
       const applicationRows = await tx`
-        insert into manwon_happiness.applications (post_id, applicant_id, applicant_profile_id, message, recruitment_round)
-        values (${postId}, ${userId}, ${profileId}, ${message ?? (post.postType === 'request' ? '도와드릴 수 있어요.' : '문의드려요.')}, ${post.recruitmentRound})
+        insert into manwon_happiness.applications (post_id, applicant_id, applicant_profile_id, message, status, recruitment_round)
+        values (${postId}, ${userId}, ${profileId}, ${message ?? (post.postType === 'request' ? '도와드릴 수 있어요.' : '문의드려요.')}, 'accepted', ${post.recruitmentRound})
         on conflict (post_id, applicant_id, recruitment_round) do update
           set applicant_profile_id = excluded.applicant_profile_id,
               message = coalesce(excluded.message, manwon_happiness.applications.message),
-              status = 'applied'::manwon_happiness.application_status,
+              status = 'accepted'::manwon_happiness.application_status,
               updated_at = now()
-          where manwon_happiness.applications.status = 'rejected'
         returning id
       `
-      if (applicationRows.length === 0) {
-        throw new HttpError('이미 보낸 요청입니다. 거절된 경우에만 다시 보낼 수 있습니다.', 409)
-      }
-      applicationId = applicationRows[0]?.id ? String(applicationRows[0].id) : null
+      applicationId = applicationRows[0]?.id ? String(applicationRows[0].id) : applicationId
+    } else if (previousApplicationStatus === 'applied') {
+      await tx`
+        update manwon_happiness.applications
+        set status = 'accepted',
+            updated_at = now()
+        where id = ${applicationId}
+      `
     }
 
-    const insertedRows = await tx`
-      insert into manwon_happiness.conversations (post_id, requester_id, helper_id, recruitment_round, last_message, last_message_at)
-      values (${postId}, ${requesterId}, ${helperId}, ${post.recruitmentRound}, ${initialLastMessage}, now())
-      on conflict do nothing
-      returning *
-    `
+    let dealId = existingConversation?.dealId ? String(existingConversation.dealId) : null
+    if (!dealId) {
+      const existingDealRows = await tx`
+        select id
+        from manwon_happiness.deals
+        where post_id = ${postId}
+          and requester_id = ${requesterId}
+          and helper_id = ${helperId}
+          and recruitment_round = ${post.recruitmentRound}
+          and status <> 'cancelled'
+        order by created_at desc
+        limit 1
+      `
+      dealId = existingDealRows[0]?.id ? String(existingDealRows[0].id) : null
+    }
 
-    const conversationRows =
-      insertedRows.length > 0
-        ? insertedRows
-        : await tx`
-            select *
-            from manwon_happiness.conversations
-            where post_id = ${postId}
-              and requester_id = ${requesterId}
-              and helper_id = ${helperId}
-              and recruitment_round = ${post.recruitmentRound}
-            limit 1
-          `
+    if (!dealId) {
+      const dealRows = await tx`
+        insert into manwon_happiness.deals (
+          post_id,
+          requester_id,
+          helper_id,
+          requester_profile_id,
+          helper_profile_id,
+          application_id,
+          price,
+          status,
+          accepted_at,
+          recruitment_round
+        )
+        values (
+          ${postId},
+          ${requesterId},
+          ${helperId},
+          ${requesterProfileId},
+          ${helperProfileId},
+          ${applicationId},
+          ${post.price},
+          'accepted',
+          now(),
+          ${post.recruitmentRound}
+        )
+        returning id
+      `
+      dealId = dealRows[0]?.id ? String(dealRows[0].id) : null
+    }
+    if (!dealId) return null
+
+    const startMessage = '대화가 시작되었어요. 서로 조건을 확인하고 약속을 잡아보세요.'
+    let conversationRows = existingConversation
+      ? await tx`
+          update manwon_happiness.conversations
+          set deal_id = coalesce(deal_id, ${dealId}),
+              updated_at = now()
+          where id = ${existingConversation.id}
+          returning *
+        `
+      : await tx`
+          insert into manwon_happiness.conversations (deal_id, post_id, requester_id, helper_id, recruitment_round, last_message, last_message_at)
+          values (${dealId}, ${postId}, ${requesterId}, ${helperId}, ${post.recruitmentRound}, ${startMessage}, now())
+          on conflict do nothing
+          returning *
+        `
+    if (conversationRows.length === 0) {
+      conversationRows = await tx`
+        select *
+        from manwon_happiness.conversations
+        where post_id = ${postId}
+          and requester_id = ${requesterId}
+          and helper_id = ${helperId}
+          and recruitment_round = ${post.recruitmentRound}
+        limit 1
+      `
+    }
 
     const conversation = conversationRows[0]
     if (!conversation) return null
@@ -1962,19 +2216,16 @@ export async function startConversationForPost(userId: string, postId: string, p
       where conversation_id = ${conversation.id}
     `
 
-    const shouldAddReapplicationMessage =
-      post.postType === 'request' && previousApplicationStatus === 'rejected'
-    const shouldAddSystemMessage = Number(messageCountRows[0]?.count ?? 0) === 0 || shouldAddReapplicationMessage
+    const shouldAddSystemMessage = Number(messageCountRows[0]?.count ?? 0) === 0 || previousApplicationStatus === 'rejected'
 
     if (shouldAddSystemMessage) {
-      const systemMessage = post.postType === 'request' ? applicationSystemMessage : '문의가 시작되었어요.'
       await tx`
         insert into manwon_happiness.messages (conversation_id, sender_id, message_type, body)
-        values (${conversation.id}, ${userId}, 'system', ${systemMessage})
+        values (${conversation.id}, ${userId}, 'system', ${startMessage})
       `
       await tx`
         update manwon_happiness.conversations
-        set last_message = ${systemMessage},
+        set last_message = ${startMessage},
             last_message_at = now()
         where id = ${conversation.id}
       `
@@ -1992,11 +2243,11 @@ export async function startConversationForPost(userId: string, postId: string, p
   if (!result) return null
 
   void createNotificationEvent(result.notifyUserId, {
-    type: result.postType === 'request' ? 'application.created' : 'conversation.started',
-    title: result.postType === 'request' ? '새 지원이 도착했어요' : '새 문의가 도착했어요',
+    type: 'conversation.started',
+    title: result.postType === 'request' ? '새 대화가 시작됐어요' : '새 문의가 도착했어요',
     body: result.postTitle ? `"${result.postTitle}"에서 대화가 시작됐습니다.` : '새 대화가 시작됐습니다.',
     data: chatNotificationData({
-      type: result.postType === 'request' ? 'application.created' : 'conversation.started',
+      type: 'conversation.started',
       conversationId: String(result.conversation.id),
       postId,
       applicationId: result.applicationId,
@@ -2245,9 +2496,6 @@ export async function sendMessage(userId: string, conversationId: string, input:
     const conversation = conversationRows[0]
     if (!conversation) return null
 
-    if (conversation.postType === 'request' && !conversation.dealId && conversation.applicationStatus === 'applied') {
-      throw new HttpError('지원 요청이 수락되면 채팅을 할 수 있습니다.', 403)
-    }
     if (conversation.dealChatBlockedAt) {
       const reason = conversation.dealReportReason ? `‘${String(conversation.dealReportReason)}’ 문제 신고로 ` : ''
       throw new HttpError(`${reason}이 거래 채팅이 차단되었습니다.`, 403)
@@ -2345,18 +2593,31 @@ export async function createReview(userId: string, input: CreateReviewInput) {
   const sql = getSql()
   const result = await sql.begin(async (tx) => {
     const dealRows = await tx`
-      select d.*, p.title as post_title, c.id as conversation_id
+      select
+        d.*,
+        p.title as post_title,
+        c.id as conversation_id,
+        exists (
+          select 1
+          from manwon_happiness.messages m
+          where m.conversation_id = c.id
+            and m.message_type <> 'system'
+          group by m.conversation_id
+          having count(distinct m.sender_id) >= 2
+        ) as has_mutual_chat
       from manwon_happiness.deals d
       join manwon_happiness.task_posts p on p.id = d.post_id
       left join manwon_happiness.conversations c on c.deal_id = d.id
       where d.id = ${input.dealId}
-        and d.status = 'completed'
         and (d.requester_id = ${userId} or d.helper_id = ${userId})
       for update of d
       limit 1
     `
     const deal = dealRows[0]
     if (!deal) return null
+    if (deal.status === 'cancelled') throw new HttpError('취소된 거래에는 후기를 작성할 수 없습니다.', 400)
+    if (deal.chatBlockedAt) throw new HttpError('신고로 차단된 거래에는 후기를 작성할 수 없습니다.', 403)
+    if (!deal.hasMutualChat) throw new HttpError('서로 한 번씩 대화한 뒤 후기를 작성할 수 있습니다.', 400)
 
     const revieweeId = String(deal.requesterId) === userId ? String(deal.helperId) : String(deal.requesterId)
     const reviewerProfileId = String(deal.requesterId) === userId ? deal.requesterProfileId : deal.helperProfileId
@@ -2374,6 +2635,21 @@ export async function createReview(userId: string, input: CreateReviewInput) {
     `
     const review = reviewRows[0]
     if (!review) return null
+
+    if (deal.status !== 'completed') {
+      await tx`
+        update manwon_happiness.deals
+        set status = 'completed',
+            completed_at = coalesce(completed_at, now()),
+            updated_at = now()
+        where id = ${input.dealId}
+      `
+      await tx`
+        update manwon_happiness.users
+        set completed_count = completed_count + 1
+        where id in (${deal.requesterId}, ${deal.helperId})
+      `
+    }
 
     await tx`
       update manwon_happiness.review_reminders
@@ -2532,6 +2808,201 @@ export async function getDueReviewReminder(userId: string) {
   return rows[0] ?? null
 }
 
+export async function processDueTradeEvents(limit = 100) {
+  const sql = getSql()
+  const cappedLimit = Math.min(Math.max(limit, 1), 500)
+  const result = await sql.begin(async (tx) => {
+    const beforeRows = await tx`
+      with due as (
+        select
+          d.id,
+          d.post_id,
+          d.requester_id,
+          d.helper_id,
+          d.appointment_mode,
+          d.appointment_scheduled_at,
+          d.appointment_location_text,
+          c.id as conversation_id
+        from manwon_happiness.deals d
+        left join manwon_happiness.conversations c on c.deal_id = d.id
+        where d.appointment_scheduled_at is not null
+          and d.appointment_scheduled_at > now()
+          and d.appointment_scheduled_at <= now() + interval '1 hour'
+          and d.appointment_before_notified_at is null
+          and d.status <> 'completed'
+          and d.status <> 'cancelled'
+          and d.chat_blocked_at is null
+        order by d.appointment_scheduled_at asc
+        limit ${cappedLimit}
+        for update of d skip locked
+      ),
+      updated as (
+        update manwon_happiness.deals d
+        set appointment_before_notified_at = now(),
+            updated_at = now()
+        from due
+        where d.id = due.id
+        returning
+          d.id,
+          due.post_id,
+          due.requester_id,
+          due.helper_id,
+          due.appointment_mode,
+          due.appointment_scheduled_at,
+          due.appointment_location_text,
+          due.conversation_id
+      )
+      select * from updated
+    `
+
+    const completedRows = await tx`
+      with due as (
+        select id, requester_id, helper_id
+        from manwon_happiness.deals
+        where appointment_scheduled_at is not null
+          and appointment_scheduled_at <= now()
+          and status <> 'completed'
+          and status <> 'cancelled'
+        order by appointment_scheduled_at asc
+        limit ${cappedLimit}
+        for update skip locked
+      ),
+      updated as (
+        update manwon_happiness.deals d
+        set status = 'completed',
+            completed_at = coalesce(d.completed_at, d.appointment_scheduled_at, now()),
+            updated_at = now()
+        from due
+        where d.id = due.id
+        returning d.id, due.requester_id, due.helper_id
+      )
+      select * from updated
+    `
+
+    for (const deal of completedRows) {
+      await tx`
+        update manwon_happiness.users
+        set completed_count = completed_count + 1
+        where id in (${deal.requesterId}, ${deal.helperId})
+      `
+    }
+
+    const reviewRows = await tx`
+      with due_deals as (
+        select
+          d.id,
+          d.post_id,
+          d.requester_id,
+          d.helper_id,
+          d.requester_profile_id,
+          d.helper_profile_id,
+          c.id as conversation_id
+        from manwon_happiness.deals d
+        left join manwon_happiness.conversations c on c.deal_id = d.id
+        where d.appointment_scheduled_at is not null
+          and d.appointment_scheduled_at <= now() - interval '30 minutes'
+          and d.appointment_review_prompt_notified_at is null
+          and d.status = 'completed'
+          and d.chat_blocked_at is null
+        order by d.appointment_scheduled_at asc
+        limit ${cappedLimit}
+        for update of d skip locked
+      ),
+      recipients as (
+        select
+          d.id as deal_id,
+          d.post_id,
+          d.conversation_id,
+          d.requester_id as user_id,
+          coalesce(helper_profile.nickname, helper_default_profile.nickname, helper_user.nickname, '상대방') as other_nickname
+        from due_deals d
+        join manwon_happiness.users helper_user on helper_user.id = d.helper_id
+        left join manwon_happiness.activity_profiles helper_profile on helper_profile.id = d.helper_profile_id
+        left join lateral (
+          select nickname
+          from manwon_happiness.activity_profiles
+          where user_id = helper_user.id
+            and is_active = true
+          order by created_at asc
+          limit 1
+        ) helper_default_profile on true
+        where not exists (
+          select 1 from manwon_happiness.reviews r
+          where r.deal_id = d.id and r.reviewer_id = d.requester_id
+        )
+        union all
+        select
+          d.id as deal_id,
+          d.post_id,
+          d.conversation_id,
+          d.helper_id as user_id,
+          coalesce(requester_profile.nickname, requester_default_profile.nickname, requester_user.nickname, '상대방') as other_nickname
+        from due_deals d
+        join manwon_happiness.users requester_user on requester_user.id = d.requester_id
+        left join manwon_happiness.activity_profiles requester_profile on requester_profile.id = d.requester_profile_id
+        left join lateral (
+          select nickname
+          from manwon_happiness.activity_profiles
+          where user_id = requester_user.id
+            and is_active = true
+          order by created_at asc
+          limit 1
+        ) requester_default_profile on true
+        where not exists (
+          select 1 from manwon_happiness.reviews r
+          where r.deal_id = d.id and r.reviewer_id = d.helper_id
+        )
+      ),
+      updated as (
+        update manwon_happiness.deals d
+        set appointment_review_prompt_notified_at = now(),
+            updated_at = now()
+        from due_deals
+        where d.id = due_deals.id
+        returning d.id
+      )
+      select recipients.*
+      from recipients
+    `
+
+    return { beforeRows, completedRows, reviewRows }
+  })
+
+  await Promise.all([
+    ...result.beforeRows.flatMap((deal) => {
+      const body = `약속 1시간 전입니다. ${formatAppointmentMode(deal.appointmentMode)} · ${formatAppointmentTime(deal.appointmentScheduledAt)}`
+      return [deal.requesterId, deal.helperId].map((userId) => createNotificationEvent(String(userId), {
+        type: 'appointment.before',
+        title: '약속 1시간 전이에요',
+        body,
+        data: chatNotificationData({
+          type: 'appointment.before',
+          conversationId: deal.conversationId ? String(deal.conversationId) : null,
+          postId: deal.postId ? String(deal.postId) : null,
+          dealId: String(deal.id),
+        }),
+      }).catch(() => undefined))
+    }),
+    ...result.reviewRows.map((reminder) => createNotificationEvent(String(reminder.userId), {
+      type: 'review.reminder',
+      title: reviewReminderTitle(reminder.otherNickname),
+      body: '후기를 작성해 주세요.',
+      data: chatNotificationData({
+        type: 'review.reminder',
+        conversationId: reminder.conversationId ? String(reminder.conversationId) : null,
+        postId: reminder.postId ? String(reminder.postId) : null,
+        dealId: String(reminder.dealId),
+      }),
+    }).catch(() => undefined)),
+  ])
+
+  return {
+    appointmentBeforeProcessed: result.beforeRows.length,
+    completedProcessed: result.completedRows.length,
+    reviewPromptProcessed: result.reviewRows.length,
+  }
+}
+
 export async function processDueReviewReminders(limit = 100) {
   const sql = getSql()
   const cappedLimit = Math.min(Math.max(limit, 1), 500)
@@ -2597,11 +3068,6 @@ export async function processDueReviewReminders(limit = 100) {
   }).catch(() => undefined)))
 
   return { processed: reminders.length }
-}
-
-function reviewReminderTitle(otherNickname: unknown) {
-  const nickname = typeof otherNickname === 'string' && otherNickname.trim() ? otherNickname.trim() : '상대방'
-  return `${nickname} 과의 거래는 어떠셨나요?`
 }
 
 export async function getMyActivity(userId: string) {
@@ -3086,7 +3552,39 @@ export async function createReport(userId: string, input: ReportInput) {
       )
       returning *
     `
-    return rows[0]
+    const report = rows[0]
+
+    if (report && conversationId) {
+      const systemMessage = `‘${input.reason}’ 신고가 접수되어 채팅이 차단되었습니다.`
+      await tx`
+        update manwon_happiness.deals d
+        set reported_at = now(),
+            reported_by = ${userId},
+            reported_user_id = ${targetUserId},
+            report_reason = ${input.reason},
+            report_description = ${input.description ?? null},
+            reported_report_id = ${report.id},
+            chat_blocked_at = coalesce(chat_blocked_at, now()),
+            updated_at = now()
+        from manwon_happiness.conversations c
+        where c.id = ${conversationId}
+          and c.deal_id = d.id
+          and (c.requester_id = ${userId} or c.helper_id = ${userId})
+      `
+      await tx`
+        insert into manwon_happiness.messages (conversation_id, sender_id, message_type, body)
+        values (${conversationId}, ${userId}, 'system', ${systemMessage})
+      `
+      await tx`
+        update manwon_happiness.conversations
+        set last_message = ${systemMessage},
+            last_message_at = now(),
+            updated_at = now()
+        where id = ${conversationId}
+      `
+    }
+
+    return report
   })
 }
 

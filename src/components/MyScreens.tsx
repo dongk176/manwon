@@ -447,7 +447,7 @@ function MyActivityScreen({
   const emptyTitle = activeTab === '내 부탁' ? '아직 진행한 부탁 거래가 없어요' : '아직 해준 일이 없어요'
   const emptyText = activeTab === '내 부탁'
     ? '내가 올린 해주세요 게시물에서 거래가 시작되면 이곳에서 확인할 수 있습니다.'
-    : '거래를 수락하면 이곳에서 진행 상황을 볼 수 있습니다.'
+    : '제가 할게요나 문의하기로 채팅이 시작되면 이곳에서 확인할 수 있습니다.'
 
   return (
     <section className="screen my-sub-screen my-activity-screen">
@@ -2255,6 +2255,7 @@ function postToTaskItem(post: ActivityPost): TaskItem {
 function dealToTaskItem(deal: ActivityRecord): TaskItem {
   const status = getString(deal, 'status')
   const reported = Boolean(deal.reportedAt || deal.chatBlockedAt || getString(deal, 'reportReason'))
+  const appointmentScheduledAt = getString(deal, 'appointmentScheduledAt')
   const activityRole = getString(deal, 'activityRole')
   const counterpartName = getString(deal, 'counterpartNickname')
     || (activityRole === 'requester' ? getString(deal, 'helperNickname') : getString(deal, 'requesterNickname'))
@@ -2269,7 +2270,7 @@ function dealToTaskItem(deal: ActivityRecord): TaskItem {
     mode: getString(deal, 'postMode') || 'nearby',
     location: formatLocation(deal, 'post'),
     deadline: formatDeadline(deal.postDeadlineAt, deal.postDeadlineText, deal.postAvailableTimeText),
-    statusLabel: reported && status === 'completed' ? '완료 · 신고' : mapDealStatus(status),
+    statusLabel: reported && status === 'completed' ? '완료 · 신고' : mapDealStatus(status, appointmentScheduledAt),
     filterStatus: toDealFilterStatus(status),
     note: reported
       ? `${counterpartName}님과의 거래 · ${getString(deal, 'reportReason') || '신고 접수'}`
@@ -2531,16 +2532,14 @@ function mapPostStatus(status: string) {
   if (status === 'completed') return '완료'
   if (status === 'closed') return '마감'
   if (status === 'cancelled' || status === 'hidden') return '취소'
-  if (status === 'pending') return '수락대기'
-  if (status === 'in_progress') return '진행중'
+  if (status === 'pending' || status === 'in_progress') return '진행중'
   return '모집중'
 }
 
-function mapDealStatus(status: string) {
+function mapDealStatus(status: string, appointmentScheduledAt = '') {
   if (status === 'completed') return '완료'
   if (status === 'cancelled' || status === 'disputed') return '취소'
-  if (status === 'complete_requested') return '완료 요청'
-  if (status === 'accepted' || status === 'in_progress') return '진행중'
+  if (appointmentScheduledAt) return '약속'
   return '진행중'
 }
 

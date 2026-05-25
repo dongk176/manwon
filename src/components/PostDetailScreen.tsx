@@ -298,11 +298,12 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
   const isOwner = Boolean(post && currentUserId && post.creatorId === currentUserId)
   const postStatus = getRawPostStatus(post, displayPost)
   const viewerInteractionLock = getViewerInteractionLock(post)
+  const viewerConversationId = post?.viewerConversationId ?? null
   const showOwnerReopenActions = Boolean(isOwner && postStatus === 'cancelled' && !editMode)
   const showOwnerManualCloseAction = Boolean(isOwner && post?.postType === 'offer' && postStatus === 'open' && !editMode)
   const showOwnerOfferResumeAction = Boolean(isOwner && post?.postType === 'offer' && postStatus === 'closed' && !editMode)
   const showOwnerSecondaryAction = showOwnerReopenActions || showOwnerManualCloseAction || showOwnerOfferResumeAction
-  const primaryActionDisabled = !canUsePost || actionState === 'saving' || (!isOwner && postStatus !== 'open') || (!isOwner && viewerInteractionLock !== null) || (isOwner && postStatus === 'hidden')
+  const primaryActionDisabled = !canUsePost || actionState === 'saving' || (!isOwner && postStatus !== 'open' && !viewerConversationId) || (!isOwner && viewerInteractionLock !== null && !viewerConversationId) || (isOwner && postStatus === 'hidden')
   const primaryActionLabel = getPrimaryActionLabel({
     saving: actionState === 'saving',
     isOwner,
@@ -310,6 +311,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
     postType: displayPost?.postType,
     postStatus,
     viewerInteractionLock,
+    viewerConversationId,
   })
   const ctaClassName = [
     'fixed-bottom-button detail-cta-bar',
@@ -692,6 +694,10 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
       if (editMode) void saveEditMode()
       else if (postStatus === 'cancelled') void handleReopenPost()
       else startEditMode()
+      return
+    }
+    if (viewerConversationId) {
+      router.push(`/chat/${encodeURIComponent(viewerConversationId)}`)
       return
     }
     if (postStatus !== 'open') return
@@ -1186,7 +1192,7 @@ function getRawPostStatus(post: ApiTaskPost | null, displayPost: RequestPost | u
   if (displayPost?.status === '거래완료') return 'completed'
   if (displayPost?.status === '취소됨') return 'cancelled'
   if (displayPost?.status === '마감됨') return 'closed'
-  if (displayPost?.status === '진행중' || displayPost?.status === '완료요청' || displayPost?.status === '수락대기') return 'in_progress'
+  if (displayPost?.status === '진행중' || displayPost?.status === '약속' || displayPost?.status === '문의중') return 'in_progress'
   return 'open'
 }
 
@@ -1197,6 +1203,7 @@ function getPrimaryActionLabel({
   postType,
   postStatus,
   viewerInteractionLock,
+  viewerConversationId,
 }: {
   saving: boolean
   isOwner: boolean
@@ -1204,6 +1211,7 @@ function getPrimaryActionLabel({
   postType?: 'request' | 'offer'
   postStatus: PostStatus
   viewerInteractionLock: ViewerInteractionLock | null
+  viewerConversationId?: string | null
 }) {
   if (saving) return '처리 중'
   if (isOwner) {
@@ -1212,6 +1220,7 @@ function getPrimaryActionLabel({
     if (postStatus === 'cancelled') return '다시 모집하기'
     return '수정하기'
   }
+  if (viewerConversationId) return '채팅 보기'
   if (viewerInteractionLock) return getViewerInteractionLockLabel(viewerInteractionLock, postType)
   if (postStatus === 'pending' || postStatus === 'in_progress') return '이미 진행중입니다'
   if (postStatus === 'completed') return '거래 완료됨'

@@ -10,7 +10,6 @@ enum AppTab: Hashable {
 
 enum ChatReportMode: String, Hashable {
     case conversation
-    case completionDispute
 }
 
 enum ChatReviewSource: String, Hashable {

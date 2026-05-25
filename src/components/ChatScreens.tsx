@@ -1,14 +1,13 @@
 'use client'
 
-import { type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Bell, LockKeyhole, MoreVertical, Plus, Send, Smile, Star } from 'lucide-react'
+import { ArrowLeft, Bell, CalendarClock, LockKeyhole, MoreVertical, Plus, Send, Smile, Star } from 'lucide-react'
 import {
   AppHeader,
   BrandButton,
   ChipGroup,
   MoreMenu,
-  RatingStars,
   RequestCard,
   StatusBadge,
 } from '@/components/ui/Common'
@@ -36,10 +35,8 @@ import {
   isPhoneVerificationRequired,
   markConversationRead,
   normalizeDisplayImageUrl,
-  scheduleReviewReminder,
   sendConversationMessage,
-  updateApplicationStatus,
-  updateDealStatus,
+  updateConversationAppointment,
   type ApiConversation,
   type ApiMessage,
 } from '@/lib/manwonApi'
@@ -78,9 +75,13 @@ interface UiChat {
   helperId: string
   postCreatorId: string | null
   postType: ApiConversation['postType']
+  dealCompletedAt: string | null
   applicationApplicantId: string | null
   hasChatAfterStarted: boolean
   myReviewId: string | null
+  appointmentMode: ApiConversation['appointmentMode']
+  appointmentScheduledAt: string | null
+  appointmentLocationText: string | null
   status: TradeStatus
   lastMessage: string
   lastTime: string
@@ -99,11 +100,6 @@ interface UiMessage extends ChatMessage {
 interface ComposerDisabledReason {
   message: string
   brand?: boolean
-}
-
-interface CompletionReportInput {
-  reason: string
-  description: string
 }
 
 export function ChatScreens({ conversationId }: { conversationId?: string }) {
@@ -169,7 +165,7 @@ export function ChatScreens({ conversationId }: { conversationId?: string }) {
   const activeChat = conversationId ? chats.find((chat) => chat.id === conversationId) : null
   const filteredChats = useMemo(() => {
     return chats.filter((chat) => {
-      if (filter === 'progress') return chat.status === '진행중' || chat.status === '완료요청' || chat.status === '수락대기'
+      if (filter === 'progress') return chat.status !== '거래완료' && chat.status !== '취소됨'
       if (filter === 'done') return chat.status === '거래완료'
       if (filter === 'unread') return chat.unreadCount > 0
       return true
@@ -302,16 +298,6 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
   useEffect(() => {
     lastScrolledMessageIdRef.current = null
   }, [chat.id])
-
-  useEffect(() => {
-    const shouldShow = (() => {
-      if (chat.status !== '거래완료' || !chat.dealId || chat.myReviewId || chat.dealReportedAt) return false
-      const deferredUntil = getDeferredReviewUntil(chat.dealId)
-      return !deferredUntil || Date.now() >= deferredUntil
-    })()
-
-    queueMicrotask(() => setShowReviewPrompt(shouldShow))
-  }, [chat.dealId, chat.dealReportedAt, chat.id, chat.myReviewId, chat.status])
 
   useEffect(() => {
     if (loadState !== 'ready') return
@@ -479,6 +465,7 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
         reason: input.reason,
         description: input.description.trim() || undefined,
       })
+      await onRefresh()
       if (input.blockAfterReport) {
         await createBlock(chat.user.id, {
           postId: isUuid(chat.request.id) ? chat.request.id : undefined,
@@ -486,7 +473,6 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
           reason: '신고 후 차단',
           description: input.description.trim() || `채팅방 신고 후 차단됨: ${chat.request.title}`,
         })
-        await onRefresh()
         onBack()
       }
       setShowReportSheet(false)
@@ -544,10 +530,9 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
 
       <TradeActionPanel
         chat={chat}
-        currentUserId={getCurrentUserId()}
-        onOpenProfile={() => setShowProfileSheet(true)}
         onRefresh={onRefresh}
         onReview={() => setShowReviewPrompt(true)}
+        onReport={() => setShowReportSheet(true)}
       />
       <RequestCard request={chat.request} variant="preview" />
       {chat.dealChatBlockedAt && <ChatBlockedNotice chat={chat} />}
@@ -633,11 +618,8 @@ function ChatDetail({ chat, onBack, onRefresh }: { chat: UiChat; onBack: () => v
       {showReviewPrompt && chat.dealId && (
         <ReviewPromptSheet
           chat={chat}
-          onDeferred={() => {
-            setShowReviewPrompt(false)
-          }}
+          onClose={() => setShowReviewPrompt(false)}
           onSubmitted={async () => {
-            if (chat.dealId) clearDeferredReview(chat.dealId)
             setShowReviewPrompt(false)
             await onRefresh()
           }}
@@ -661,23 +643,23 @@ function ChatBlockedNotice({ chat }: { chat: UiChat }) {
 
 function ReviewPromptSheet({
   chat,
-  onDeferred,
+  onClose,
   onSubmitted,
 }: {
   chat: UiChat
-  onDeferred: () => void
+  onClose: () => void
   onSubmitted: () => Promise<void>
 }) {
   const [rating, setRating] = useState(5)
   const [content, setContent] = useState('')
-  const [busy, setBusy] = useState<'submit' | 'later' | null>(null)
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const overlayStyle = useVisualViewportOverlayStyle()
   const dealId = chat.dealId
 
   async function submit() {
     if (!dealId || busy) return
-    setBusy('submit')
+    setBusy(true)
     setError('')
     try {
       await createReview({ dealId, rating, content: content.trim() || null })
@@ -685,22 +667,7 @@ function ReviewPromptSheet({
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : '후기를 저장하지 못했습니다.')
     } finally {
-      setBusy(null)
-    }
-  }
-
-  async function remindLater() {
-    if (!dealId || busy) return
-    setBusy('later')
-    setError('')
-    try {
-      const reminder = await scheduleReviewReminder(dealId)
-      deferReviewPrompt(dealId, reminder?.dueAt)
-      onDeferred()
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : '리마인더를 설정하지 못했습니다.')
-    } finally {
-      setBusy(null)
+      setBusy(false)
     }
   }
 
@@ -708,7 +675,7 @@ function ReviewPromptSheet({
     <div className="sheet-overlay" role="presentation" style={overlayStyle}>
       <div className="review-prompt-sheet" role="dialog" aria-modal="true" aria-labelledby="review-prompt-title">
         <div className="drag-handle" />
-        <button className="sheet-x" type="button" onClick={() => void remindLater()} aria-label="나중에">
+        <button className="sheet-x" type="button" onClick={onClose} aria-label="닫기">
           ×
         </button>
         <h2 id="review-prompt-title">거래 후기를 남겨주세요</h2>
@@ -740,11 +707,11 @@ function ReviewPromptSheet({
         </label>
         {error && <p className="inline-status is-error">{error}</p>}
         <div className="review-prompt-actions">
-          <BrandButton variant="outline" size="sm" disabled={busy !== null} onClick={() => void remindLater()}>
-            {busy === 'later' ? '설정 중' : '나중에'}
+          <BrandButton variant="outline" size="sm" disabled={busy} onClick={onClose}>
+            닫기
           </BrandButton>
-          <BrandButton size="sm" disabled={busy !== null} onClick={() => void submit()}>
-            {busy === 'submit' ? '저장 중' : '후기 남기기'}
+          <BrandButton size="sm" disabled={busy} onClick={() => void submit()}>
+            {busy ? '저장 중' : '후기 남기기'}
           </BrandButton>
         </div>
       </div>
@@ -844,69 +811,6 @@ function ReportSheet({
   )
 }
 
-function CompletionReportSheet({
-  userName,
-  error,
-  busy,
-  onClose,
-  onSubmit,
-}: {
-  userName: string
-  error?: string
-  busy?: boolean
-  onClose: () => void
-  onSubmit: (input: CompletionReportInput) => void
-}) {
-  const [reason, setReason] = useState<string>(reportReasons[0])
-  const [description, setDescription] = useState('')
-  const overlayStyle = useVisualViewportOverlayStyle()
-
-  return (
-    <div className="sheet-overlay" role="presentation" onClick={busy ? undefined : onClose} style={overlayStyle}>
-      <div className="report-sheet is-completion-report" role="dialog" aria-modal="true" aria-labelledby="completion-report-title" onClick={(event) => event.stopPropagation()}>
-        <div className="drag-handle" />
-        <button className="sheet-x" type="button" onClick={onClose} aria-label="닫기" disabled={busy}>
-          ×
-        </button>
-        <h2 id="completion-report-title">완료 요청을 신고할까요?</h2>
-        <p>{userName}님과의 거래 문제를 신고하면 거래는 완료 처리되고 이 채팅방의 메시지 전송이 양쪽 모두 차단됩니다.</p>
-        <div className="report-reason-grid" role="radiogroup" aria-label="신고 사유">
-          {reportReasons.map((item) => (
-            <button
-              key={item}
-              className={reason === item ? 'is-active' : ''}
-              type="button"
-              onClick={() => setReason(item)}
-              role="radio"
-              aria-checked={reason === item}
-              disabled={busy}
-            >
-              {item}
-            </button>
-          ))}
-        </div>
-        <label className="report-textarea">
-          <span>상세 내용</span>
-          <textarea
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            maxLength={1000}
-            placeholder="완료 요청에 문제가 있는 이유를 적어주세요."
-            disabled={busy}
-          />
-          <em>{description.length}/1000</em>
-        </label>
-        {error && <p className="inline-status is-error">{error}</p>}
-        <div className="report-sheet-actions is-single">
-          <BrandButton size="lg" disabled={busy} onClick={() => onSubmit({ reason, description })}>
-            {busy ? '접수 중' : '신고하고 거래 완료 처리'}
-          </BrandButton>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 function useVisualViewportOverlayStyle() {
   const [style, setStyle] = useState<CSSProperties>({})
 
@@ -936,356 +840,224 @@ function useVisualViewportOverlayStyle() {
   return style
 }
 
-type TradeActionId = 'accept' | 'reject' | 'complete' | 'dispute' | 'requestComplete' | 'cancel' | 'start'
-
-const tradeActionPendingLabels: Record<TradeActionId, string> = {
-  accept: '수락 중',
-  reject: '거절 중',
-  complete: '승인 중',
-  dispute: '신고 중',
-  requestComplete: '요청 중',
-  cancel: '취소 중',
-  start: '시작 중',
-}
-
-const tradeActionConfirmationCopy: Record<TradeActionId, { title: string; message: string; confirmLabel: string }> = {
-  accept: {
-    title: '지원자를 수락할까요?',
-    message: '수락하면 거래가 만들어지고 채팅에서 진행을 시작할 수 있습니다.',
-    confirmLabel: '수락하기',
-  },
-  reject: {
-    title: '지원을 거절할까요?',
-    message: '거절 후에는 이 채팅에서 거래를 진행할 수 없습니다.',
-    confirmLabel: '거절하기',
-  },
-  complete: {
-    title: '완료 승인할까요?',
-    message: '승인하면 거래가 완료되고 후기 작성 단계로 넘어갑니다.',
-    confirmLabel: '완료 승인',
-  },
-  dispute: {
-    title: '문제를 신고할까요?',
-    message: '거래에 문제가 있으면 신고 상태로 전환됩니다.',
-    confirmLabel: '신고하기',
-  },
-  requestComplete: {
-    title: '완료 요청을 보낼까요?',
-    message: '작업이 끝났다면 작성자에게 완료 승인을 요청합니다.',
-    confirmLabel: '요청 보내기',
-  },
-  cancel: {
-    title: '거래를 취소할까요?',
-    message: '취소 후에는 이 거래를 다시 진행할 수 없습니다.',
-    confirmLabel: '취소하기',
-  },
-  start: {
-    title: '거래를 시작할까요?',
-    message: '시작 후 지원자가 완료 요청을 보낼 수 있습니다.',
-    confirmLabel: '시작하기',
-  },
-}
-
-interface TradeActionConfirmation {
-  id: TradeActionId
-  action: () => Promise<unknown>
-}
-
 function TradeActionPanel({
   chat,
-  currentUserId,
-  onOpenProfile,
   onRefresh,
   onReview,
+  onReport,
 }: {
   chat: UiChat
-  currentUserId: string | null
-  onOpenProfile: () => void
   onRefresh: () => Promise<void>
   onReview: () => void
+  onReport: () => void
 }) {
-  const [pendingAction, setPendingAction] = useState<TradeActionId | null>(null)
-  const [confirmAction, setConfirmAction] = useState<TradeActionConfirmation | null>(null)
-  const [phoneVerificationAction, setPhoneVerificationAction] = useState<TradeActionConfirmation | null>(null)
-  const [showCompletionReport, setShowCompletionReport] = useState(false)
-  const [error, setError] = useState('')
-  const busy = pendingAction !== null
-  const postCreatorId = chat.postCreatorId ?? chat.requesterId
-  const isPostWriter = postCreatorId === currentUserId
-  const isApplicant = Boolean(currentUserId && currentUserId !== postCreatorId)
-  const hasPendingApplication = chat.applicationStatus === 'applied' && !chat.dealId
+  const [showAppointmentSheet, setShowAppointmentSheet] = useState(false)
 
-  function actionText(actionId: TradeActionId, label: string) {
-    return pendingAction === actionId ? tradeActionPendingLabels[actionId] : label
-  }
-
-  function actionClass(actionId: TradeActionId) {
-    return pendingAction === actionId ? 'is-processing' : ''
-  }
-
-  async function run(actionId: TradeActionId, action: () => Promise<unknown>) {
-    setPendingAction(actionId)
-    setError('')
-    try {
-      await action()
-      await onRefresh()
-      return true
-    } catch (nextError) {
-      if (actionId === 'dispute' && isPhoneVerificationRequired(nextError)) {
-        setError('')
-        setPhoneVerificationAction({ id: actionId, action })
-        return false
-      }
-      setError(nextError instanceof Error ? nextError.message : '상태를 변경하지 못했습니다.')
-      return false
-    } finally {
-      setPendingAction(null)
-    }
-  }
-
-  function requestConfirmation(actionId: TradeActionId, action: () => Promise<unknown>) {
-    if (busy) return
-    setConfirmAction({ id: actionId, action })
-  }
-
-  async function confirmTradeAction() {
-    const nextAction = confirmAction
-    if (!nextAction) return
-    setConfirmAction(null)
-    await run(nextAction.id, nextAction.action)
-  }
-
-  function withConfirmation(content: ReactNode) {
+  if (chat.dealChatBlockedAt) {
     return (
-      <>
-        {content}
-        {showCompletionReport && (
-          <CompletionReportSheet
-            userName={chat.user.name}
-            error={error}
-            busy={pendingAction === 'dispute'}
-            onClose={() => {
-              if (pendingAction === 'dispute') return
-              setShowCompletionReport(false)
-              setError('')
-            }}
-            onSubmit={(input) => {
-              if (!chat.dealId) return
-              void run('dispute', () => updateDealStatus(chat.dealId!, 'disputed', {
-                reportReason: input.reason,
-                reportDescription: input.description.trim() || null,
-              })).then((succeeded) => {
-                if (succeeded) setShowCompletionReport(false)
-              })
-            }}
-          />
-        )}
-        {confirmAction && (
-          <TradeActionConfirmDialog
-            actionId={confirmAction.id}
-            onCancel={() => setConfirmAction(null)}
-            onConfirm={() => void confirmTradeAction()}
-          />
-        )}
-        {phoneVerificationAction && (
-          <PhoneVerificationOverlay
-            onClose={() => setPhoneVerificationAction(null)}
-            onVerified={() => {
-              const nextAction = phoneVerificationAction
-              setPhoneVerificationAction(null)
-              if (nextAction) {
-                void run(nextAction.id, nextAction.action).then((succeeded) => {
-                  if (succeeded && nextAction.id === 'dispute') setShowCompletionReport(false)
-                })
-              }
-            }}
-          />
-        )}
-      </>
-    )
-  }
-
-  if (chat.status === '거래완료') {
-    if (chat.dealReportedAt) {
-      return withConfirmation(
-        <div className="complete-panel is-reported">
-          <div className="complete-icon">!</div>
-          <strong>{getChatBlockedMessage(chat)}</strong>
-          <span>{getChatBlockedDetail(chat)}</span>
-        </div>,
-      )
-    }
-
-    return withConfirmation(
-      <div className="complete-panel">
-        <div className="complete-icon">✓</div>
-        <strong>거래가 완료되었어요. 수고하셨어요!</strong>
-        <span>거래는 어떠셨나요?</span>
-        <RatingStars rating={5} />
-        <div className="two-buttons">
-          <BrandButton variant="outline" disabled={Boolean(chat.myReviewId)} onClick={onReview}>
-            {chat.myReviewId ? '후기 작성 완료' : '후기 남기기'}
-          </BrandButton>
-          <BrandButton>다시 부탁하기</BrandButton>
-        </div>
-      </div>,
-    )
-  }
-
-  if (chat.status === '취소됨') {
-    return withConfirmation(
-      <div className="complete-panel">
+      <div className="complete-panel is-reported">
         <div className="complete-icon">!</div>
-        <strong>거래가 취소되었어요</strong>
-        <span>필요하다면 게시글 상세에서 다시 모집을 시작할 수 있습니다.</span>
-      </div>,
-    )
-  }
-
-  if (hasPendingApplication && !isPostWriter) {
-    return withConfirmation(
-      <div className="request-complete-panel">
-        <div>
-          <strong>지원 수락을 기다리고 있어요.</strong>
-          <span>작성자가 수락하면 거래가 시작됩니다.</span>
-        </div>
-      </div>,
-    )
-  }
-
-  if (chat.status === '완료요청') {
-    const dealId = chat.dealId
-    if (!isPostWriter) {
-      return withConfirmation(
-        <div className="request-complete-panel">
-          <div>
-            <strong>완료 요청을 보냈어요.</strong>
-            <span>게시글 작성자의 완료 승인을 기다리고 있어요.</span>
-          </div>
-        </div>,
-      )
-    }
-
-    return withConfirmation(
-      <div className="request-complete-panel">
-        <div>
-          <strong>지원자가 완료 요청을 보냈습니다.</strong>
-          <span>물건을 전달받았거나 작업을 확인했다면 승인해주세요.</span>
-        </div>
-        <div className="two-buttons">
-          <BrandButton className={actionClass('complete')} disabled={busy || !dealId} onClick={() => dealId && requestConfirmation('complete', () => updateDealStatus(dealId, 'completed'))}>
-            {actionText('complete', '완료 승인')}
-          </BrandButton>
-          <BrandButton className={actionClass('dispute')} variant="outline" disabled={busy || !dealId} onClick={() => dealId && setShowCompletionReport(true)}>
-            {actionText('dispute', '문제 신고')}
-          </BrandButton>
-        </div>
-        {error && <p className="inline-status is-error">{error}</p>}
-      </div>,
-    )
-  }
-
-  if (chat.status === '진행중') {
-    const dealId = chat.dealId
-    if (!isApplicant) {
-      return withConfirmation(
-        <div className="request-complete-panel">
-          <div>
-            <strong>거래가 진행 중이에요.</strong>
-            <span>지원자가 완료 요청을 보내면 승인할 수 있습니다.</span>
-          </div>
-        </div>,
-      )
-    }
-
-    return withConfirmation(
-      <div className="two-buttons chat-action-bar">
-        <BrandButton className={actionClass('requestComplete')} disabled={busy || !dealId} onClick={() => dealId && requestConfirmation('requestComplete', () => updateDealStatus(dealId, 'complete_requested'))}>
-          {actionText('requestComplete', '완료 요청 보내기')}
-        </BrandButton>
-        <BrandButton className={actionClass('cancel')} variant="outline" disabled={busy || !dealId} onClick={() => dealId && requestConfirmation('cancel', () => updateDealStatus(dealId, 'cancelled'))}>
-          {actionText('cancel', '취소')}
-        </BrandButton>
-        {error && <p className="inline-status is-error">{error}</p>}
-      </div>,
-    )
-  }
-
-  if (chat.status === '수락대기') {
-    const dealId = chat.dealId
-    if (!isPostWriter) {
-      return withConfirmation(
-        <div className="request-complete-panel">
-          <div>
-            <strong>작성자의 진행 시작을 기다리고 있어요.</strong>
-            <span>진행 시작 후 완료 요청을 보낼 수 있습니다.</span>
-          </div>
-        </div>,
-      )
-    }
-
-    return withConfirmation(
-      <div className="two-buttons chat-action-bar">
-        <BrandButton className={actionClass('start')} disabled={busy || !dealId} onClick={() => dealId && requestConfirmation('start', () => updateDealStatus(dealId, 'in_progress'))}>
-          {actionText('start', '진행 시작')}
-        </BrandButton>
-        <BrandButton className={actionClass('cancel')} variant="outline" disabled={busy || !dealId} onClick={() => dealId && requestConfirmation('cancel', () => updateDealStatus(dealId, 'cancelled'))}>
-          {actionText('cancel', '취소')}
-        </BrandButton>
-        {error && <p className="inline-status is-error">{error}</p>}
-      </div>,
-    )
-  }
-
-  if (!hasPendingApplication || !isPostWriter) return null
-
-  const applicationId = chat.applicationId
-  return withConfirmation(
-    <div className="two-buttons chat-action-bar">
-      <div className="applicant-profile-prompt">
-        <span>수락 전에 지원자 프로필을 확인해보세요.</span>
-        <button type="button" onClick={onOpenProfile}>
-          프로필 보기
-        </button>
+        <strong>{getChatBlockedMessage(chat)}</strong>
+        <span>{getChatBlockedDetail(chat)}</span>
       </div>
-      <BrandButton className={actionClass('accept')} disabled={busy || !applicationId} onClick={() => applicationId && requestConfirmation('accept', () => updateApplicationStatus(applicationId, 'accepted'))}>
-        {actionText('accept', '수락하기')}
-      </BrandButton>
-      <BrandButton className={actionClass('reject')} variant="outline" disabled={busy || !applicationId} onClick={() => applicationId && requestConfirmation('reject', () => updateApplicationStatus(applicationId, 'rejected'))}>
-        {actionText('reject', '거절하기')}
-      </BrandButton>
-      {error && <p className="inline-status is-error">{error}</p>}
-    </div>,
+    )
+  }
+
+  if (!chat.hasChatAfterStarted) {
+    return (
+      <div className="request-complete-panel">
+        <div>
+          <strong>먼저 대화를 나눠보세요.</strong>
+          <span>서로 한 번씩 메시지를 주고받으면 후기 작성, 약속 잡기, 신고를 사용할 수 있습니다.</span>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <div className="trade-cta-panel">
+        {chat.appointmentScheduledAt && (
+          <div className="appointment-summary">
+            <CalendarClock size={18} />
+            <span>
+              <strong>{formatAppointmentSummary(chat)}</strong>
+              <small>{chat.appointmentMode === 'in_person' && chat.appointmentLocationText ? chat.appointmentLocationText : '온라인 약속'}</small>
+            </span>
+          </div>
+        )}
+        <div className="trade-cta-actions">
+          <BrandButton variant="outline" disabled={!chat.dealId || Boolean(chat.myReviewId)} onClick={onReview}>
+            {chat.myReviewId ? '후기 작성 완료' : '후기 작성'}
+          </BrandButton>
+          <BrandButton variant="outline" disabled={!chat.dealId || chat.status === '거래완료'} onClick={() => setShowAppointmentSheet(true)}>
+            {chat.appointmentScheduledAt ? '약속 수정' : '약속 잡기'}
+          </BrandButton>
+          <BrandButton variant="outline" onClick={onReport}>
+            신고
+          </BrandButton>
+        </div>
+      </div>
+      {showAppointmentSheet && (
+        <AppointmentSheet
+          chat={chat}
+          onClose={() => setShowAppointmentSheet(false)}
+          onSaved={async () => {
+            setShowAppointmentSheet(false)
+            await onRefresh()
+          }}
+        />
+      )}
+    </>
   )
 }
 
-function TradeActionConfirmDialog({
-  actionId,
-  onCancel,
-  onConfirm,
+function AppointmentSheet({
+  chat,
+  onClose,
+  onSaved,
 }: {
-  actionId: TradeActionId
-  onCancel: () => void
-  onConfirm: () => void
+  chat: UiChat
+  onClose: () => void
+  onSaved: () => Promise<void>
 }) {
-  const copy = tradeActionConfirmationCopy[actionId]
+  const initialDate = getAppointmentInitialDate(chat.appointmentScheduledAt)
+  const [mode, setMode] = useState<'online' | 'in_person'>(chat.appointmentMode ?? 'online')
+  const [date, setDate] = useState(toDateInputValue(initialDate))
+  const [time, setTime] = useState(toTimeInputValue(initialDate))
+  const [locationText, setLocationText] = useState(chat.appointmentLocationText ?? '')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const overlayStyle = useVisualViewportOverlayStyle()
+
+  async function submit() {
+    if (busy) return
+    setError('')
+    if (!date || !time) {
+      setError('날짜와 시간을 선택해주세요.')
+      return
+    }
+    if (mode === 'in_person' && !locationText.trim()) {
+      setError('직접 만나는 약속은 장소를 입력해주세요.')
+      return
+    }
+
+    const scheduledAt = localDateTimeToISOString(date, time)
+    if (!scheduledAt) {
+      setError('약속 시간을 확인해주세요.')
+      return
+    }
+    if (new Date(scheduledAt).getTime() <= Date.now()) {
+      setError('현재 이후의 시간을 선택해주세요.')
+      return
+    }
+
+    setBusy(true)
+    try {
+      await updateConversationAppointment(chat.id, {
+        mode,
+        scheduledAt,
+        locationText: mode === 'in_person' ? locationText.trim() : null,
+      })
+      await onSaved()
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : '약속을 저장하지 못했습니다.')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
-    <div className="modal-overlay" role="presentation" onClick={onCancel}>
-      <div className="confirm-dialog trade-action-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="trade-action-confirm-title" onClick={(event) => event.stopPropagation()}>
-        <h2 id="trade-action-confirm-title">{copy.title}</h2>
-        <p>{copy.message}</p>
-        <div>
-          <button type="button" onClick={onCancel}>
-            돌아가기
+    <div className="sheet-overlay" role="presentation" onClick={busy ? undefined : onClose} style={overlayStyle}>
+      <div className="appointment-sheet" role="dialog" aria-modal="true" aria-labelledby="appointment-sheet-title" onClick={(event) => event.stopPropagation()}>
+        <div className="drag-handle" />
+        <button className="sheet-x" type="button" onClick={onClose} aria-label="닫기" disabled={busy}>
+          ×
+        </button>
+        <h2 id="appointment-sheet-title">{chat.appointmentScheduledAt ? '약속 수정' : '약속 잡기'}</h2>
+        <div className="appointment-mode-grid" role="radiogroup" aria-label="약속 방식">
+          <button type="button" className={mode === 'online' ? 'is-active' : ''} onClick={() => setMode('online')} role="radio" aria-checked={mode === 'online'}>
+            온라인
           </button>
-          <button type="button" onClick={onConfirm}>
-            {copy.confirmLabel}
+          <button type="button" className={mode === 'in_person' ? 'is-active' : ''} onClick={() => setMode('in_person')} role="radio" aria-checked={mode === 'in_person'}>
+            직접 만나서
           </button>
+        </div>
+        <div className="appointment-fields">
+          <label>
+            <span>날짜</span>
+            <input type="date" value={date} onChange={(event) => setDate(event.target.value)} disabled={busy} />
+          </label>
+          <label>
+            <span>시간</span>
+            <input type="time" value={time} onChange={(event) => setTime(event.target.value)} disabled={busy} />
+          </label>
+          {mode === 'in_person' && (
+            <label className="is-full">
+              <span>장소</span>
+              <input value={locationText} onChange={(event) => setLocationText(event.target.value)} maxLength={120} placeholder="만날 장소를 입력해주세요" disabled={busy} />
+            </label>
+          )}
+        </div>
+        {error && <p className="inline-status is-error">{error}</p>}
+        <div className="appointment-actions">
+          <BrandButton variant="outline" size="sm" disabled={busy} onClick={onClose}>
+            닫기
+          </BrandButton>
+          <BrandButton size="sm" disabled={busy} onClick={() => void submit()}>
+            {busy ? '저장 중' : '저장하기'}
+          </BrandButton>
         </div>
       </div>
     </div>
   )
+}
+
+function getAppointmentInitialDate(value?: string | null) {
+  if (value) {
+    const parsed = new Date(value)
+    if (!Number.isNaN(parsed.getTime())) return parsed
+  }
+  const next = new Date()
+  next.setMinutes(0, 0, 0)
+  next.setHours(next.getHours() + 1)
+  return next
+}
+
+function toDateInputValue(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function toTimeInputValue(date: Date) {
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${hours}:${minutes}`
+}
+
+function localDateTimeToISOString(date: string, time: string) {
+  const value = new Date(`${date}T${time}:00`)
+  if (Number.isNaN(value.getTime())) return null
+  return value.toISOString()
+}
+
+function formatAppointmentSummary(chat: UiChat) {
+  const mode = chat.appointmentMode === 'in_person' ? '직접 만남' : '온라인'
+  return `${mode} · ${formatFullDateTime(chat.appointmentScheduledAt)}`
+}
+
+function formatFullDateTime(value?: string | null) {
+  if (!value) return '시간 미정'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '시간 미정'
+  return new Intl.DateTimeFormat('ko-KR', {
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
 }
 
 function MessageComposer({
@@ -1428,9 +1200,13 @@ function mapConversationToChat(conversation: ApiConversation, currentUserId: str
     helperId: conversation.helperId,
     postCreatorId: conversation.postCreatorId ?? null,
     postType: conversation.postType ?? null,
+    dealCompletedAt: conversation.dealCompletedAt ?? null,
     applicationApplicantId: conversation.applicationApplicantId ?? null,
     hasChatAfterStarted: Boolean(conversation.hasChatAfterStarted),
     myReviewId: conversation.myReviewId ?? null,
+    appointmentMode: conversation.appointmentMode ?? null,
+    appointmentScheduledAt: conversation.appointmentScheduledAt ?? null,
+    appointmentLocationText: conversation.appointmentLocationText ?? null,
     status,
     lastMessage: conversation.lastMessage ?? '새 채팅방이 생성되었어요.',
     lastTime: formatTime(conversation.lastMessageAt),
@@ -1457,9 +1233,13 @@ function mapMockChatToChat(thread: ChatThread): UiChat {
     helperId: thread.userId,
     postCreatorId: request.requesterId,
     postType: 'request',
+    dealCompletedAt: null,
     applicationApplicantId: thread.userId,
     hasChatAfterStarted: true,
     myReviewId: null,
+    appointmentMode: null,
+    appointmentScheduledAt: null,
+    appointmentLocationText: null,
     status: thread.status,
     lastMessage: thread.lastMessage,
     lastTime: thread.lastTime,
@@ -1585,17 +1365,6 @@ function getComposerDisabledReason(chat: UiChat): ComposerDisabledReason | null 
       brand: chat.dealReportedUserId === getCurrentUserId(),
     }
   }
-  if (chat.postType === 'request' && chat.applicationStatus === 'applied' && !chat.dealId) {
-    return {
-      message: '지원 요청이 수락되면 채팅을 할 수 있습니다.',
-      brand: true,
-    }
-  }
-  if (chat.status === '거래완료' || chat.status === '취소됨') {
-    return {
-      message: '종료된 거래라 메시지를 보낼 수 없어요.',
-    }
-  }
   return null
 }
 
@@ -1609,18 +1378,16 @@ function getChatBlockedMessage(chat: UiChat) {
 
 function getChatBlockedDetail(chat: UiChat) {
   if (chat.dealReportedUserId === getCurrentUserId()) {
-    return '거래는 완료 처리되었고, 이 채팅방에서는 더 이상 메시지를 보낼 수 없습니다.'
+    return '신고가 접수되어 이 채팅방에서는 더 이상 메시지를 보낼 수 없습니다.'
   }
-  return '거래는 완료 처리되었고, 양쪽 모두 이 채팅방에서 더 이상 메시지를 보낼 수 없습니다.'
+  return '신고가 접수되어 양쪽 모두 이 채팅방에서 더 이상 메시지를 보낼 수 없습니다.'
 }
 
 function mapTradeStatus(conversation: ApiConversation): TradeStatus {
   if (conversation.dealStatus === 'completed') return '거래완료'
-  if (conversation.dealStatus === 'complete_requested') return '완료요청'
-  if (conversation.dealStatus === 'in_progress') return '진행중'
   if (conversation.dealStatus === 'cancelled' || conversation.dealStatus === 'disputed') return '취소됨'
-  if (conversation.dealStatus === 'accepted' || conversation.dealStatus === 'pending') return '수락대기'
   if (conversation.applicationStatus === 'rejected' || conversation.applicationStatus === 'cancelled') return '취소됨'
+  if (conversation.appointmentScheduledAt) return '약속'
   return '문의중'
 }
 
@@ -1669,33 +1436,6 @@ function isHttpUrl(value: string) {
   } catch {
     return false
   }
-}
-
-function reviewPromptStorageKey(dealId: string) {
-  return `manwon_review_prompt_deferred_until:${dealId}`
-}
-
-const reviewPromptDeferredFallbackMs = 2 * 60 * 60 * 1000
-
-function getDeferredReviewUntil(dealId: string) {
-  if (typeof window === 'undefined') return null
-  const value = window.localStorage.getItem(reviewPromptStorageKey(dealId))
-  if (!value) return null
-  const timestamp = Number(value)
-  return Number.isFinite(timestamp) ? timestamp : null
-}
-
-function deferReviewPrompt(dealId: string, dueAt?: string | null) {
-  if (typeof window === 'undefined') return
-  const parsedDueAt = dueAt ? Date.parse(dueAt) : Number.NaN
-  const fallbackDueAt = Date.now() + reviewPromptDeferredFallbackMs
-  const deferredUntil = Number.isFinite(parsedDueAt) && parsedDueAt > Date.now() ? parsedDueAt : fallbackDueAt
-  window.localStorage.setItem(reviewPromptStorageKey(dealId), String(deferredUntil))
-}
-
-function clearDeferredReview(dealId: string) {
-  if (typeof window === 'undefined') return
-  window.localStorage.removeItem(reviewPromptStorageKey(dealId))
 }
 
 function isUuid(value: string) {

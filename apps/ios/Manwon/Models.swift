@@ -270,12 +270,19 @@ struct Conversation: Codable, Identifiable, Hashable {
     let postCreatorId: String?
     let postType: String?
     let dealStatus: DealStatus?
+    let dealCompletedAt: String?
     let dealReportedAt: String?
     let dealReportedBy: String?
     let dealReportedUserId: String?
     let dealReportReason: String?
     let dealReportDescription: String?
     let dealChatBlockedAt: String?
+    let appointmentMode: String?
+    let appointmentScheduledAt: String?
+    let appointmentLocationText: String?
+    let appointmentCreatedBy: String?
+    let appointmentUpdatedBy: String?
+    let appointmentSetAt: String?
     let requesterProfileId: String?
     let helperProfileId: String?
     let applicationId: String?

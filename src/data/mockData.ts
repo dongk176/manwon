@@ -1,8 +1,7 @@
 export type TradeStatus =
   | '문의중'
-  | '수락대기'
   | '진행중'
-  | '완료요청'
+  | '약속'
   | '거래완료'
   | '마감됨'
   | '취소됨'
@@ -244,7 +243,7 @@ export const requests: RequestPost[] = [
     mode: 'online',
     distance: '온라인',
     image: 'review',
-    status: '수락대기',
+    status: '문의중',
     description: '답을 정해주기보다 상황을 차분히 들어주고 생각 정리만 도와주시면 좋아요.',
     requesterId: 'minsu',
   },
@@ -294,7 +293,7 @@ export const requests: RequestPost[] = [
     mode: 'online',
     distance: '온라인',
     image: 'shield',
-    status: '수락대기',
+    status: '문의중',
     description: '중요한 일정이 있어서 전화로 확실히 깨워주실 분을 찾습니다.',
     requesterId: 'minji',
   },
@@ -311,7 +310,7 @@ export const requests: RequestPost[] = [
     mode: 'online',
     distance: '온라인',
     image: 'document',
-    status: '완료요청',
+    status: '약속',
     description: '키워드와 기준은 정해두었습니다. 출처 링크와 한 줄 요약까지 부탁드려요.',
     requesterId: 'jihun',
   },
@@ -430,21 +429,21 @@ export const chats: ChatThread[] = [
       { id: 'm3', sender: 'other', text: '네, 감사합니다.', time: '18:06' },
       { id: 'm4', sender: 'me', text: '도착하면 다시 알려드릴게요.', time: '18:10' },
       { id: 'm5', sender: 'other', text: '네, 천천히 오세요.', time: '18:11' },
-      { id: 'm6', sender: 'system', text: '상대방이 거래를 수락했어요.', time: '18:26' },
+      { id: 'm6', sender: 'system', text: '대화가 시작되었어요.', time: '18:26' },
     ],
   },
   {
     id: 'c3',
     userId: 'jihun',
     requestId: 'r2',
-    status: '완료요청',
+    status: '약속',
     lastMessage: '혹시 수정할 부분 더 있을까요?',
     lastTime: '어제 15:22',
     unreadCount: 0,
     messages: [
       { id: 'm1', sender: 'other', text: '초안 확인했습니다. 제목만 조금 더 짧게 가능할까요?', time: '15:11' },
       { id: 'm2', sender: 'me', text: '네. 바로 반영해서 다시 보내드릴게요.', time: '15:13' },
-      { id: 'm3', sender: 'system', text: '이지훈님이 완료 요청을 보냈습니다.', time: '15:22' },
+      { id: 'm3', sender: 'system', text: '이지훈님이 약속을 잡았어요.', time: '15:22' },
     ],
   },
   {

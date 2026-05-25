@@ -3,8 +3,7 @@
 import { useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { BottomNav } from '@/components/ui/Common'
-import { isManwonIOS } from '@/components/NativeIOSBridge'
-import { fetchAuthSession, fetchDueReviewReminder } from '@/lib/manwonApi'
+import { fetchAuthSession } from '@/lib/manwonApi'
 
 type AppGateState =
   | { status: 'checking'; onboardingCompleted: null; legalAgreementsCompleted: null }
@@ -104,8 +103,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           ? !profileOnboardingPath && !termsConsentPath
           : profileOnboardingPath
         : termsConsentPath))
-  const onboardingCompleted = gateState.status === 'allowed' ? gateState.onboardingCompleted : false
-  const legalAgreementsCompleted = gateState.status === 'allowed' ? gateState.legalAgreementsCompleted : false
   const hideBottomNav =
     !contentAllowed ||
     overlayVisible ||
@@ -183,28 +180,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       cancelled = true
     }
   }, [pathname, profileOnboardingPath, publicPath, router, termsConsentPath])
-
-  useEffect(() => {
-    if (!contentAllowed || !onboardingCompleted || !legalAgreementsCompleted) return
-    if (isManwonIOS()) return
-    if (pathname.startsWith('/login') || pathname.startsWith('/signup') || pathname.startsWith('/chat/') || pathname === '/profile-onboarding' || pathname === '/terms-consent') return
-
-    let cancelled = false
-    void fetchAuthSession()
-      .then((session) => {
-        if (cancelled || !session.authenticated || !isProfileOnboardingCompleted(session.profile)) return null
-        return fetchDueReviewReminder()
-      })
-      .then((reminder) => {
-        if (cancelled || !reminder?.conversationId) return
-        router.push(`/chat/${encodeURIComponent(reminder.conversationId)}`)
-      })
-      .catch(() => undefined)
-
-    return () => {
-      cancelled = true
-    }
-  }, [contentAllowed, legalAgreementsCompleted, onboardingCompleted, pathname, router])
 
   return (
     <main className="app-shell">

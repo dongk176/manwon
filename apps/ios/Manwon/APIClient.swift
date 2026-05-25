@@ -37,8 +37,10 @@ private struct ReviewPayload: Encodable {
     let content: String?
 }
 
-private struct ReviewReminderPayload: Encodable {
-    let dealId: String
+private struct AppointmentPayload: Encodable {
+    let mode: String
+    let scheduledAt: String
+    let locationText: String?
 }
 
 private struct ReadConversationPayload: Encodable {
@@ -108,12 +110,6 @@ enum ConversationRealtimeEvent {
     case changed
     case connected
     case disconnected
-}
-
-struct DueReviewReminder: Decodable {
-    let dealId: String
-    let conversationId: String?
-    let dueAt: String?
 }
 
 final class ConversationRealtimeSubscription {
@@ -601,27 +597,16 @@ final class APIClient {
         try await requestNoData("/api/reviews", method: "POST", body: ReviewPayload(dealId: dealId, rating: rating, content: content))
     }
 
-    func fetchUserReviews(userId: String) async throws -> [UserReview] {
-        try await request("/api/users/\(userId)/reviews")
+    func updateConversationAppointment(conversationId: String, mode: String, scheduledAt: String, locationText: String?) async throws {
+        try await requestNoData(
+            "/api/conversations/\(conversationId)/appointment",
+            method: "PATCH",
+            body: AppointmentPayload(mode: mode, scheduledAt: scheduledAt, locationText: locationText)
+        )
     }
 
-    func scheduleReviewReminder(dealId: String) async throws -> DueReviewReminder? {
-        var request = try await authorizedRequest(path: "/api/review-reminders", method: "POST")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try encoder.encode(ReviewReminderPayload(dealId: dealId))
-        let (data, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw APIClientError.invalidResponse
-        }
-        if httpResponse.statusCode == 401 {
-            throw APIClientError.unauthenticated
-        }
-
-        let envelope = try decoder.decode(APIEnvelope<DueReviewReminder>.self, from: data)
-        guard (200..<300).contains(httpResponse.statusCode), envelope.ok else {
-            throw APIClientError.server(envelope.error ?? "요청에 실패했습니다.")
-        }
-        return envelope.data
+    func fetchUserReviews(userId: String) async throws -> [UserReview] {
+        try await request("/api/users/\(userId)/reviews")
     }
 
     func createReport(
@@ -666,23 +651,6 @@ final class APIClient {
                 description: description
             )
         )
-    }
-
-    func fetchDueReviewReminder() async throws -> DueReviewReminder? {
-        let request = try await authorizedRequest(path: "/api/review-reminders", method: "GET")
-        let (data, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw APIClientError.invalidResponse
-        }
-        if httpResponse.statusCode == 401 {
-            throw APIClientError.unauthenticated
-        }
-
-        let envelope = try decoder.decode(APIEnvelope<DueReviewReminder>.self, from: data)
-        guard (200..<300).contains(httpResponse.statusCode), envelope.ok else {
-            throw APIClientError.server(envelope.error ?? "요청에 실패했습니다.")
-        }
-        return envelope.data
     }
 
     func fetchNearbyPosts(latitude: Double, longitude: Double, radiusM: Int = 1000) async throws -> [TaskPost] {

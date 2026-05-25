@@ -130,12 +130,19 @@ export interface ApiConversation {
   postCreatorId?: string | null
   postType?: ApiTaskPost['postType'] | null
   dealStatus?: 'pending' | 'accepted' | 'in_progress' | 'complete_requested' | 'completed' | 'cancelled' | 'disputed' | null
+  dealCompletedAt?: string | null
   dealReportedAt?: string | null
   dealReportedBy?: string | null
   dealReportedUserId?: string | null
   dealReportReason?: string | null
   dealReportDescription?: string | null
   dealChatBlockedAt?: string | null
+  appointmentMode?: 'online' | 'in_person' | null
+  appointmentScheduledAt?: string | null
+  appointmentLocationText?: string | null
+  appointmentCreatedBy?: string | null
+  appointmentUpdatedBy?: string | null
+  appointmentSetAt?: string | null
   applicationId?: string | null
   applicationStatus?: 'applied' | 'accepted' | 'rejected' | 'cancelled' | null
   applicationApplicantId?: string | null
@@ -178,13 +185,6 @@ export interface ApiUserReview {
   content?: string | null
   createdAt: string
   postTitle?: string | null
-}
-
-export interface ApiReviewReminder {
-  dealId: string
-  conversationId?: string | null
-  dueAt?: string | null
-  otherNickname?: string | null
 }
 
 export interface ActivityProfile {
@@ -606,6 +606,20 @@ export async function updateDealStatus(
   })
 }
 
+export async function updateConversationAppointment(
+  conversationId: string,
+  input: {
+    mode: 'online' | 'in_person'
+    scheduledAt: string
+    locationText?: string | null
+  },
+) {
+  return apiFetch(`/api/conversations/${conversationId}/appointment`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  })
+}
+
 export async function fetchMyPage() {
   return apiFetch<Record<string, unknown>>('/api/me/profile')
 }
@@ -863,17 +877,6 @@ export async function createReview(input: { dealId: string; rating: number; cont
   })
 }
 
-export async function scheduleReviewReminder(dealId: string) {
-  return apiFetch<ApiReviewReminder | null>('/api/review-reminders', {
-    method: 'POST',
-    body: JSON.stringify({ dealId }),
-  })
-}
-
-export async function fetchDueReviewReminder() {
-  return apiFetch<ApiReviewReminder | null>('/api/review-reminders')
-}
-
 export async function createSupportInquiry(input: {
   type: string
   contact?: string | null
@@ -1049,8 +1052,8 @@ function inferIllustration(category: string): IllustrationType {
 
 function mapApiStatus(status: ApiTaskPost['status']): TradeStatus {
   const map: Record<ApiTaskPost['status'], TradeStatus> = {
-    open: '수락대기',
-    pending: '수락대기',
+    open: '문의중',
+    pending: '문의중',
     in_progress: '진행중',
     completed: '거래완료',
     cancelled: '취소됨',

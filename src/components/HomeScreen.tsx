@@ -568,7 +568,7 @@ function getHomeStatusRank(post: RequestPost) {
 function tradeStatusToPostStatus(status: RequestPost['status']) {
   if (status === '거래완료') return 'completed'
   if (status === '마감됨') return 'closed'
-  if (status === '진행중' || status === '완료요청' || status === '수락대기') return 'in_progress'
+  if (status === '진행중' || status === '약속' || status === '문의중') return 'in_progress'
   if (status === '취소됨') return 'cancelled'
   return 'open'
 }
