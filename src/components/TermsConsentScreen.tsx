@@ -3,32 +3,43 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Check, ChevronRight } from 'lucide-react'
+import { isManwonIOS, setNativeOverlayState } from '@/components/NativeIOSBridge'
 import { BrandButton } from '@/components/ui/Common'
 import { acceptRequiredLegalAgreements, fetchAuthSession } from '@/lib/manwonApi'
 import { documentMeta, legalPages } from '@/lib/legalDocuments'
 
-const requiredAgreementItems = [
+const agreementItems = [
   {
     key: 'terms',
     title: '서비스 이용약관 동의',
     description: '중개 서비스, 거래 안전, 유해 콘텐츠 기준을 확인해요.',
+    required: true,
     slug: 'service',
   },
   {
     key: 'privacy',
     title: '개인정보 처리방침 및 수집·이용 동의',
     description: '회원 식별, 휴대폰 인증, 알림 처리 기준을 확인해요.',
+    required: true,
     slug: 'privacy',
+  },
+  {
+    key: 'marketing',
+    title: '마케팅 정보 수신 동의',
+    description: '혜택과 이벤트 소식을 받을 수 있어요.',
+    required: false,
+    slug: 'marketing',
   },
 ] as const
 
-type RequiredAgreementKey = (typeof requiredAgreementItems)[number]['key']
-type RequiredAgreementSlug = (typeof requiredAgreementItems)[number]['slug']
-type RequiredAgreements = Record<RequiredAgreementKey, boolean>
+type AgreementKey = (typeof agreementItems)[number]['key']
+type AgreementSlug = (typeof agreementItems)[number]['slug']
+type Agreements = Record<AgreementKey, boolean>
 
-const initialRequiredAgreements: RequiredAgreements = {
+const initialAgreements: Agreements = {
   terms: false,
   privacy: false,
+  marketing: false,
 }
 
 function normalizeNextPath(value: string | null | undefined) {
@@ -49,14 +60,22 @@ export function TermsConsentScreen() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const nextPath = useMemo(() => normalizeNextPath(searchParams.get('next')), [searchParams])
-  const [agreements, setAgreements] = useState<RequiredAgreements>(initialRequiredAgreements)
-  const [activeLegalSlug, setActiveLegalSlug] = useState<RequiredAgreementSlug | null>(null)
+  const [agreements, setAgreements] = useState<Agreements>(initialAgreements)
+  const [activeLegalSlug, setActiveLegalSlug] = useState<AgreementSlug | null>(null)
   const [status, setStatus] = useState<'checking' | 'idle' | 'saving' | 'error'>('checking')
   const [message, setMessage] = useState('')
 
   const requiredAgreed = agreements.terms && agreements.privacy
-  const allAgreed = requiredAgreementItems.every((item) => agreements[item.key])
+  const allAgreed = agreementItems.every((item) => agreements[item.key])
   const activeLegalPage = activeLegalSlug ? legalPages[activeLegalSlug] : null
+
+  useEffect(() => {
+    if (!isManwonIOS()) return undefined
+    setNativeOverlayState(true)
+    return () => {
+      setNativeOverlayState(false)
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -87,7 +106,7 @@ export function TermsConsentScreen() {
     }
   }, [nextPath, router])
 
-  function toggleAgreement(key: RequiredAgreementKey) {
+  function toggleAgreement(key: AgreementKey) {
     setAgreements((current) => ({
       ...current,
       [key]: !current[key],
@@ -99,6 +118,7 @@ export function TermsConsentScreen() {
     setAgreements({
       terms: nextValue,
       privacy: nextValue,
+      marketing: nextValue,
     })
   }
 
@@ -179,14 +199,14 @@ export function TermsConsentScreen() {
         </button>
 
         <div className="agreement-list">
-          {requiredAgreementItems.map((item) => (
+          {agreementItems.map((item) => (
             <div className={`agreement-row ${agreements[item.key] ? 'is-active' : ''}`} key={item.key}>
               <button className="agreement-row-toggle" type="button" onClick={() => toggleAgreement(item.key)}>
                 <span className="agreement-check">
                   <Check size={16} />
                 </span>
                 <strong>
-                  <em>[필수]</em>
+                  <em className={item.required ? 'is-required' : 'is-optional'}>[{item.required ? '필수' : '선택'}]</em>
                   {item.title}
                 </strong>
                 <small>{item.description}</small>
@@ -197,6 +217,7 @@ export function TermsConsentScreen() {
             </div>
           ))}
         </div>
+        <p className="agreement-note">선택 동의에 동의하지 않아도 서비스 이용이 가능합니다.</p>
 
         {message && <p className="inline-status is-error">{message}</p>}
 

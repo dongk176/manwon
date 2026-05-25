@@ -743,7 +743,7 @@ export async function confirmSignupOtp(input: SignupOnboardingPayload & { code: 
   return profile
 }
 
-export async function acceptRequiredLegalAgreements(input: { terms: boolean; privacy: boolean }) {
+export async function acceptRequiredLegalAgreements(input: { terms: boolean; privacy: boolean; marketing?: boolean }) {
   return apiFetch<Record<string, unknown>>('/api/me/legal-agreements', {
     method: 'POST',
     body: JSON.stringify(input),

@@ -486,7 +486,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
     try {
       await deleteTaskPost(post.id)
       setShowDeleteConfirm(false)
-      router.replace('/my/activity')
+      router.replace('/')
       router.refresh()
     } catch (error) {
       setActionState('error')

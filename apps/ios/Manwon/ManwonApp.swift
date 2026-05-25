@@ -132,7 +132,6 @@ struct RootTabView: View {
                     },
                     onConfirm: {
                         unreadNotice = nil
-                        router.openNativeRoute(path: "/chat")
                     }
                 )
                 .zIndex(250)

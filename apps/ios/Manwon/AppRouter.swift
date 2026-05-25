@@ -80,6 +80,7 @@ final class AppRouter: ObservableObject {
 
     var hidesBottomNav: Bool {
         if onboardingRequired { return true }
+        if isShowingTermsConsent { return true }
         if selectedTab == .chat && chatDetailActive { return true }
         if selectedTab == .nearby && nearbySheetCoversBottomNav { return true }
         if webSplashCoversBottomNav[selectedTab] == true { return true }
@@ -99,6 +100,7 @@ final class AppRouter: ObservableObject {
     var hidesHomeFloatingWriteButton: Bool {
         if selectedTab != .home { return true }
         if onboardingRequired { return true }
+        if isShowingTermsConsent { return true }
         if mapUnavailableNoticeVisible { return true }
         if webSplashCoversBottomNav[.home] == true { return true }
         if webOverlayCoversBottomNav[.home] == true { return true }
@@ -548,6 +550,10 @@ final class AppRouter: ObservableObject {
 
     private var currentRouteRequiresAuthentication: Bool {
         requiresAuthentication(currentRoutePath)
+    }
+
+    private var isShowingTermsConsent: Bool {
+        displayedWebPaths.values.contains { matchesPath($0, "/terms-consent") }
     }
 
     private func requiresAuthentication(_ path: String) -> Bool {

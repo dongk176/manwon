@@ -2836,6 +2836,10 @@ export async function acceptRequiredLegalAgreements(userId: string, input: Requi
     update manwon_happiness.users
     set terms_agreed_at = coalesce(terms_agreed_at, now()),
         privacy_agreed_at = coalesce(privacy_agreed_at, now()),
+        marketing_agreed_at = case
+          when ${input.marketing} then coalesce(marketing_agreed_at, now())
+          else marketing_agreed_at
+        end,
         updated_at = now()
     where id = ${userId}
       and withdrawn_at is null

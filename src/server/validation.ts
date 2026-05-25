@@ -151,6 +151,7 @@ const signupAgreementsSchema = z.object({
 export const requiredLegalAgreementsSchema = z.object({
   terms: z.boolean(),
   privacy: z.boolean(),
+  marketing: z.boolean().default(false),
 })
 
 export const signupOtpRequestSchema = z.object({
