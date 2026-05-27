@@ -70,6 +70,7 @@ export interface ApiTaskPost {
   creatorWorkSampleImages?: Array<{ imageUrl: string; storageKey?: string; sortOrder?: number }> | null
   creatorResponseTime?: string | null
   isFavorited?: boolean | null
+  createdAt?: string
 }
 
 export interface CreateTaskPostPayload {

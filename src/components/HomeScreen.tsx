@@ -682,10 +682,20 @@ async function fetchHomePosts(mode: HomeMode) {
     ? (await Promise.all([
       fetchTaskPosts({ ...query, postType: 'request' }),
       fetchTaskPosts({ ...query, postType: 'offer' }),
-    ])).flat()
+    ])).flat().sort(comparePostsByCreatedAtDesc)
     : await fetchTaskPosts({ ...query, postType: mode === 'ask' ? 'request' : 'offer' })
 
   return posts.map(mapApiPostToHomeRequestPost)
+}
+
+function comparePostsByCreatedAtDesc(a: ApiTaskPost, b: ApiTaskPost) {
+  return getPostCreatedTime(b) - getPostCreatedTime(a)
+}
+
+function getPostCreatedTime(post: ApiTaskPost) {
+  if (!post.createdAt) return 0
+  const time = new Date(post.createdAt).getTime()
+  return Number.isNaN(time) ? 0 : time
 }
 
 function mapApiPostToHomeRequestPost(post: ApiTaskPost): RequestPost {
