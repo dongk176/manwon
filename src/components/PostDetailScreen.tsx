@@ -3,20 +3,15 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
-import { Check, CheckCircle2, ChevronLeft, ChevronRight, Clock, Clock3, Globe2, Heart, MapPin, MessageCircle, MoreHorizontal, Navigation, Share2, ShieldCheck, Trash2, UsersRound, X } from 'lucide-react'
-import { ActionGuideOverlay, BrandButton, CategoryImageFrame, MoreMenu, RatingStars, ReportConfirmSheet } from '@/components/ui/Common'
+import { Check, ChevronLeft, ChevronRight, Clock, Clock3, Globe2, Heart, MapPin, MessageCircle, MoreHorizontal, Navigation, Share2, ShieldCheck, Trash2, UsersRound, X } from 'lucide-react'
+import { ActionGuideOverlay, BrandButton, MoreMenu, PostImageFrame, RatingStars, ReportConfirmSheet } from '@/components/ui/Common'
 import { UserProfileSheet } from '@/components/UserProfileSheet'
 import { Avatar } from '@/components/ui/Illustration'
 import { PhoneVerificationOverlay } from '@/components/PhoneVerificationOverlay'
 import { ImageUploader, getImagePreviewUrl, toPersistedImages, useImagePreviewCleanup, type ImageRecord } from '@/components/ImageUploader'
 import {
-  categoryDetailOptions,
-  customCategoryDetailMaxLength,
-  customCategoryDetailOption,
   formatPrice,
-  getCategoryLabel,
   getUser,
-  postCategories,
   type PostStatus,
   type RequestMode,
   type RequestPost,
@@ -62,15 +57,11 @@ interface PostDetailScreenProps {
 type PriceOption = '5000' | '10000' | '15000' | '20000' | 'custom'
 type DeadlineOption = 'now' | 'today' | 'tomorrow' | 'custom'
 type AvailableTimeOption = 'now' | 'today' | 'weekday' | 'weekend' | 'custom'
-type GenderVisibility = 'private' | 'male' | 'female'
-type DetailEditSheet = 'category' | 'categoryCustom' | 'categoryDetail' | 'categoryDetailCustom' | 'mode' | 'availableTime' | 'availableTimeCustom' | null
+type DetailEditSheet = 'mode' | 'availableTime' | 'availableTimeCustom' | null
 type ViewerInteractionLock = 'applied' | 'accepted' | 'in_progress' | 'complete_requested' | 'completed' | 'cancelled' | 'disputed'
 
 interface DetailEditDraft {
   title: string
-  categoryId: string
-  customCategory: string
-  categoryDetail: string
   mode: RequestMode
   addressText: string
   region1Depth: string
@@ -86,7 +77,6 @@ interface DetailEditDraft {
   customDeadlineText: string
   availableTimeOption: AvailableTimeOption
   customAvailableTime: string
-  genderVisibility: GenderVisibility
   serviceScope: string[]
   careerSummary: string
   portfolioTitle: string
@@ -119,14 +109,7 @@ const availableTimeOptions = [
   { value: 'custom', label: '직접 입력' },
 ] as const
 
-const genderVisibilityOptions = [
-  { value: 'private', label: '공개 안 함' },
-  { value: 'male', label: '남성' },
-  { value: 'female', label: '여성' },
-] as const
-
 const responseTimeOptions = ['바로 답장 가능', '1시간 내 답장', '오늘 안에 답장', '일정 확인 후 답장'] as const
-const customCategoryMaxLength = 9
 const availableTimeMaxLength = 8
 const requiredFieldMessage = '필수 항목이에요.'
 const offerMinPrice = 1000
@@ -505,7 +488,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
     try {
       const details = [
         input.description.trim(),
-        `상세 화면에서 신고됨: [${displayPost.category}] ${displayPost.title}`,
+        `상세 화면에서 신고됨: ${displayPost.title}`,
       ].filter(Boolean).join('\n\n')
       await createReport({
         targetUserId: post?.creatorId,
@@ -542,7 +525,7 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
       await createBlock(post.creatorId, {
         postId: isUuid(post.id) ? post.id : undefined,
         reason: '게시글 작성자 차단',
-        description: `게시글 상세에서 차단됨: [${post.category}] ${post.title}`,
+        description: `게시글 상세에서 차단됨: ${post.title}`,
       })
       setShowMore(false)
       setActionState('done')
@@ -646,15 +629,13 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
       const portfolioLinks = getPortfolioLinks(editDraft.portfolioTitle, editDraft.portfolioUrl)
       const updated = await updateTaskPost(post.id, {
         title: editDraft.title.trim(),
-        category: getSelectedCategoryLabel(editDraft.categoryId, editDraft.customCategory) || getCategoryLabel(editDraft.categoryId),
-        categoryDetail: nullableText(editDraft.categoryDetail),
         description: editDraft.description.trim(),
         mode: nextMode,
         price,
         deadlineAt: isRequest ? getDeadlineIso(editDraft.deadlineOption) : null,
         deadlineText: isRequest ? getRequestDeadlineText(editDraft.deadlineOption, editDraft.customDeadlineText) : null,
         availableTimeText: isRequest ? null : getAvailableTimeText(editDraft.availableTimeOption, editDraft.customAvailableTime),
-        genderVisibility: isRequest ? post.genderVisibility : editDraft.genderVisibility,
+        genderVisibility: 'private',
         serviceScope: [],
         experienceSummary: isRequest ? null : nullableText(editDraft.careerSummary),
         careerSummary: isRequest ? null : nullableText(editDraft.careerSummary),
@@ -806,7 +787,6 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
             </div>
             <PostDetailImageCarousel
               key={`${displayPost.id}-${detailImageUrls.join('|')}`}
-              categoryId={displayPost.categoryId}
               imageUrls={detailImageUrls}
               title={displayPost.title}
             />
@@ -829,9 +809,6 @@ export function PostDetailScreen({ postId, fallbackPost }: PostDetailScreenProps
           ) : (
             <>
               <article className="post-detail-main-card">
-                <div className="post-detail-title-row">
-                  <span className="preview-category">{displayPost.categoryDetail ?? displayPost.category}</span>
-                </div>
                 <h2>{displayPost.title}</h2>
                 <strong className="detail-price">{formatPrice(displayPost.price)}</strong>
                 <PostDetailEngagementStats
@@ -1054,7 +1031,7 @@ function ActivityProfileSelectSheet({
       </header>
       <div className="profile-select-content">
         <article className="profile-select-post-summary">
-          <span>{post.category.slice(0, 1)}</span>
+          <span>{post.title.trim().slice(0, 1) || '글'}</span>
           <div>
             <h3>{post.title}</h3>
             <p>
@@ -1309,11 +1286,9 @@ function normalizeImageRecords(images?: Array<{ imageUrl?: string | null; storag
 }
 
 function PostDetailImageCarousel({
-  categoryId,
   imageUrls,
   title,
 }: {
-  categoryId: string
   imageUrls: string[]
   title: string
 }) {
@@ -1339,7 +1314,7 @@ function PostDetailImageCarousel({
   }
 
   if (imageUrls.length === 0) {
-    return <CategoryImageFrame categoryId={categoryId} label={title} size="lg" />
+    return <PostImageFrame label={title} size="lg" />
   }
 
   return (
@@ -1438,7 +1413,6 @@ function ExtraPostSections({ post }: { post: ApiTaskPost }) {
     careerSummary ||
     portfolioLinks.length > 0 ||
     responseTime ||
-    post.genderVisibility !== 'private' ||
     workSampleImages.length > 0
   )
 
@@ -1453,7 +1427,6 @@ function ExtraPostSections({ post }: { post: ApiTaskPost }) {
           {portfolioLinks.map((link) => (
             <DetailExtra key={`${link.title}-${link.url}`} label={link.title || '포트폴리오'} value={link.url} href={link.url} />
           ))}
-          {post.genderVisibility !== 'private' && <DetailExtra label="성별" value={genderVisibilityText(post.genderVisibility)} />}
           {responseTime && <DetailExtra label="응답 가능 시간" value={responseTime} />}
         </div>
         {workSampleImages.length > 0 && (
@@ -1575,8 +1548,6 @@ function PostDetailEditForm({
   onOpenNeighborhoodSheet: () => void
 }) {
   const isRequest = postType === 'request'
-  const categoryLabel = getSelectedCategoryLabel(draft.categoryId, draft.customCategory)
-  const categoryDetails = categoryDetailOptions[draft.categoryId] ?? []
   const isOffline = draft.mode === 'nearby' || draft.mode === 'both'
 
   function update(next: Partial<DetailEditDraft>) {
@@ -1603,22 +1574,6 @@ function PostDetailEditForm({
           <h3>기본 정보</h3>
         </div>
         <DetailTextInput value={draft.title} onChange={(title) => update({ title })} placeholder="제목을 입력해주세요" maxLength={80} error={errors.title} />
-        <DetailSelectionRow
-          label="카테고리"
-          value={categoryLabel || (draft.categoryId === 'etc' ? '기타 카테고리 입력' : '카테고리 선택')}
-          placeholder={!categoryLabel}
-          error={errors.categoryId}
-          onClick={() => onSheetChange('category')}
-        />
-        {categoryDetails.length > 0 && (
-          <DetailSelectionRow
-            label="세부 카테고리"
-            value={draft.categoryDetail || '세부 카테고리 선택'}
-            placeholder={!draft.categoryDetail}
-            error={errors.categoryDetail}
-            onClick={() => onSheetChange('categoryDetail')}
-          />
-        )}
         <DetailSelectionRow
           label="진행 방식"
           value={modeLabel(draft.mode)}
@@ -1713,7 +1668,13 @@ function PostDetailEditForm({
           error={errors.description}
         />
       </section>
-      <ImageUploader title="사진 첨부" optional images={draft.images} onChange={(images) => update({ images })} />
+      <ImageUploader
+        title="사진 첨부"
+        required
+        images={draft.images}
+        onChange={(images) => update({ images })}
+      />
+      {errors.images && <p className="inline-status is-error">{errors.images}</p>}
 
       {!isRequest && (
         <>
@@ -1727,7 +1688,10 @@ function PostDetailEditForm({
               <DetailTextInput value={draft.portfolioTitle} onChange={(portfolioTitle) => update({ portfolioTitle })} placeholder="링크 제목" />
               <DetailTextInput value={draft.portfolioUrl} onChange={(portfolioUrl) => update({ portfolioUrl })} placeholder="https://..." error={errors.portfolioUrl} />
             </div>
-            <DetailOptionGrid value={draft.genderVisibility} onChange={(genderVisibility) => update({ genderVisibility })} options={genderVisibilityOptions} columns={3} />
+            <div className="detail-edit-subsection-title">
+              <h4>응답 가능 시간</h4>
+              <span>선택</span>
+            </div>
             <DetailOptionGrid
               value={draft.responseTime}
               onChange={(responseTime) => update({ responseTime })}
@@ -1735,87 +1699,15 @@ function PostDetailEditForm({
               columns={2}
             />
           </section>
-          <ImageUploader title="작업 예시 이미지" optional images={draft.workSampleImages} onChange={(workSampleImages) => update({ workSampleImages })} />
+          <ImageUploader
+            title="작업 예시 이미지"
+            optional
+            images={draft.workSampleImages}
+            onChange={(workSampleImages) => update({ workSampleImages })}
+          />
         </>
       )}
 
-      {sheet === 'category' && (
-        <DetailBottomSheet title="카테고리를 선택해주세요" onClose={() => onSheetChange(null)}>
-          <div className="category-sheet-grid">
-            {postCategories.map((item) => (
-              <button
-                key={item.id}
-                className={draft.categoryId === item.id ? 'is-selected' : ''}
-                type="button"
-                onClick={() => {
-                  update({ categoryId: item.id, customCategory: '', categoryDetail: '', serviceScope: [] })
-                  onSheetChange(item.id === 'etc' ? 'categoryCustom' : (categoryDetailOptions[item.id] ?? []).length > 0 ? 'categoryDetail' : null)
-                }}
-              >
-                <Image src={item.iconSrc} width={38} height={38} alt="" aria-hidden="true" />
-                <span>{item.label}</span>
-              </button>
-            ))}
-          </div>
-        </DetailBottomSheet>
-      )}
-      {sheet === 'categoryCustom' && (
-        <DetailCustomTextSheet
-          title="기타 카테고리 입력"
-          value={draft.customCategory}
-          placeholder="예: 행사"
-          onClose={() => onSheetChange(null)}
-          onSave={(customCategory) => {
-            update({ customCategory })
-            onSheetChange((categoryDetailOptions[draft.categoryId] ?? []).length > 0 ? 'categoryDetail' : null)
-          }}
-        />
-      )}
-      {sheet === 'categoryDetail' && (
-        <DetailBottomSheet title="세부 카테고리를 선택해주세요" onClose={() => onSheetChange(null)}>
-          <div className="mode-sheet-list compact">
-            {categoryDetails.map((item) => {
-              const selected = draft.categoryDetail === item || (item === customCategoryDetailOption && isCustomCategoryDetail(draft.categoryId, draft.categoryDetail))
-              return (
-                <button
-                  key={item}
-                  className={selected ? 'is-selected' : ''}
-                  type="button"
-                  onClick={() => {
-                    if (item === customCategoryDetailOption) {
-                      update({ categoryDetail: '' })
-                      onSheetChange('categoryDetailCustom')
-                      return
-                    }
-                    update({ categoryDetail: item })
-                    onSheetChange(null)
-                  }}
-                >
-                  <span>
-                    <CheckCircle2 size={22} />
-                  </span>
-                  <strong>{item}</strong>
-                  <i>{selected && <Check size={16} />}</i>
-                </button>
-              )
-            })}
-          </div>
-        </DetailBottomSheet>
-      )}
-      {sheet === 'categoryDetailCustom' && (
-        <DetailCustomTextSheet
-          title="세부 카테고리 직접 입력"
-          value={isCustomCategoryDetail(draft.categoryId, draft.categoryDetail) ? draft.categoryDetail : ''}
-          placeholder="예: 동행"
-          maxLength={customCategoryDetailMaxLength}
-          helperText={`${customCategoryDetailMaxLength}자 이내로 입력해주세요.`}
-          onClose={() => onSheetChange(null)}
-          onSave={(categoryDetail) => {
-            update({ categoryDetail })
-            onSheetChange(null)
-          }}
-        />
-      )}
       {sheet === 'mode' && (
         <DetailBottomSheet title="진행 방식을 선택해주세요" onClose={() => onSheetChange(null)}>
           <div className="mode-sheet-list">
@@ -2029,8 +1921,8 @@ function DetailCustomTextSheet({
   title,
   value,
   placeholder,
-  maxLength = customCategoryMaxLength,
-  helperText = '10자 미만으로 입력해주세요.',
+  maxLength,
+  helperText = '',
   onSave,
   onClose,
 }: {
@@ -2046,21 +1938,15 @@ function DetailCustomTextSheet({
   const trimmed = draft.trim()
   return (
     <DetailBottomSheet title={title} onClose={onClose}>
-      <div className="custom-category-input">
+      <div className="custom-text-input">
         <DetailTextInput value={draft} onChange={setDraft} placeholder={placeholder} maxLength={maxLength} error={!trimmed ? requiredFieldMessage : undefined} />
-        <p>{helperText}</p>
+        {helperText && <p>{helperText}</p>}
         <button className="address-modal-confirm" type="button" disabled={!trimmed} onClick={() => onSave(trimmed)}>
           확인
         </button>
       </div>
     </DetailBottomSheet>
   )
-}
-
-function genderVisibilityText(value?: GenderVisibility) {
-  if (value === 'male') return '남성'
-  if (value === 'female') return '여성'
-  return '공개 안 함'
 }
 
 function genderText(value?: 'male' | 'female' | 'unknown' | 'private' | null) {
@@ -2086,13 +1972,9 @@ function createEditDraft(post: ApiTaskPost, displayPost: RequestPost): DetailEdi
   const availableTimeOption = availableTimeTextToOption(post.availableTimeText ?? null)
   const portfolioLinks = normalizePortfolioLinks(post)
   const firstPortfolio = portfolioLinks[0]
-  const categoryId = categoryIdFromLabel(post.category)
 
   return {
     title: post.title,
-    categoryId,
-    customCategory: categoryId === 'etc' && post.category !== getCategoryLabel('etc') ? post.category : '',
-    categoryDetail: post.categoryDetail ?? '',
     mode: post.mode,
     addressText: post.addressText ?? '',
     region1Depth: post.region1depth ?? '',
@@ -2108,7 +1990,6 @@ function createEditDraft(post: ApiTaskPost, displayPost: RequestPost): DetailEdi
     customDeadlineText: deadlineOption === 'custom' ? post.deadlineText ?? displayPost.deadline : '',
     availableTimeOption,
     customAvailableTime: availableTimeOption === 'custom' ? post.availableTimeText ?? displayPost.deadline : '',
-    genderVisibility: post.genderVisibility,
     serviceScope: Array.isArray(post.serviceScope) ? post.serviceScope : [],
     careerSummary: post.careerSummary ?? post.experienceSummary ?? '',
     portfolioTitle: firstPortfolio?.title ?? '',
@@ -2123,19 +2004,8 @@ function createEditDraft(post: ApiTaskPost, displayPost: RequestPost): DetailEdi
 function validateEditDraft(draft: DetailEditDraft, postType: 'request' | 'offer') {
   const errors: Record<string, string> = {}
   if (!draft.title.trim()) errors.title = requiredFieldMessage
-  if (draft.categoryId === 'etc') {
-    const categoryError = getCustomTextError(draft.customCategory, '카테고리')
-    if (categoryError) errors.categoryId = categoryError
-  }
-  if ((categoryDetailOptions[draft.categoryId] ?? []).length > 0) {
-    if (!draft.categoryDetail) errors.categoryDetail = requiredFieldMessage
-    else if (draft.categoryDetail === customCategoryDetailOption) errors.categoryDetail = requiredFieldMessage
-    else if (isCustomCategoryDetail(draft.categoryId, draft.categoryDetail)) {
-      const detailError = getCustomCategoryDetailError(draft.categoryDetail)
-      if (detailError) errors.categoryDetail = detailError
-    }
-  }
   if (!draft.description.trim()) errors.description = requiredFieldMessage
+  if (draft.images.length < 1) errors.images = '사진을 1장 이상 추가해주세요.'
   const price = getPriceValue(draft.priceOption, draft.customPrice)
   if (price <= 0) errors.customPrice = '금액을 입력해주세요.'
   else if (postType === 'offer' && price < offerMinPrice) errors.customPrice = '최소 1,000원'
@@ -2184,50 +2054,6 @@ function updatePostFavoriteCount(current: ApiTaskPost | null, delta: number, isF
     isFavorited,
     favoriteCount: Math.max(0, Number(current.favoriteCount ?? 0) + delta),
   }
-}
-
-function categoryIdFromLabel(label: string) {
-  const legacyMap: Record<string, string> = {
-    '동네 심부름': 'proxy',
-    '집안 도움': 'proxy',
-    '문서·자료': 'work',
-    '문서 · 자료': 'work',
-    '디자인·콘텐츠': 'work',
-    디자인: 'work',
-    '영상·사진': 'work',
-    '사진·영상': 'work',
-    '개발 · IT': 'work',
-    레슨: 'advice',
-    '대신 찾아줘': 'choose',
-    반려동물: 'play',
-    기타: 'work',
-  }
-  return postCategories.find((category) => category.label === label)?.id ?? legacyMap[label] ?? 'work'
-}
-
-function getSelectedCategoryLabel(categoryId: string, customCategory: string) {
-  if (!categoryId) return ''
-  if (categoryId === 'etc') return customCategory.trim()
-  return getCategoryLabel(categoryId)
-}
-
-function isCustomCategoryDetail(categoryId: string, value: string) {
-  const trimmed = value.trim()
-  return Boolean(trimmed && !(categoryDetailOptions[categoryId] ?? []).includes(trimmed))
-}
-
-function getCustomTextError(value: string, label: string) {
-  const trimmed = value.trim()
-  if (!trimmed) return requiredFieldMessage
-  if (trimmed.length >= 10) return `${label}는 10자 미만으로 입력해주세요.`
-  return ''
-}
-
-function getCustomCategoryDetailError(value: string) {
-  const trimmed = value.trim()
-  if (!trimmed) return requiredFieldMessage
-  if (trimmed.length > customCategoryDetailMaxLength) return `세부 카테고리는 ${customCategoryDetailMaxLength}자 이내로 입력해주세요.`
-  return ''
 }
 
 function priceToOption(price: number, postType: 'request' | 'offer'): PriceOption {

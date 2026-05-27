@@ -398,8 +398,6 @@ export async function listTaskPosts(input: ListPostsInput, viewerId?: string | n
         )
       )
       and (${input.post_type ?? null}::manwon_happiness.post_type is null or p.post_type = ${input.post_type ?? null}::manwon_happiness.post_type)
-      and (${input.category ?? null}::text is null or p.category = ${input.category ?? null})
-      and (${input.category_detail ?? null}::text is null or p.category_detail = ${input.category_detail ?? null})
       and (${input.mode ?? null}::manwon_happiness.task_mode is null or p.mode = ${input.mode ?? null}::manwon_happiness.task_mode)
       and (${input.max_price ?? null}::integer is null or p.price <= ${input.max_price ?? null})
       and (${input.deadline_before ?? null}::timestamptz is null or p.deadline_at <= ${input.deadline_before ?? null})
@@ -616,8 +614,6 @@ export async function createTaskPost(userId: string, input: CreatePostInput) {
         creator_profile_id,
         post_type,
         title,
-        category,
-        category_detail,
         description,
         mode,
         price,
@@ -653,8 +649,6 @@ export async function createTaskPost(userId: string, input: CreatePostInput) {
         ${input.profileId},
         ${input.postType},
         ${input.title},
-        ${input.category},
-        ${input.categoryDetail ?? null},
         ${input.description},
         ${input.mode},
         ${input.price},
@@ -1020,8 +1014,6 @@ export async function updateTaskPost(userId: string, postId: string, input: Upda
       set creator_profile_id = ${input.profileId !== undefined ? input.profileId : existing.creatorProfileId},
           post_type = ${nextPostType},
           title = ${input.title !== undefined ? input.title : existing.title},
-          category = ${input.category !== undefined ? input.category : existing.category},
-          category_detail = ${input.categoryDetail !== undefined ? input.categoryDetail : existing.categoryDetail},
           description = ${input.description !== undefined ? input.description : existing.description},
           mode = ${input.mode !== undefined ? input.mode : existing.mode},
           price = ${input.price !== undefined ? input.price : existing.price},
@@ -1743,7 +1735,6 @@ export async function listConversations(userId: string) {
     select
       c.*,
       p.title as post_title,
-      p.category as post_category,
       p.price as post_price,
       p.status as post_status,
       p.creator_id as post_creator_id,
@@ -3107,7 +3098,6 @@ export async function getMyActivity(userId: string) {
         d.*,
         c.id as conversation_id,
         p.title as post_title,
-        p.category as post_category,
         p.mode as post_mode,
         p.deadline_at as post_deadline_at,
         p.deadline_text as post_deadline_text,
@@ -3139,7 +3129,6 @@ export async function getMyActivity(userId: string) {
         d.*,
         c.id as conversation_id,
         p.title as post_title,
-        p.category as post_category,
         p.mode as post_mode,
         p.deadline_at as post_deadline_at,
         p.deadline_text as post_deadline_text,
@@ -3178,7 +3167,6 @@ export async function getMyActivity(userId: string) {
         f.*,
         p.creator_id as post_creator_id,
         p.title as post_title,
-        p.category as post_category,
         p.price as post_price,
         p.status as post_status,
         p.mode as post_mode,
@@ -3412,8 +3400,7 @@ export async function getSettlementSummary(userId: string, month?: string | null
         d.id,
         d.price as amount,
         coalesce(d.completed_at, d.updated_at, d.created_at) as completed_at,
-        p.title,
-        p.category
+        p.title
       from manwon_happiness.deals d
       join manwon_happiness.task_posts p on p.id = d.post_id
       where d.helper_id = ${userId}
@@ -3617,7 +3604,6 @@ export async function listAdminReports() {
       reporter.nickname as reporter_nickname,
       target.nickname as target_nickname,
       p.title as post_title,
-      p.category as post_category,
       coalesce(r.conversation_id, m.conversation_id) as report_conversation_id,
       m.conversation_id as message_conversation_id,
       m.sender_id as message_sender_id,

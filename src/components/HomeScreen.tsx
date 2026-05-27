@@ -6,8 +6,8 @@ import { useRouter } from 'next/navigation'
 import { setNativeOverlayState } from '@/components/NativeIOSBridge'
 import { PhoneVerificationOverlay } from '@/components/PhoneVerificationOverlay'
 import { NeighborhoodSelectSheet } from '@/components/location/LocationSheets'
-import { ActionGuideOverlay, AppHeader, BrandButton, CategoryScroller, ReportConfirmSheet, RequestCard } from '@/components/ui/Common'
-import { categoryDetailOptions, customCategoryDetailOption, getCategoryLabel, type RequestPost } from '@/data/mockData'
+import { ActionGuideOverlay, AppHeader, BrandButton, ReportConfirmSheet, RequestCard } from '@/components/ui/Common'
+import { type RequestPost } from '@/data/mockData'
 import { createReport, fetchAuthSession, fetchMyPage, fetchTaskPosts, isPhoneVerificationRequired, mapApiPostToRequestPost, saveMyLocationPreference, type ApiTaskPost } from '@/lib/manwonApi'
 import {
   formatRegionFull,
@@ -32,6 +32,14 @@ const homeModeOptions: Array<{ value: HomeMode; label: string }> = [
 const refreshHoldHeight = 64
 const refreshTriggerHeight = 58
 const onboardingWelcomeStoragePrefix = 'manwon_onboarding_welcome_cta_shown'
+const homeFeedRestoreStorageKey = 'manwon_home_feed_restore'
+const homeFeedRestoreMaxAgeMs = 30 * 60 * 1000
+
+interface HomeFeedRestoreState {
+  mode: HomeMode
+  scrollTop: number
+  savedAt: number
+}
 
 export function HomeScreen({ showOnboardingWelcome = false }: { showOnboardingWelcome?: boolean }) {
   const router = useRouter()
@@ -44,10 +52,9 @@ export function HomeScreen({ showOnboardingWelcome = false }: { showOnboardingWe
   const [locationBusy, setLocationBusy] = useState(false)
   const [locationError, setLocationError] = useState('')
   const [hasCheckedStoredRegion, setHasCheckedStoredRegion] = useState(false)
-  const [categoryId, setCategoryId] = useState('all')
-  const [detailCategory, setDetailCategory] = useState('')
   const [dbPosts, setDbPosts] = useState<RequestPost[]>([])
   const [loadState, setLoadState] = useState<'idle' | 'loading' | 'ready' | 'fallback'>('idle')
+  const [restoreReady, setRestoreReady] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [pullDistance, setPullDistance] = useState(0)
   const [reportingPostId, setReportingPostId] = useState<string | null>(null)
@@ -65,9 +72,7 @@ export function HomeScreen({ showOnboardingWelcome = false }: { showOnboardingWe
   const loadRunRef = useRef(0)
   const pullStartYRef = useRef<number | null>(null)
   const pullDistanceRef = useRef(0)
-  const detailOptions = (categoryDetailOptions[categoryId] ?? []).filter((option) => option !== customCategoryDetailOption)
-  const detailFilterOptions = ['전체', ...detailOptions]
-  const showDetailOptions = categoryId !== 'all' && detailOptions.length > 0
+  const pendingScrollRestoreRef = useRef<number | null>(null)
   const currentRegionLabel = formatRegionShort(currentRegion)
   const currentModeLabel = homeModeOptions.find((option) => option.value === mode)?.label ?? '전체'
   const refreshIndicatorHeight = isRefreshing ? refreshHoldHeight : pullDistance
@@ -83,12 +88,38 @@ export function HomeScreen({ showOnboardingWelcome = false }: { showOnboardingWe
 
   useEffect(() => {
     let cancelled = false
+
+    queueMicrotask(() => {
+      if (cancelled) return
+      if (showOnboardingWelcome) {
+        clearHomeFeedRestoreState()
+        setRestoreReady(true)
+        return
+      }
+
+      const restoreState = readHomeFeedRestoreState()
+      if (restoreState) {
+        setMode(restoreState.mode)
+        pendingScrollRestoreRef.current = restoreState.scrollTop
+      }
+      setRestoreReady(true)
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [showOnboardingWelcome])
+
+  useEffect(() => {
+    if (!restoreReady) return undefined
+
+    let cancelled = false
     const runId = ++loadRunRef.current
 
     async function loadPosts() {
       setLoadState('loading')
       try {
-        const posts = await fetchHomePosts(mode, categoryId, detailCategory)
+        const posts = await fetchHomePosts(mode)
         if (cancelled || runId !== loadRunRef.current) return
         setDbPosts(posts)
         setLoadState('ready')
@@ -104,7 +135,7 @@ export function HomeScreen({ showOnboardingWelcome = false }: { showOnboardingWe
     return () => {
       cancelled = true
     }
-  }, [categoryId, detailCategory, mode])
+  }, [mode, restoreReady])
 
   useEffect(() => {
     let cancelled = false
@@ -228,7 +259,7 @@ export function HomeScreen({ showOnboardingWelcome = false }: { showOnboardingWe
     pullDistanceRef.current = refreshHoldHeight
 
     try {
-      const posts = await fetchHomePosts(mode, categoryId, detailCategory)
+      const posts = await fetchHomePosts(mode)
       if (runId !== loadRunRef.current) return
       setDbPosts(posts)
       setLoadState('ready')
@@ -287,11 +318,6 @@ export function HomeScreen({ showOnboardingWelcome = false }: { showOnboardingWe
     setPullDistance(0)
   }
 
-  function handleCategorySelect(nextCategoryId: string) {
-    setCategoryId(nextCategoryId)
-    setDetailCategory('')
-  }
-
   async function requestCurrentRegionFromUser() {
     setLocationBusy(true)
     setLocationError('')
@@ -329,16 +355,41 @@ export function HomeScreen({ showOnboardingWelcome = false }: { showOnboardingWe
   }
 
   const filteredRequests = useMemo(() => {
-    const base = categoryId === 'all' ? dbPosts : dbPosts.filter((request) => request.categoryId === categoryId)
-    const detailFiltered = detailCategory
-      ? base.filter((request) => request.categoryDetail === detailCategory || requestMatchesDetail(request, detailCategory))
-      : base
-    const nextBase = detailFiltered.length > 0 ? detailFiltered : base
-    const sorted = sortHomeRequests(nextBase)
+    const sorted = sortHomeRequests(dbPosts)
     return sorted
-  }, [categoryId, dbPosts, detailCategory])
+  }, [dbPosts])
+
+  useEffect(() => {
+    const restoreTop = pendingScrollRestoreRef.current
+    if (restoreTop == null || loadState === 'idle' || loadState === 'loading') return undefined
+
+    let frameId = 0
+    let attempts = 0
+    const restore = () => {
+      const feed = feedScrollRef.current
+      if (!feed) return
+      feed.scrollTop = restoreTop
+      attempts += 1
+      if (attempts < 4) {
+        frameId = window.requestAnimationFrame(restore)
+        return
+      }
+      pendingScrollRestoreRef.current = null
+      clearHomeFeedRestoreState()
+    }
+
+    frameId = window.requestAnimationFrame(restore)
+    return () => {
+      if (frameId) window.cancelAnimationFrame(frameId)
+    }
+  }, [filteredRequests.length, loadState])
 
   function openPost(postId: string) {
+    saveHomeFeedRestoreState({
+      mode,
+      scrollTop: feedScrollRef.current?.scrollTop ?? 0,
+      savedAt: Date.now(),
+    })
     const post = dbPosts.find((item) => item.id === postId)
     const postType = post?.postType ?? (mode === 'offer' ? 'offer' : 'request')
     router.push(`/posts/${encodeURIComponent(postId)}?postType=${postType}`)
@@ -365,7 +416,7 @@ export function HomeScreen({ showOnboardingWelcome = false }: { showOnboardingWe
     try {
       const details = [
         input.description.trim(),
-        `홈 목록에서 신고됨: [${request.category}] ${request.title}`,
+        `홈 목록에서 신고됨: ${request.title}`,
       ].filter(Boolean).join('\n\n')
       await createReport({
         postId: isUuid(request.id) ? request.id : undefined,
@@ -418,7 +469,7 @@ export function HomeScreen({ showOnboardingWelcome = false }: { showOnboardingWe
   }
 
   return (
-    <section className={`screen home-screen ${showDetailOptions ? 'has-detail-category' : 'is-category-all'}`}>
+    <section className="screen home-screen">
       <AppHeader
         titleContent={
           <div className="home-location-dropdown" ref={regionMenuRef}>
@@ -483,24 +534,6 @@ export function HomeScreen({ showOnboardingWelcome = false }: { showOnboardingWe
           </div>
         }
       />
-
-      <CategoryScroller selectedId={categoryId} onSelect={handleCategorySelect} />
-
-      <div className={`home-detail-filter ${showDetailOptions ? 'is-open' : 'is-closed'}`} aria-hidden={!showDetailOptions}>
-        <div className="home-detail-chip-row">
-          {detailFilterOptions.map((option) => (
-            <button
-              key={option}
-              className={(option === '전체' ? detailCategory === '' : detailCategory === option) ? 'is-active' : ''}
-              type="button"
-              onClick={() => setDetailCategory(option === '전체' ? '' : option)}
-              tabIndex={showDetailOptions ? 0 : -1}
-            >
-              {option}
-            </button>
-          ))}
-        </div>
-      </div>
 
       <div
         className={[
@@ -643,16 +676,8 @@ function WelcomeCtaSheet({
   )
 }
 
-function filteredCategoryLabel(categoryId: string) {
-  return getCategoryLabel(categoryId)
-}
-
-async function fetchHomePosts(mode: HomeMode, categoryId: string, detailCategory: string) {
-  const query = {
-    statusScope: 'public',
-    category: categoryId === 'all' ? undefined : filteredCategoryLabel(categoryId),
-    categoryDetail: detailCategory || undefined,
-  } as const
+async function fetchHomePosts(mode: HomeMode) {
+  const query = { statusScope: 'public' } as const
   const posts = mode === 'all'
     ? (await Promise.all([
       fetchTaskPosts({ ...query, postType: 'request' }),
@@ -707,19 +732,6 @@ function profileToLocationRegion(profile: Record<string, unknown>): LocationRegi
   }
 }
 
-function requestMatchesDetail(request: RequestPost, detail: string) {
-  const text = `${request.category} ${request.title} ${request.description}`.toLowerCase()
-  const normalizedDetail = detail.toLowerCase()
-  if (text.includes(normalizedDetail)) return true
-
-  if (detail === '음악') return /피아노|기타|보컬|우쿨렐레|음악/.test(text)
-  if (detail === '썸네일') return /썸네일|인스타|카드뉴스/.test(text)
-  if (detail === 'PPT 정리') return /ppt|발표/.test(text)
-  if (detail === '물건 찾아오기') return /픽업|찾아|약국|도서관|전달/.test(text)
-  if (detail === '산책') return /산책|강아지/.test(text)
-  return false
-}
-
 function sortHomeRequests(posts: RequestPost[]) {
   return posts.slice().sort((a, b) => getHomeStatusRank(a) - getHomeStatusRank(b))
 }
@@ -739,6 +751,50 @@ function tradeStatusToPostStatus(status: RequestPost['status']) {
   if (status === '진행중' || status === '약속' || status === '문의중') return 'in_progress'
   if (status === '취소됨') return 'cancelled'
   return 'open'
+}
+
+function readHomeFeedRestoreState(): HomeFeedRestoreState | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.sessionStorage.getItem(homeFeedRestoreStorageKey)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<HomeFeedRestoreState>
+    if (!isHomeMode(parsed.mode)) return null
+    const savedAt = typeof parsed.savedAt === 'number' ? parsed.savedAt : 0
+    if (!savedAt || Date.now() - savedAt > homeFeedRestoreMaxAgeMs) {
+      clearHomeFeedRestoreState()
+      return null
+    }
+    return {
+      mode: parsed.mode,
+      scrollTop: typeof parsed.scrollTop === 'number' && Number.isFinite(parsed.scrollTop) ? Math.max(0, parsed.scrollTop) : 0,
+      savedAt,
+    }
+  } catch {
+    return null
+  }
+}
+
+function saveHomeFeedRestoreState(state: HomeFeedRestoreState) {
+  if (typeof window === 'undefined') return
+  try {
+    window.sessionStorage.setItem(homeFeedRestoreStorageKey, JSON.stringify(state))
+  } catch {
+    // Scroll restoration is optional.
+  }
+}
+
+function clearHomeFeedRestoreState() {
+  if (typeof window === 'undefined') return
+  try {
+    window.sessionStorage.removeItem(homeFeedRestoreStorageKey)
+  } catch {
+    // sessionStorage is optional.
+  }
+}
+
+function isHomeMode(value: unknown): value is HomeMode {
+  return value === 'all' || value === 'ask' || value === 'offer'
 }
 
 function isUuid(value: string) {

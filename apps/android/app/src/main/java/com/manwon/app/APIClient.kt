@@ -181,8 +181,6 @@ class APIClient(private val context: Context) {
             creatorProfileId = json.optNullableString("creatorProfileId"),
             postType = json.optNullableString("postType"),
             title = json.optString("title", "부탁"),
-            category = json.optNullableString("category"),
-            categoryDetail = json.optNullableString("categoryDetail"),
             description = json.optNullableString("description"),
             mode = json.optNullableString("mode"),
             price = json.optInt("price", 0),
@@ -205,8 +203,6 @@ class APIClient(private val context: Context) {
             creatorNickname = json.optNullableString("creatorNickname"),
             creatorAvatarUrl = json.optNullableString("creatorAvatarUrl"),
             creatorBio = json.optNullableString("creatorBio"),
-            creatorMainCategories = json.optStringArray("creatorMainCategories"),
-            creatorSubCategories = json.optStringArray("creatorSubCategories"),
             creatorGender = json.optNullableString("creatorGender"),
             creatorPhoneVerified = json.optNullableBoolean("creatorPhoneVerified"),
             creatorIdentityVerified = json.optNullableBoolean("creatorIdentityVerified"),
@@ -226,7 +222,6 @@ class APIClient(private val context: Context) {
             lastMessage = json.optNullableString("lastMessage"),
             lastMessageAt = json.optNullableString("lastMessageAt"),
             postTitle = json.optNullableString("postTitle"),
-            postCategory = json.optNullableString("postCategory"),
             postPrice = json.optNullableInt("postPrice"),
             postStatus = json.optNullableString("postStatus"),
             postCreatorId = json.optNullableString("postCreatorId"),
@@ -249,16 +244,10 @@ class APIClient(private val context: Context) {
             helperAvatarUrl = json.optNullableString("helperAvatarUrl"),
             requesterBio = json.optNullableString("requesterBio"),
             helperBio = json.optNullableString("helperBio"),
-            requesterMainCategories = json.optStringArray("requesterMainCategories"),
-            helperMainCategories = json.optStringArray("helperMainCategories"),
-            requesterSubCategories = json.optStringArray("requesterSubCategories"),
-            helperSubCategories = json.optStringArray("helperSubCategories"),
             otherUserId = json.optNullableString("otherUserId"),
             otherNickname = json.optNullableString("otherNickname"),
             otherAvatarUrl = json.optNullableString("otherAvatarUrl"),
             otherBio = json.optNullableString("otherBio"),
-            otherMainCategories = json.optStringArray("otherMainCategories"),
-            otherSubCategories = json.optStringArray("otherSubCategories"),
             otherGender = json.optNullableString("otherGender"),
             otherRatingAvg = json.optNullableDouble("otherRatingAvg"),
             otherReviewCount = json.optNullableInt("otherReviewCount"),
@@ -317,13 +306,6 @@ private fun JSONObject.optNullableDouble(name: String): Double? {
 private fun JSONObject.optNullableBoolean(name: String): Boolean? {
     if (!has(name) || isNull(name)) return null
     return optBoolean(name)
-}
-
-private fun JSONObject.optStringArray(name: String): List<String> {
-    val array = optJSONArray(name) ?: return emptyList()
-    return (0 until array.length()).mapNotNull { index ->
-        array.optString(index).takeIf { it.isNotBlank() }
-    }
 }
 
 private fun JSONObject.optProfileLinks(name: String): List<ProfileLink> {

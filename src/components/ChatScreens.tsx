@@ -1213,8 +1213,6 @@ function mapConversationToChat(conversation: ApiConversation, currentUserId: str
   const status = mapTradeStatus(conversation)
   const request: RequestPost = {
     id: conversation.postId ?? conversation.id,
-    categoryId: 'proxy',
-    category: conversation.postCategory ?? '대신해줘',
     title: conversation.postTitle ?? '거래 대화',
     location: '위치 협의',
     detailLocation: '위치 협의',

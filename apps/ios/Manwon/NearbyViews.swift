@@ -484,7 +484,7 @@ private struct NearbyPostRow: View {
                     .foregroundStyle(NearbyStyle.text)
                     .lineLimit(2)
 
-                Text("\(post.distanceText) · \(post.categoryDetail ?? post.category ?? "부탁")")
+                Text(post.distanceText)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(NearbyStyle.muted)
                     .lineLimit(1)

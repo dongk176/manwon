@@ -4,7 +4,7 @@ create table if not exists manwon_happiness.activity_profiles (
   avatar_url text,
   default_avatar_key text,
   nickname text not null check (char_length(nickname) between 2 and 12),
-  bio text not null check (char_length(bio) between 1 and 40),
+  bio text not null check (char_length(bio) between 1 and 60),
   activity_mode manwon_happiness.task_mode not null default 'both',
   address_text text,
   region_1depth text,

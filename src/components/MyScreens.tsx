@@ -29,7 +29,6 @@ import {
   MapPin,
   MessageCircle,
   Monitor,
-  Package,
   Plus,
   Shield,
   Settings,
@@ -43,11 +42,13 @@ import {
 } from 'lucide-react'
 import { ActionGuideOverlay, AppHeader, BrandButton, RatingStars } from '@/components/ui/Common'
 import { NeighborhoodSelectSheet } from '@/components/location/LocationSheets'
-import { notifyNativeProfileOnboardingCompleted } from '@/components/NativeIOSBridge'
+import { notifyNativeProfileOnboardingCompleted, requestIOSPushPermission } from '@/components/NativeIOSBridge'
 import { PhoneVerificationOverlay } from '@/components/PhoneVerificationOverlay'
 import {
   createSupportInquiry,
   createActivityProfile,
+  checkActivityProfileNickname,
+  createTaskPost,
   deactivateActivityProfile,
   deleteBlock,
   fetchTaskPost,
@@ -55,6 +56,7 @@ import {
   fetchMyActivity,
   fetchMyPage,
   fetchSettlementSummary,
+  generateOnboardingBioDraft,
   getDefaultProfileImageByGender,
   getDisplayImageUrl,
   isPhoneVerificationRequired,
@@ -114,7 +116,6 @@ type TaskItem = {
   postId: string
   conversationId?: string | null
   title: string
-  category: string
   price: number
   mode: string
   location: string
@@ -292,14 +293,9 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
 
   if (section === 'profileOnboarding') {
     return withWithdrawOverlay(
-      <ActivityProfilesScreen
-        onboarding
+      <SignupOnboardingFlow
         userGender={userGender}
         profileDefaults={profileDefaults}
-        onComplete={() => {
-          router.replace('/?welcome=1')
-          router.refresh()
-        }}
       />
     )
   }
@@ -552,6 +548,831 @@ type ActivityProfileDefaults = {
 }
 
 const defaultProfileAvatars = ['default-1', 'default-2', 'default-3', 'default-4']
+const aiBioDraftCooldownSeconds = 60
+const aiBioDraftRateWindowMs = 2 * 60 * 1000
+const aiBioDraftNoticeThreshold = 6
+const onboardingMinimumOfferPrice = 1000
+const onboardingMinimumOfferPriceLabel = '1,000원'
+
+type SignupOnboardingStep = 'profile' | 'bio' | 'examples' | 'offer'
+type OnboardingSaveState = 'idle' | 'checking' | 'saving' | 'error'
+type OnboardingPostImage = { imageUrl: string; storageKey: string; sortOrder: number }
+
+const onboardingExampleCards = [
+  { title: '썸 카톡 해석해드려요', price: '20,000원', description: '답장 하나에도 의미 부여해드립니다.' },
+  { title: '아침에 진짜 깨워드려요', price: '5,000원', description: '알람 꺼버리고 다시 자는 분들께 전화드립니다.' },
+  { title: '벌레 잡아드립니다', price: '10,000원', description: '자취방에 나타난 벌레, 대신 처리해드려요.' },
+  { title: '고민 들어드려요', price: '10,000원', description: '말 못 할 고민, 편하게 들어드릴게요.' },
+  { title: '데이트코스, 선물 대신 알아봐드립니다', price: '5,000원', description: '맛집, 선물, 데이트 코스 대신 찾아드려요.' },
+  { title: '공부나 다이어트 하라고 잔소리해드려요', price: '3,000원', description: '시작하기 힘든 분들께 약속한 시간에 연락드려요.' },
+  { title: '운동 인증 체크해드려요', price: '3,000원', description: '운동했는지 확인하고 계속 하게 도와드려요.' },
+  { title: '선물 대신 골라드려요', price: '5,000원', description: '상황과 예산에 맞춰 선물을 추천해드려요.' },
+  { title: '친구인 척 전화해드려요', price: '3,000원', description: '어색한 상황에서 자연스럽게 전화해드려요.' },
+  { title: '편의점 심부름 해드려요', price: '5,000원', description: '가까운 거리의 간단한 심부름을 도와드려요.' },
+  { title: '카톡 답장 같이 짜드려요', price: '3,000원', description: '어떻게 답장할지 같이 고민해드려요.' },
+  { title: '면접 답변 연습해드려요', price: '10,000원', description: '예상 질문에 맞춰 답변을 같이 다듬어드려요.' },
+  { title: '발표 대본 들어드려요', price: '8,000원', description: '말이 어색한 부분을 듣고 짧게 피드백해드려요.' },
+  { title: '자기소개서 문장 다듬어드려요', price: '15,000원', description: '내가 쓴 문장을 더 자연스럽게 정리해드려요.' },
+  { title: '중고거래 문구 같이 써드려요', price: '3,000원', description: '상품 설명과 가격 제안 문장을 같이 만들어드려요.' },
+  { title: '여행 일정 가볍게 짜드려요', price: '10,000원', description: '일정과 취향에 맞춰 동선을 간단히 정리해드려요.' },
+  { title: '맛집 후보 정리해드려요', price: '5,000원', description: '지역과 취향에 맞춰 갈 만한 곳을 추려드려요.' },
+  { title: '장보기 목록 정리해드려요', price: '3,000원', description: '필요한 물건을 빠뜨리지 않게 목록으로 정리해드려요.' },
+  { title: '택배 반품 방법 찾아드려요', price: '3,000원', description: '복잡한 반품 절차를 대신 확인해드려요.' },
+  { title: '가전제품 비교표 만들어드려요', price: '10,000원', description: '후보 제품의 가격과 장단점을 표로 정리해드려요.' },
+  { title: '휴대폰 요금제 비교해드려요', price: '8,000원', description: '사용 패턴에 맞는 요금제 후보를 찾아드려요.' },
+  { title: '공연 예매 일정 체크해드려요', price: '3,000원', description: '오픈 시간과 준비할 정보를 미리 정리해드려요.' },
+  { title: '사진 셀렉 도와드려요', price: '5,000원', description: '프로필이나 업로드용 사진 후보를 같이 골라드려요.' },
+  { title: 'SNS 프로필 문구 써드려요', price: '5,000원', description: '짧고 자연스러운 소개 문구를 같이 만들어드려요.' },
+  { title: '생일 축하 멘트 녹음해드려요', price: '5,000원', description: '짧은 축하 메시지를 따뜻하게 녹음해드려요.' },
+  { title: '잠깐 통화하며 산책해드려요', price: '8,000원', description: '혼자 걷기 심심할 때 가볍게 통화해드려요.' },
+  { title: '동네 웨이팅 상황 확인해드려요', price: '8,000원', description: '가게 앞 줄이나 현장 분위기를 대신 확인해드려요.' },
+  { title: '프린트 심부름 해드려요', price: '5,000원', description: '근처에서 문서 출력이나 복사를 도와드려요.' },
+  { title: '생활용품 사다드려요', price: '8,000원', description: '가까운 편의점이나 마트에서 필요한 물건을 사다드려요.' },
+  { title: '분리수거 같이 도와드려요', price: '10,000원', description: '헷갈리는 분리수거를 같이 정리해드려요.' },
+  { title: '작은 가구 조립 도와드려요', price: '20,000원', description: '혼자 하기 애매한 조립을 옆에서 도와드려요.' },
+  { title: '택배 옮기는 것 도와드려요', price: '10,000원', description: '무겁거나 많은 택배를 문 앞까지 같이 옮겨드려요.' },
+  { title: '이사 박스 몇 개 옮겨드려요', price: '20,000원', description: '짧은 거리의 작은 짐 옮기기를 도와드려요.' },
+  { title: '강아지 산책 동행해드려요', price: '10,000원', description: '동네 산책을 함께하며 보호자 곁에서 도와드려요.' },
+  { title: '식물 물주기 도와드려요', price: '5,000원', description: '잠깐 집을 비울 때 식물 상태를 확인해드려요.' },
+  { title: '집 앞 상황 사진 찍어드려요', price: '5,000원', description: '멀리 있어 확인하기 어려운 현장을 사진으로 보내드려요.' },
+  { title: '분실물 찾기 동선 같이 봐드려요', price: '5,000원', description: '어디서 잃어버렸을지 동선을 같이 정리해드려요.' },
+  { title: '예약 전화 대신 해드려요', price: '5,000원', description: '전화가 부담스러울 때 필요한 내용을 확인해드려요.' },
+  { title: '공지나 메일 내용 요약해드려요', price: '3,000원', description: '긴 안내문에서 중요한 내용만 뽑아드려요.' },
+  { title: '짧은 영어 문장 확인해드려요', price: '5,000원', description: '어색한 표현이나 오타를 가볍게 봐드려요.' },
+  { title: '노션 표 정리해드려요', price: '10,000원', description: '흩어진 내용을 보기 좋게 표로 정리해드려요.' },
+  { title: '엑셀 목록 정리해드려요', price: '10,000원', description: '간단한 리스트를 보기 좋게 정돈해드려요.' },
+  { title: '캘린더 일정 정리해드려요', price: '5,000원', description: '약속과 할 일을 날짜별로 깔끔하게 정리해드려요.' },
+  { title: '아침 루틴 체크해드려요', price: '3,000원', description: '정해둔 루틴을 했는지 메시지로 확인해드려요.' },
+  { title: '청소 시작하게 전화해드려요', price: '5,000원', description: '미루던 청소를 시작하도록 짧게 독려해드려요.' },
+  { title: '게임 같이 한 판 해드려요', price: '5,000원', description: '혼자 하기 심심한 게임을 함께 플레이해드려요.' },
+  { title: '오늘 입을 옷 같이 골라드려요', price: '5,000원', description: '날씨와 일정에 맞는 옷 조합을 같이 골라드려요.' },
+  { title: '모임 장소 후보 찾아드려요', price: '8,000원', description: '인원, 위치, 분위기에 맞는 장소를 추려드려요.' },
+  { title: '중요한 말 연습 상대 해드려요', price: '8,000원', description: '고백, 사과, 요청처럼 떨리는 말을 같이 연습해드려요.' },
+  { title: '하루 계획 같이 세워드려요', price: '5,000원', description: '해야 할 일을 시간대별로 현실적으로 나눠드려요.' },
+]
+
+const onboardingOfferTitleExamples = [
+  '카톡 답장 같이 짜드려요',
+  '썸 카톡 의미 해석해드려요',
+  '고민 편하게 들어드려요',
+  '면접 답변 연습해드려요',
+  '발표 대본 들어드려요',
+  '자기소개서 문장 다듬어드려요',
+  '중고거래 문구 같이 써드려요',
+  'SNS 프로필 문구 써드려요',
+  '짧은 영어 문장 확인해드려요',
+  '공지나 메일 내용 요약해드려요',
+  '노션 표 정리해드려요',
+  '엑셀 목록 정리해드려요',
+  '캘린더 일정 정리해드려요',
+  '하루 계획 같이 세워드려요',
+  '아침 루틴 체크해드려요',
+  '공부하라고 잔소리해드려요',
+  '다이어트 루틴 체크해드려요',
+  '운동 인증 체크해드려요',
+  '청소 시작하게 전화해드려요',
+  '아침에 진짜 깨워드려요',
+  '잠깐 통화하며 산책해드려요',
+  '게임 같이 한 판 해드려요',
+  '사진 셀렉 도와드려요',
+  '오늘 입을 옷 같이 골라드려요',
+  '선물 대신 골라드려요',
+  '데이트 코스 짜드려요',
+  '맛집 후보 정리해드려요',
+  '여행 일정 가볍게 짜드려요',
+  '모임 장소 후보 찾아드려요',
+  '가전제품 비교표 만들어드려요',
+  '휴대폰 요금제 비교해드려요',
+  '공연 예매 일정 체크해드려요',
+  '택배 반품 방법 찾아드려요',
+  '예약 전화 대신 해드려요',
+  '전화 문의 대신 해드려요',
+  '중요한 말 연습 상대 해드려요',
+  '사과 문장 같이 정리해드려요',
+  '생일 축하 멘트 녹음해드려요',
+  '유튜브 영상 내용 요약해드려요',
+  '블로그 글 초안 다듬어드려요',
+  '편의점 심부름 해드려요',
+  '생활용품 사다드려요',
+  '프린트 심부름 해드려요',
+  '동네 웨이팅 상황 확인해드려요',
+  '집 앞 상황 사진 찍어드려요',
+  '택배 옮기는 것 도와드려요',
+  '작은 가구 조립 도와드려요',
+  '분리수거 같이 도와드려요',
+  '식물 물주기 도와드려요',
+  '벌레 잡아드립니다',
+]
+
+function getRandomOnboardingOfferTitleExample() {
+  if (typeof crypto === 'undefined') return onboardingOfferTitleExamples[0]
+  const values = new Uint32Array(1)
+  crypto.getRandomValues(values)
+  return onboardingOfferTitleExamples[(values[0] ?? 0) % onboardingOfferTitleExamples.length] ?? onboardingOfferTitleExamples[0]
+}
+
+function SignupOnboardingFlow({
+  userGender,
+  profileDefaults,
+}: {
+  userGender?: ActivityProfile['gender']
+  profileDefaults?: ActivityProfileDefaults
+}) {
+  const router = useRouter()
+  const profileInputRef = useRef<HTMLInputElement>(null)
+  const postImageInputRef = useRef<HTMLInputElement>(null)
+  const [step, setStep] = useState<SignupOnboardingStep>('profile')
+  const [nickname, setNickname] = useState(() => normalizeProfileDefaultNickname(profileDefaults?.nickname))
+  const [nicknameEdited, setNicknameEdited] = useState(false)
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(profileDefaults?.avatarUrl ?? null)
+  const [bio, setBio] = useState('')
+  const [bioError, setBioError] = useState('')
+  const [aiBioState, setAiBioState] = useState<'idle' | 'loading' | 'error'>('idle')
+  const [aiBioError, setAiBioError] = useState('')
+  const [aiBioDraftRequestTimestamps, setAiBioDraftRequestTimestamps] = useState<number[]>([])
+  const [aiBioCooldownRemaining, setAiBioCooldownRemaining] = useState(0)
+  const [showAiBioRateLimit, setShowAiBioRateLimit] = useState(false)
+  const [savedProfileId, setSavedProfileId] = useState('')
+  const [showProfileGuide, setShowProfileGuide] = useState(false)
+  const [showProfileReadyGuide, setShowProfileReadyGuide] = useState(false)
+  const [profileState, setProfileState] = useState<OnboardingSaveState>('idle')
+  const [profileError, setProfileError] = useState('')
+  const [avatarUploadState, setAvatarUploadState] = useState<'idle' | 'uploading' | 'error'>('idle')
+  const [postTitle, setPostTitle] = useState('')
+  const [postTitleExample, setPostTitleExample] = useState(onboardingOfferTitleExamples[0])
+  const [postTitleExamplesOpen, setPostTitleExamplesOpen] = useState(false)
+  const [postPrice, setPostPrice] = useState('')
+  const [postDescription, setPostDescription] = useState('')
+  const [postImages, setPostImages] = useState<OnboardingPostImage[]>([])
+  const [postImageUploadState, setPostImageUploadState] = useState<'idle' | 'uploading' | 'error'>('idle')
+  const [postErrors, setPostErrors] = useState<Record<string, string>>({})
+  const [postState, setPostState] = useState<'idle' | 'saving' | 'error'>('idle')
+  const [postError, setPostError] = useState('')
+  const [showPostConfirm, setShowPostConfirm] = useState(false)
+  const [completedPost, setCompletedPost] = useState<ApiTaskPost | null>(null)
+  const [showPhoneVerification, setShowPhoneVerification] = useState(false)
+  const defaultNickname = normalizeProfileDefaultNickname(profileDefaults?.nickname)
+  const effectiveNickname = nicknameEdited ? nickname : nickname || defaultNickname
+  const effectiveAvatarUrl = avatarUrl ?? profileDefaults?.avatarUrl ?? null
+  const aiBioButtonLabel = aiBioState === 'loading'
+    ? 'AI가 쓰는 중'
+    : aiBioCooldownRemaining > 0
+      ? `${aiBioCooldownRemaining}초 후 다시 대필`
+      : 'AI가 소개를 써줘요'
+
+  useEffect(() => {
+    if (aiBioCooldownRemaining <= 0) return
+    const timer = window.setTimeout(() => {
+      setAiBioCooldownRemaining((current) => Math.max(0, current - 1))
+    }, 1000)
+    return () => window.clearTimeout(timer)
+  }, [aiBioCooldownRemaining])
+
+  function goToStep(nextStep: SignupOnboardingStep) {
+    setStep(nextStep)
+    window.setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 0)
+  }
+
+  function updateNickname(value: string) {
+    setNickname(value)
+    setNicknameEdited(true)
+    if (profileError) setProfileError('')
+  }
+
+  async function uploadAvatar(file: File | undefined) {
+    if (!file) return
+    setAvatarUploadState('uploading')
+    setProfileError('')
+    try {
+      const uploaded = await uploadImageFile(file, 'profile-avatar')
+      setAvatarUrl(getUploadDisplayUrl(uploaded))
+      setAvatarUploadState('idle')
+    } catch {
+      setAvatarUploadState('error')
+    } finally {
+      if (profileInputRef.current) profileInputRef.current.value = ''
+    }
+  }
+
+  async function uploadPostImage(file: File | undefined) {
+    if (!file || postImages.length >= 5) return
+    setPostImageUploadState('uploading')
+    setPostError('')
+    try {
+      const uploaded = await uploadImageFile(file, 'task-post')
+      setPostImages((current) => [
+        ...current,
+        {
+          imageUrl: getUploadDisplayUrl(uploaded),
+          storageKey: uploaded.storageKey,
+          sortOrder: current.length,
+        },
+      ])
+      setPostErrors((current) => {
+        if (!current.images) return current
+        const next = { ...current }
+        delete next.images
+        return next
+      })
+      setPostImageUploadState('idle')
+    } catch {
+      setPostImageUploadState('error')
+    } finally {
+      if (postImageInputRef.current) postImageInputRef.current.value = ''
+    }
+  }
+
+  async function handleProfileNext() {
+    const normalizedNickname = normalizeOnboardingNickname(effectiveNickname)
+    if (!isValidOnboardingNickname(normalizedNickname)) {
+      setProfileError('닉네임은 2~12자로 입력해주세요.')
+      return
+    }
+    setProfileState('checking')
+    setProfileError('')
+    try {
+      const result = await checkActivityProfileNickname(normalizedNickname)
+      if (!result.available) {
+        setProfileState('idle')
+        setProfileError('이미 사용 중인 닉네임입니다.')
+        return
+      }
+      setProfileState('idle')
+      setShowProfileGuide(true)
+    } catch (error) {
+      setProfileState('error')
+      setProfileError(error instanceof Error ? error.message : '닉네임을 확인하지 못했습니다.')
+    }
+  }
+
+  async function ensureProfileSaved() {
+    if (savedProfileId) return savedProfileId
+    const normalizedNickname = normalizeOnboardingNickname(effectiveNickname)
+    if (!isValidOnboardingNickname(normalizedNickname)) {
+      setStep('profile')
+      setProfileError('닉네임은 2~12자로 입력해주세요.')
+      throw new Error('닉네임은 2~12자로 입력해주세요.')
+    }
+    if (!bio.trim()) {
+      setBioError('한 줄 소개를 입력해주세요.')
+      goToStep('bio')
+      throw new Error('한 줄 소개를 입력해주세요.')
+    }
+
+    setProfileState('saving')
+    setProfileError('')
+    try {
+      const saved = await createActivityProfile({
+        avatarUrl: effectiveAvatarUrl,
+        defaultAvatarKey: defaultProfileAvatars[0],
+        nickname: normalizedNickname,
+        bio: bio.trim(),
+        activityMode: 'online',
+        addressText: null,
+        region1Depth: null,
+        region2Depth: null,
+        region3Depth: null,
+        regionCode: null,
+        latitude: null,
+        longitude: null,
+        careerSummary: null,
+        careerDescription: null,
+        portfolioLinks: [],
+        workSampleImages: [],
+        availableTimeText: null,
+        basePrice: null,
+      })
+      setSavedProfileId(saved.id)
+      setProfileState('idle')
+      notifyNativeProfileOnboardingCompleted()
+      return saved.id
+    } catch (error) {
+      setProfileState('error')
+      const message = error instanceof Error ? error.message : '프로필을 저장하지 못했습니다.'
+      setProfileError(message)
+      if (message.includes('닉네임') || message.includes('프로필')) setStep('profile')
+      throw error
+    }
+  }
+
+  async function goHomeAfterProfile() {
+    try {
+      await ensureProfileSaved()
+      router.replace('/?welcome=1')
+    } catch {
+      // Error state is shown near the active CTA.
+    }
+  }
+
+  async function handleBioNext() {
+    if (!bio.trim()) {
+      setBioError('한 줄 소개를 입력해주세요.')
+      return
+    }
+    setBioError('')
+    try {
+      await ensureProfileSaved()
+      setShowProfileReadyGuide(true)
+    } catch {
+      // Error state is shown near the active CTA.
+    }
+  }
+
+  function startOfferRegistration() {
+    if (!bio.trim()) {
+      setBioError('한 줄 소개를 입력해주세요.')
+      goToStep('bio')
+      return
+    }
+    setPostTitleExample(getRandomOnboardingOfferTitleExample())
+    goToStep('offer')
+  }
+
+  async function requestAiBioDraft() {
+    if (aiBioState === 'loading' || aiBioCooldownRemaining > 0) return
+    const now = Date.now()
+    const recentRequestTimestamps = aiBioDraftRequestTimestamps.filter((requestedAt) => now - requestedAt < aiBioDraftRateWindowMs)
+    const nextRequestTimestamps = [...recentRequestTimestamps, now]
+    setAiBioDraftRequestTimestamps(nextRequestTimestamps)
+    if (nextRequestTimestamps.length >= aiBioDraftNoticeThreshold) {
+      setAiBioCooldownRemaining(aiBioDraftCooldownSeconds)
+      setShowAiBioRateLimit(true)
+    }
+    setAiBioState('loading')
+    setAiBioError('')
+    try {
+      const result = await generateOnboardingBioDraft()
+      setBio(result.bio)
+      setBioError('')
+      setAiBioState('idle')
+    } catch (error) {
+      setAiBioState('error')
+      setAiBioError(error instanceof Error ? error.message : 'AI 대필에 실패했어요. 잠시 후 다시 시도해주세요.')
+    }
+  }
+
+  function validatePostDraft() {
+    const errors: Record<string, string> = {}
+    const price = Number(postPrice)
+    if (!postTitle.trim()) errors.title = '제목을 입력해주세요.'
+    if (!postPrice || !Number.isInteger(price)) {
+      errors.price = '금액을 입력해주세요.'
+    } else if (price < onboardingMinimumOfferPrice) {
+      errors.price = `최소 ${onboardingMinimumOfferPriceLabel}`
+    }
+    if (!postDescription.trim()) errors.description = '상세 설명을 입력해주세요.'
+    if (postImages.length < 1) errors.images = '사진을 1장 이상 추가해주세요.'
+    return errors
+  }
+
+  function handlePostPriceChange(value: string) {
+    setPostPrice(value.replace(/[^0-9]/g, '').slice(0, 7))
+    if (postErrors.price) {
+      setPostErrors((current) => {
+        const next = { ...current }
+        delete next.price
+        return next
+      })
+    }
+  }
+
+  function requestPostSubmit() {
+    const errors = validatePostDraft()
+    setPostErrors(errors)
+    setPostError('')
+    if (Object.keys(errors).length > 0) return
+    setShowPostConfirm(true)
+  }
+
+  function selectPostTitleExample(title: string) {
+    setPostTitle(title)
+    setPostTitleExamplesOpen(false)
+    if (postErrors.title) {
+      setPostErrors((current) => {
+        const next = { ...current }
+        delete next.title
+        return next
+      })
+    }
+  }
+
+  async function submitPost() {
+    const errors = validatePostDraft()
+    setPostErrors(errors)
+    if (Object.keys(errors).length > 0) {
+      setShowPostConfirm(false)
+      return
+    }
+
+    setPostState('saving')
+    setPostError('')
+    try {
+      const profileId = await ensureProfileSaved()
+      const createdPost = await createTaskPost({
+        profileId,
+        postType: 'offer',
+        title: postTitle.trim(),
+        description: postDescription.trim(),
+        mode: 'online',
+        price: Number(postPrice),
+        availableTimeText: null,
+        genderVisibility: 'private',
+        capacityType: 'unlimited',
+        capacityLimit: null,
+        addressText: null,
+        region1Depth: null,
+        region2Depth: null,
+        region3Depth: null,
+        regionCode: null,
+        locationSource: null,
+        latitude: null,
+        longitude: null,
+        images: postImages,
+        workSampleImages: [],
+        trustExampleImages: [],
+      })
+      requestIOSPushPermission('post_created')
+      setCompletedPost(createdPost)
+      setShowPostConfirm(false)
+      setPostState('idle')
+    } catch (error) {
+      if (isPhoneVerificationRequired(error)) {
+        setPostState('idle')
+        setShowPostConfirm(false)
+        setShowPhoneVerification(true)
+        return
+      }
+      setPostState('error')
+      setPostError(error instanceof Error ? error.message : '게시글을 등록하지 못했습니다.')
+      setShowPostConfirm(false)
+    }
+  }
+
+  if (step === 'profile') {
+    const normalizedNickname = normalizeOnboardingNickname(effectiveNickname)
+    const canContinue = isValidOnboardingNickname(normalizedNickname) && profileState !== 'checking'
+    return (
+      <section className="screen signup-onboarding-screen is-profile-step">
+        <div className="signup-onboarding-centered-stack">
+          <div className="signup-onboarding-hero">
+            <h1>반가워요!<br />먼저 당신을 소개해주세요</h1>
+            <p>닉네임과 사진은 거래할 때 첫인상처럼 보여요.</p>
+          </div>
+
+          <div className="signup-onboarding-form">
+            <section className="signup-profile-photo-card">
+              <button className="signup-profile-photo-button" type="button" onClick={() => profileInputRef.current?.click()} aria-label="프로필 사진 선택">
+                <ProfileImage profile={{ avatarUrl: effectiveAvatarUrl, defaultAvatarKey: defaultProfileAvatars[0], nickname: normalizedNickname || '만', gender: userGender ?? null }} />
+                <span><Camera size={18} /></span>
+              </button>
+              <input ref={profileInputRef} hidden type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => void uploadAvatar(event.target.files?.[0])} />
+              <div>
+                <strong>프로필 사진 <em>선택</em></strong>
+                <p>사진은 나중에 바꿀 수 있어요</p>
+                {avatarUploadState === 'uploading' && <small>사진을 올리는 중이에요.</small>}
+                {avatarUploadState === 'error' && <small className="is-error">사진 업로드에 실패했어요.</small>}
+              </div>
+            </section>
+
+            <label className={`signup-onboarding-field ${profileError ? 'has-error' : ''}`}>
+              <span>닉네임 <em>필수</em></span>
+              <input value={effectiveNickname} onChange={(event) => updateNickname(event.target.value)} placeholder="예: 친절한 민지, 자취도우미, 카톡해석러" maxLength={18} />
+              {profileError && <small>{profileError}</small>}
+            </label>
+          </div>
+        </div>
+
+        <div className="signup-onboarding-fixed-action is-single">
+          <button className="signup-onboarding-primary" type="button" disabled={!canContinue} onClick={() => void handleProfileNext()}>
+            {profileState === 'checking' ? '확인 중' : '다음'}
+          </button>
+        </div>
+
+        {showProfileGuide && (
+          <OnboardingDialog
+            title={'좋아요!\n이제 사람들이 당신을 기억할 수 있어요.'}
+            description={'다음은 한 줄 소개예요.\n거창하지 않아도 괜찮아요.'}
+            primaryLabel="확인"
+            onPrimary={() => {
+              setShowProfileGuide(false)
+              goToStep('bio')
+            }}
+          />
+        )}
+      </section>
+    )
+  }
+
+  if (step === 'bio') {
+    return (
+      <section className="screen signup-onboarding-screen is-bio-step">
+        <div className="signup-onboarding-centered-stack">
+          <div className="signup-onboarding-hero">
+            <h1>나를 한 줄로 소개해주세요</h1>
+            <p>어떤 사람인지 가볍게 알려주세요.<br />나중에 언제든 바꿀 수 있어요.</p>
+          </div>
+
+          <div className="signup-onboarding-form">
+            <label className={`signup-onboarding-textarea-field is-bio-intro ${bioError ? 'has-error' : ''}`}>
+              <span>한 줄 소개 <em>필수</em></span>
+              <textarea
+                value={bio}
+                onChange={(event) => {
+                  setBio(event.target.value)
+                  if (bioError) setBioError('')
+                  if (aiBioError) setAiBioError('')
+                }}
+                placeholder="예: 친구처럼 고민 잘 들어줘요"
+                maxLength={60}
+              />
+              <small>{bioError || `${bio.length}/60 · 나중에 언제든 바꿀 수 있어요.`}</small>
+            </label>
+
+            <button className="signup-ai-draft-button" type="button" disabled={aiBioState === 'loading' || aiBioCooldownRemaining > 0} onClick={() => void requestAiBioDraft()}>
+              {aiBioButtonLabel}
+            </button>
+            {aiBioError && <p className="signup-ai-draft-error">{aiBioError}</p>}
+
+            {profileError && <p className="signup-onboarding-error">{profileError}</p>}
+          </div>
+        </div>
+        <div className="signup-onboarding-fixed-action is-split">
+          <button className="signup-onboarding-secondary" type="button" onClick={() => goToStep('profile')}>
+            이전
+          </button>
+          <button className="signup-onboarding-primary" type="button" disabled={profileState === 'saving' || !bio.trim()} onClick={() => void handleBioNext()}>
+            {profileState === 'saving' ? '저장 중' : '완료'}
+          </button>
+        </div>
+        {showProfileReadyGuide && (
+          <OnboardingDialog
+            title="프로필이 준비되었어요!"
+            description="이제 내가 해줄 수 있는 일을 등록하고 바로 시작해요!"
+            primaryLabel="확인"
+            onPrimary={() => {
+              setShowProfileReadyGuide(false)
+              goToStep('examples')
+            }}
+          />
+        )}
+        {showAiBioRateLimit && (
+          <OnboardingDialog
+            title="요청이 너무 잦아요"
+            description={`AI 대필은 잠시 후 다시 사용할 수 있어요.\n${aiBioCooldownRemaining || aiBioDraftCooldownSeconds}초 뒤에 다시 시도해주세요.`}
+            primaryLabel="확인"
+            onPrimary={() => setShowAiBioRateLimit(false)}
+            onClose={() => setShowAiBioRateLimit(false)}
+          />
+        )}
+      </section>
+    )
+  }
+
+  if (step === 'examples') {
+    return (
+      <>
+        <section className="screen signup-onboarding-screen signup-offer-examples-page">
+          <div className="signup-onboarding-hero">
+            <h1>할 수 있는 일을 하나만 올려보세요</h1>
+            <p>사소한 도움도 거래가 될 수 있어요.</p>
+          </div>
+          <p className="signup-example-note">이런 일부터 시작해볼 수 있어요</p>
+
+          <div className="signup-example-grid">
+            {onboardingExampleCards.map((example) => (
+              <article key={example.title} className="signup-example-card">
+                <strong>{example.title}</strong>
+                <b>{example.price}</b>
+                <p>{example.description}</p>
+              </article>
+            ))}
+          </div>
+
+          {profileError && <p className="signup-onboarding-error">{profileError}</p>}
+        </section>
+        <div className="signup-onboarding-fixed-action is-split is-examples-action">
+          <button className="signup-onboarding-secondary" type="button" disabled={profileState === 'saving'} onClick={() => void goHomeAfterProfile()}>
+            나중에
+          </button>
+          <button className="signup-onboarding-primary" type="button" disabled={profileState === 'saving'} onClick={startOfferRegistration}>
+            {profileState === 'saving' ? '저장 중' : '지금 바로 시작하기'}
+          </button>
+        </div>
+      </>
+    )
+  }
+
+  return (
+    <>
+      <section className="screen signup-onboarding-screen signup-offer-write-page">
+        <div className="signup-onboarding-hero">
+          <h1>나는 어떤 일을 해줄 수 있나요?</h1>
+          <p>가볍게 하나만 올려보세요.<br />올린 뒤에도 언제든 수정할 수 있어요.</p>
+        </div>
+
+        <div className="signup-onboarding-form">
+          <div className={`signup-onboarding-field ${postErrors.title ? 'has-error' : ''}`}>
+            <span>제목 <em>필수</em></span>
+            <div className="signup-title-input-wrap">
+              <input value={postTitle} onChange={(event) => setPostTitle(event.target.value)} placeholder={`예: ${postTitleExample}`} maxLength={80} />
+              <button className="signup-title-example-trigger" type="button" onClick={() => setPostTitleExamplesOpen(true)}>
+                예시
+              </button>
+            </div>
+            {postErrors.title && <small>{postErrors.title}</small>}
+          </div>
+          <label className={`signup-onboarding-field ${postErrors.price ? 'has-error' : ''}`}>
+            <span>금액 <em>필수</em></span>
+            <div className="signup-price-input-wrap">
+              <input inputMode="numeric" value={postPrice} onChange={(event) => handlePostPriceChange(event.target.value)} placeholder="예: 3000" />
+              {postErrors.price && <span className="signup-price-input-error">{postErrors.price}</span>}
+            </div>
+            {!postErrors.price && <small>처음에는 1,000원~5,000원처럼 가볍게 시작해보세요.</small>}
+          </label>
+          <label className={`signup-onboarding-textarea-field ${postErrors.description ? 'has-error' : ''}`}>
+            <span>상세 설명 <em>필수</em></span>
+            <textarea value={postDescription} onChange={(event) => setPostDescription(event.target.value)} placeholder="가능한 시간, 진행 방식, 도와줄 수 있는 범위를 적어주세요." maxLength={1200} />
+            {postErrors.description && <small>{postErrors.description}</small>}
+          </label>
+          <section className="signup-post-photo-card">
+            <div>
+              <strong>사진 첨부 <em>필수</em></strong>
+              <p>사진을 1장 이상 추가해주세요.</p>
+            </div>
+            <div className="signup-post-image-list">
+              {postImages.map((image, index) => (
+                <span key={`${image.storageKey}-${index}`} style={profileImageBackground(image.imageUrl)}>
+                  <button
+                    type="button"
+                    aria-label="사진 삭제"
+                    onClick={() => setPostImages((current) => current.filter((_, itemIndex) => itemIndex !== index).map((item, sortOrder) => ({ ...item, sortOrder })))}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              {postImages.length < 5 && (
+                <button type="button" onClick={() => postImageInputRef.current?.click()}>
+                  <ImagePlus size={20} />
+                  사진 추가
+                </button>
+              )}
+              <input ref={postImageInputRef} hidden type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => void uploadPostImage(event.target.files?.[0])} />
+            </div>
+            {postImageUploadState === 'uploading' && <small>사진을 올리는 중이에요.</small>}
+            {postImageUploadState === 'error' && <small className="is-error">사진 업로드에 실패했어요.</small>}
+            {postErrors.images && <small className="is-error">{postErrors.images}</small>}
+          </section>
+        </div>
+
+        {postError && <p className="signup-onboarding-error">{postError}</p>}
+      </section>
+      <div className="signup-onboarding-fixed-action is-single with-note">
+        <button className="signup-onboarding-primary" type="button" disabled={postState === 'saving'} onClick={requestPostSubmit}>
+          {postState === 'saving' ? '등록 중' : '첫 해줄게요 등록하기'}
+        </button>
+        <small>등록 후에도 언제든 수정할 수 있어요.</small>
+      </div>
+
+      {postTitleExamplesOpen && (
+        <OnboardingOfferTitleExampleSheet
+          examples={onboardingOfferTitleExamples}
+          onSelect={selectPostTitleExample}
+          onClose={() => setPostTitleExamplesOpen(false)}
+        />
+      )}
+
+      {showPostConfirm && (
+        <OnboardingDialog
+          title="이대로 첫 해줄게요를 올릴까요?"
+          description={'올리면 바로 사람들이 문의할 수 있어요.\n제목, 금액, 설명은 나중에 수정할 수 있어요.'}
+          primaryLabel={postState === 'saving' ? '등록 중' : '네, 등록할게요'}
+          secondaryLabel="조금 더 수정하기"
+          primaryDisabled={postState === 'saving'}
+          onPrimary={() => void submitPost()}
+          onSecondary={() => setShowPostConfirm(false)}
+          onClose={() => setShowPostConfirm(false)}
+        />
+      )}
+
+      {completedPost && (
+        <OnboardingDialog
+          title="첫 해줄게요가 등록됐어요!"
+          description={'이제 누군가 필요할 때\n당신에게 바로 문의할 수 있어요.'}
+          primaryLabel="내 게시글 보러가기"
+          secondaryLabel="다른 해줄게요 둘러보기"
+          preview={(
+            <article className="signup-complete-preview-card">
+              <strong>{completedPost.title}</strong>
+              <b>{formatPrice(completedPost.price)}</b>
+              <p>{completedPost.description}</p>
+            </article>
+          )}
+          onPrimary={() => router.replace(`/posts/${encodeURIComponent(completedPost.id)}`)}
+          onSecondary={() => router.replace('/')}
+        />
+      )}
+
+      {showPhoneVerification && (
+        <PhoneVerificationOverlay
+          onClose={() => setShowPhoneVerification(false)}
+          onVerified={() => void submitPost()}
+        />
+      )}
+    </>
+  )
+}
+
+function OnboardingOfferTitleExampleSheet({
+  examples,
+  onSelect,
+  onClose,
+}: {
+  examples: string[]
+  onSelect: (title: string) => void
+  onClose: () => void
+}) {
+  return (
+    <div className="sheet-overlay onboarding-title-example-overlay" role="presentation" onClick={onClose}>
+      <section
+        className="onboarding-title-example-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="onboarding-title-example-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="drag-handle" />
+        <h2 id="onboarding-title-example-title">제목 예시</h2>
+        <div className="onboarding-title-example-list">
+          {examples.map((example) => (
+            <button key={example} type="button" onClick={() => onSelect(example)}>
+              {example}
+            </button>
+          ))}
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function OnboardingDialog({
+  title,
+  description,
+  primaryLabel,
+  secondaryLabel,
+  tertiaryLabel,
+  primaryDisabled = false,
+  preview,
+  onPrimary,
+  onSecondary,
+  onTertiary,
+  onClose,
+}: {
+  title: string
+  description: string
+  primaryLabel: string
+  secondaryLabel?: string
+  tertiaryLabel?: string
+  primaryDisabled?: boolean
+  preview?: ReactNode
+  onPrimary: () => void
+  onSecondary?: () => void
+  onTertiary?: () => void
+  onClose?: () => void
+}) {
+  return (
+    <div className="modal-overlay signup-onboarding-dialog-overlay" role="presentation" onClick={onClose}>
+      <section className="signup-onboarding-dialog" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+        <h2>{title}</h2>
+        <p>{description}</p>
+        {preview}
+        <div className="signup-onboarding-dialog-actions">
+          <button type="button" disabled={primaryDisabled} onClick={onPrimary}>
+            {primaryLabel}
+          </button>
+          {secondaryLabel && (
+            <button type="button" disabled={primaryDisabled} onClick={onSecondary}>
+              {secondaryLabel}
+            </button>
+          )}
+          {tertiaryLabel && (
+            <button className="is-text" type="button" disabled={primaryDisabled} onClick={onTertiary}>
+              {tertiaryLabel}
+            </button>
+          )}
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function normalizeOnboardingNickname(value: string) {
+  return value.trim().replace(/\s+/g, '')
+}
+
+function isValidOnboardingNickname(value: string) {
+  return value.length >= 2 && value.length <= 12
+}
 
 function ActivityProfilesScreen({
   onBack,
@@ -940,7 +1761,7 @@ function ActivityProfileFormScreen({
         </section>
 
         <ProfileTextField label="닉네임" value={form.nickname} onChange={(nickname) => update({ nickname })} placeholder="닉네임을 입력해 주세요." maxLength={12} error={errors.nickname} />
-        <ProfileTextField label="한 줄 소개" value={form.bio} onChange={(bio) => update({ bio })} placeholder="나를 한 줄로 소개해 주세요." maxLength={40} error={errors.bio} />
+        <ProfileTextField label="한 줄 소개" value={form.bio} onChange={(bio) => update({ bio })} placeholder="나를 한 줄로 소개해 주세요." maxLength={60} error={errors.bio} />
         <ProfilePickerRow
           title={profileActivityModeLabel(form.activityMode)}
           error={errors.activityMode}
@@ -1317,7 +2138,6 @@ function TaskCard({ item, onSelect }: { item: TaskItem; onSelect?: () => void })
   const content = (
     <>
       <div className="my-activity-card-body">
-        <span>{item.category}</span>
         <h2>{item.title}</h2>
         <strong>{formatPrice(item.price)}</strong>
         <p>
@@ -1373,7 +2193,6 @@ function ActivityRouteOverlay({
         <button className="activity-route-close" type="button" onClick={onClose} aria-label="닫기">
           <X size={18} />
         </button>
-        <span>{item.category}</span>
         <h2 id="activity-route-title">{item.title}</h2>
         <p>어디로 이동할까요?</p>
         <div className="activity-route-actions">
@@ -1495,7 +2314,7 @@ function SettlementScreen({
           </div>
         ) : recentIncome.map((income) => (
           <div className="income-row" key={getString(income, 'id')}>
-            <TaskThumb category={getString(income, 'category')} mode="nearby" small />
+            <TaskThumb mode="nearby" small />
             <div>
               <strong>{getString(income, 'title') || '완료된 거래'}</strong>
               <span>{formatFullDate(income.completedAt)} · 완료</span>
@@ -2223,8 +3042,8 @@ function InitialAvatar({
   )
 }
 
-function TaskThumb({ category, mode, small = false }: { category: string; mode: string; small?: boolean }) {
-  const Icon = mode === 'online' ? Monitor : category.includes('깨워') ? Bell : category.includes('들어') ? Headphones : category.includes('대신') ? Package : HeartHandshake
+function TaskThumb({ mode, small = false }: { mode: string; small?: boolean }) {
+  const Icon = mode === 'online' ? Monitor : HeartHandshake
   return (
     <span className={`task-thumb ${small ? 'task-thumb-sm' : ''}`}>
       <Icon size={small ? 18 : 23} />
@@ -2241,7 +3060,6 @@ function postToTaskItem(post: ActivityPost): TaskItem {
     postId: getString(post, 'id'),
     conversationId: getString(post, 'conversationId') || null,
     title: getString(post, 'title') || '제목 없는 부탁',
-    category: getString(post, 'category') || '기타',
     price: getNumber(post, 'price'),
     mode: getString(post, 'mode') || 'nearby',
     location: formatLocation(post),
@@ -2265,7 +3083,6 @@ function dealToTaskItem(deal: ActivityRecord): TaskItem {
     postId: getString(deal, 'postId'),
     conversationId: getString(deal, 'conversationId') || null,
     title: getString(deal, 'postTitle') || '거래한 부탁',
-    category: getString(deal, 'postCategory') || '기타',
     price: getNumber(deal, 'price'),
     mode: getString(deal, 'postMode') || 'nearby',
     location: formatLocation(deal, 'post'),
@@ -2286,7 +3103,6 @@ function favoriteToTaskItem(favorite: ActivityRecord): TaskItem {
     postId: getString(favorite, 'postId'),
     conversationId: null,
     title: getString(favorite, 'postTitle') || '찜한 부탁',
-    category: getString(favorite, 'postCategory') || '기타',
     price: getNumber(favorite, 'postPrice'),
     mode: getString(favorite, 'postMode') || 'nearby',
     location: formatLocation(favorite, 'post'),

@@ -29,13 +29,6 @@ export type IllustrationType =
   | 'shield'
   | 'music'
 
-export interface Category {
-  id: string
-  label: string
-  icon: IllustrationType
-  iconSrc: string
-}
-
 export interface UserProfile {
   id: string
   name: string
@@ -60,9 +53,6 @@ export interface UserProfile {
 export interface RequestPost {
   id: string
   postType?: 'request' | 'offer'
-  categoryId: string
-  category: string
-  categoryDetail?: string
   title: string
   location: string
   listLocation?: string
@@ -113,46 +103,6 @@ export interface Review {
   rating: number
   content: string
   date: string
-}
-
-export const categories: Category[] = [
-  { id: 'all', label: '전체', icon: 'all', iconSrc: '/home%20icon/all.png' },
-  { id: 'wake', label: '깨워줘', icon: 'shield', iconSrc: '/home%20icon/1.png' },
-  { id: 'proxy', label: '대신해줘', icon: 'store', iconSrc: '/home%20icon/2.png' },
-  { id: 'work', label: '일해줘', icon: 'document', iconSrc: '/home%20icon/3.png' },
-  { id: 'listen', label: '들어줘', icon: 'review', iconSrc: '/home%20icon/4.png' },
-  { id: 'call', label: '불러줘', icon: 'music', iconSrc: '/home%20icon/5.png' },
-  { id: 'choose', label: '골라줘', icon: 'find', iconSrc: '/home%20icon/6.png' },
-  { id: 'play', label: '놀아줘', icon: 'review', iconSrc: '/home%20icon/7.png' },
-  { id: 'advice', label: '조언해줘', icon: 'book', iconSrc: '/home%20icon/8.png' },
-]
-
-export const postCategories = categories.filter((category) => category.id !== 'all')
-
-const defaultCategoryIconSrc = categories.find((category) => category.id === 'work')?.iconSrc ?? '/home%20icon/8.png'
-const categoryIconSrcCache = new Map(categories.map((category) => [category.id, category.iconSrc]))
-
-export function getCategoryIconSrc(categoryId: string | null | undefined) {
-  if (!categoryId) return defaultCategoryIconSrc
-  return categoryIconSrcCache.get(categoryId) ?? defaultCategoryIconSrc
-}
-
-export const customCategoryDetailOption = '직접 입력'
-export const customCategoryDetailMaxLength = 7
-
-export const categoryDetailOptions: Record<string, string[]> = {
-  wake: [],
-  listen: ['하소연', '연애 얘기', '고민 들어주기', '화풀이', '비밀 이야기', '감정 정리', customCategoryDetailOption],
-  advice: ['연애', '인생', '커리어', '사업 아이디어', '카톡 답장', '면접/발표', customCategoryDetailOption],
-  call: ['생일축하', '자장가', '짧은 커버곡', '응원송', customCategoryDetailOption],
-  play: ['랜덤 대화', '같이 게임', '산책', '밥친구', '카페 수다', '전화 수다', customCategoryDetailOption],
-  choose: ['옷', '식사 메뉴', '선물', '답장 선택', '데이트 코스', '기타', customCategoryDetailOption],
-  proxy: ['티켓팅', '예약하기', '줄서기', '오픈런', '물건수령', '현장확인', '자리맡기', customCategoryDetailOption],
-  work: ['디자인', '사진 보정', '영상 편집', '개발·IT', '글쓰기', '자료조사', '기타', customCategoryDetailOption],
-}
-
-export function getCategoryLabel(id: string) {
-  return categories.find((category) => category.id === id)?.label ?? '일해줘'
 }
 
 export const users: UserProfile[] = [
@@ -215,9 +165,6 @@ export const users: UserProfile[] = [
 export const requests: RequestPost[] = [
   {
     id: 'r7',
-    categoryId: 'call',
-    category: '불러줘',
-    categoryDetail: '생일축하',
     title: '친구 생일에 짧게 축하 노래 불러주실 분',
     location: '서울 강남구 역삼동',
     detailLocation: '역삼동',
@@ -232,9 +179,6 @@ export const requests: RequestPost[] = [
   },
   {
     id: 'r8',
-    categoryId: 'listen',
-    category: '들어줘',
-    categoryDetail: '연애 얘기',
     title: '연애 고민 30분만 들어주실 분',
     location: '서울 마포구 연남동',
     detailLocation: '연남동',
@@ -249,9 +193,6 @@ export const requests: RequestPost[] = [
   },
   {
     id: 'r9',
-    categoryId: 'advice',
-    category: '조언해줘',
-    categoryDetail: '면접/발표',
     title: '면접 답변 흐름 한번 봐주세요',
     location: '서울 서초구 방배동',
     detailLocation: '방배동',
@@ -266,9 +207,6 @@ export const requests: RequestPost[] = [
   },
   {
     id: 'r10',
-    categoryId: 'play',
-    category: '놀아줘',
-    categoryDetail: '카페 수다',
     title: '주말 오후 카페에서 가볍게 수다 나눠요',
     location: '경기 성남시 분당구 정자동',
     detailLocation: '정자동',
@@ -283,8 +221,6 @@ export const requests: RequestPost[] = [
   },
   {
     id: 'r1',
-    categoryId: 'wake',
-    category: '깨워줘',
     title: '내일 아침 7시에 전화로 깨워주세요',
     location: '서울 강남구 역삼동',
     detailLocation: '역삼동',
@@ -299,9 +235,6 @@ export const requests: RequestPost[] = [
   },
   {
     id: 'r2',
-    categoryId: 'work',
-    category: '일해줘',
-    categoryDetail: '자료조사',
     title: '발표 자료에 넣을 사례 5개 찾아주세요',
     location: '온라인',
     detailLocation: '온라인',
@@ -316,9 +249,6 @@ export const requests: RequestPost[] = [
   },
   {
     id: 'r3',
-    categoryId: 'play',
-    category: '놀아줘',
-    categoryDetail: '산책',
     title: '저녁에 한강 산책 같이 하실 분',
     location: '경기 성남시 분당구 정자동',
     detailLocation: '정자동',
@@ -333,9 +263,6 @@ export const requests: RequestPost[] = [
   },
   {
     id: 'r4',
-    categoryId: 'work',
-    category: '일해줘',
-    categoryDetail: '디자인',
     title: '인스타 게시물 썸네일 하나 만들어주세요',
     location: '온라인',
     detailLocation: '온라인',
@@ -351,9 +278,6 @@ export const requests: RequestPost[] = [
   },
   {
     id: 'r5',
-    categoryId: 'proxy',
-    category: '대신해줘',
-    categoryDetail: '물건수령',
     title: '도서관에서 예약 책 찾아주실 분',
     location: '서울 송파구 잠실동',
     detailLocation: '잠실동',
@@ -369,9 +293,6 @@ export const requests: RequestPost[] = [
   },
   {
     id: 'r6',
-    categoryId: 'proxy',
-    category: '대신해줘',
-    categoryDetail: '예약하기',
     title: '분식집 포장 음식 픽업 해주세요',
     location: '서울 강남구 대치동',
     detailLocation: '대치동',

@@ -27,8 +27,6 @@ const sql = postgres(databaseUrl, {
 const posts = [
   {
     no: 1,
-    category: '일해줘',
-    categoryDetail: '기타',
     title: '바퀴벌레 잡아주세요 ㅠㅠㅠ',
     price: 18000,
     description: '방금 화장실 쪽에서 바퀴벌레 봤는데 진짜 못 들어가겠어요... 근처에 계신 분 중에 바로 와서 잡아주실 분 찾습니다. 잡고 나서 어디로 들어왔을지도 같이 봐주시면 감사해요.',
@@ -40,8 +38,6 @@ const posts = [
   },
   {
     no: 2,
-    category: '대신해줘',
-    categoryDetail: '오픈런',
     title: '팝업 오픈런 줄 대신 서주실 분 구해요',
     price: 42000,
     description: '내일 아침에 팝업스토어 오픈런 해야 하는데 출근 때문에 못 가요. 줄 위치 공유해주시고, 제 차례 가까워지면 연락 주실 분 찾습니다. 너무 앞자리 아니어도 괜찮아요.',
@@ -53,8 +49,6 @@ const posts = [
   },
   {
     no: 3,
-    category: '조언해줘',
-    categoryDetail: '연애',
     title: '이거 썸 맞는지 봐주실 분...',
     price: 9900,
     description: '카톡 보면 관심 있는 것 같기도 하고 아닌 것 같기도 해서 미치겠어요. 대화 캡처랑 상황 설명드리면 객관적으로 봐주시고 다음 답장도 같이 골라주세요.',
@@ -66,8 +60,6 @@ const posts = [
   },
   {
     no: 4,
-    category: '불러줘',
-    categoryDetail: '생일축하',
     title: '친구 생일 축하 노래 대신 불러주세요ㅋㅋ',
     price: 13000,
     description: '친구 생일인데 그냥 카톡만 보내기엔 심심해서요. 짧게 생일 축하 멘트랑 노래 한 소절 녹음해주실 분 찾습니다. 웃긴 버전이면 더 좋아요.',
@@ -79,8 +71,6 @@ const posts = [
   },
   {
     no: 5,
-    category: '골라줘',
-    categoryDetail: '옷',
     title: '소개팅 옷 좀 골라주세요 제발',
     price: 12000,
     description: '옷장 앞에서 40분째 고민 중입니다. 옷 사진 몇 장 보내드릴 테니 너무 꾸민 느낌 말고 깔끔하고 호감 가는 조합으로 골라주세요. 이유도 짧게 말해주시면 좋아요.',
@@ -92,8 +82,6 @@ const posts = [
   },
   {
     no: 6,
-    category: '조언해줘',
-    categoryDetail: '기타',
     title: '헬스장 기구 사용법 한 번만 알려주실 분',
     price: 27000,
     description: '헬스장 등록했는데 기구 앞에서 뭘 해야 할지 모르겠어요. 40분 정도 같이 돌면서 초보자용으로 자세랑 루틴 알려주실 분 구합니다. 빡센 PT 말고 진짜 기본만요.',
@@ -105,8 +93,6 @@ const posts = [
   },
   {
     no: 7,
-    category: '대신해줘',
-    categoryDetail: '예약하기',
     title: '병원 예약 전화 대신 해주실 분 있나요?',
     price: 7900,
     description: '전화 예약이 너무 부담돼서 계속 미루고 있어요. 가능한 날짜랑 증상 간단히 알려드릴 테니 병원에 전화해서 예약 가능 여부 확인해주실 분 찾습니다.',
@@ -118,8 +104,6 @@ const posts = [
   },
   {
     no: 8,
-    category: '들어줘',
-    categoryDetail: '하소연',
     title: '회사에서 빡친 일 좀 들어주실 분',
     price: 16000,
     description: '오늘 회사에서 진짜 어이없는 일이 있었는데 주변 사람한테 말하기 애매해요. 30~40분 정도 그냥 들어주시고 같이 욕은 아니더라도 공감 좀 해주실 분 찾습니다.',
@@ -131,8 +115,6 @@ const posts = [
   },
   {
     no: 9,
-    category: '대신해줘',
-    categoryDetail: '줄서기',
     title: '맛집 웨이팅 대신 해주실 분 급구',
     price: 33000,
     description: '예약 안 되는 맛집이라 웨이팅이 길대요. 제가 도착하기 전까지 대신 줄 서주실 분 찾습니다. 순서 가까워지면 연락 주시고, 현장 상황 사진 한 장만 보내주세요.',
@@ -144,8 +126,6 @@ const posts = [
   },
   {
     no: 10,
-    category: '일해줘',
-    categoryDetail: '기타',
     title: '방 청소 시작만 같이 해주실 분...',
     price: 38000,
     description: '방이 너무 어질러져서 어디서부터 손대야 할지 모르겠어요. 1시간 정도 같이 버릴 것 분류하고 정리 순서만 잡아주셔도 됩니다. 혼자 하면 또 미룰 것 같아요.',
@@ -157,8 +137,6 @@ const posts = [
   },
   {
     no: 11,
-    category: '불러줘',
-    categoryDetail: '짧은 커버곡',
     title: '신청곡 한 소절 감성 있게 불러주실 분',
     price: 17000,
     description: '친구한테 보내고 싶은 노래가 있는데 제가 부르면 망할 것 같아서요. 신청곡 한 소절 정도를 감성 있게 녹음해주실 분 찾습니다. 목소리 따뜻한 분이면 좋겠어요.',
@@ -170,8 +148,6 @@ const posts = [
   },
   {
     no: 12,
-    category: '조언해줘',
-    categoryDetail: '면접/발표',
     title: '면접 답변 한번만 봐주세요',
     price: 24000,
     description: '면접 예상 질문 답변을 적어봤는데 말이 너무 딱딱한지 모르겠어요. 30분 정도 들어주시고 어색한 문장, 너무 긴 답변, 부족한 포인트를 짚어주실 분 찾습니다.',
@@ -183,8 +159,6 @@ const posts = [
   },
   {
     no: 13,
-    category: '골라줘',
-    categoryDetail: '식사 메뉴',
     title: '오늘 저녁 뭐 먹을지 정해주세요',
     price: 3900,
     description: '배달앱만 30분째 보고 있습니다. 예산이랑 안 먹는 음식 알려드릴 테니 메뉴 하나만 딱 정해주세요. 이유까지 말해주시면 바로 시킬게요.',
@@ -196,8 +170,6 @@ const posts = [
   },
   {
     no: 14,
-    category: '놀아줘',
-    categoryDetail: '카페 수다',
     title: '전시회 혼자 가기 애매해서 같이 가주실 분',
     price: 29000,
     description: '보고 싶은 전시가 있는데 혼자 가면 괜히 뻘쭘할 것 같아서요. 같이 보고 가볍게 얘기 나눠주실 분 찾습니다. 사진 한두 장 찍어주시면 더 감사해요.',
@@ -209,8 +181,6 @@ const posts = [
   },
   {
     no: 15,
-    category: '조언해줘',
-    categoryDetail: '기타',
     title: '자취방 보러 가는데 같이 체크해주실 분',
     price: 46000,
     description: '처음 자취방 보러 가는 거라 뭘 봐야 할지 모르겠어요. 수압, 곰팡이, 채광, 소음, 관리비 같은 거 같이 체크해주실 분 찾습니다.',
@@ -222,8 +192,6 @@ const posts = [
   },
   {
     no: 16,
-    category: '일해줘',
-    categoryDetail: '기타',
     title: '책상 조립 도와주실 분 구합니다',
     price: 44000,
     description: '책상 조립해야 하는데 설명서 봐도 감이 안 와요. 같이 조립 도와주실 분 찾습니다. 공구 있으시면 좋고, 없으면 제가 준비해볼게요.',
@@ -235,8 +203,6 @@ const posts = [
   },
   {
     no: 17,
-    category: '들어줘',
-    categoryDetail: '고민 들어주기',
     title: '새벽에 잠 안 오면 얘기 들어주실 분',
     price: 22000,
     description: '요즘 새벽마다 생각이 많아서 잠이 잘 안 와요. 무거운 상담까지는 아니고, 30분 정도 편하게 얘기 나눠주실 분 찾습니다.',
@@ -248,8 +214,6 @@ const posts = [
   },
   {
     no: 18,
-    category: '골라줘',
-    categoryDetail: '기타',
     title: '프사 뭐가 제일 나은지 골라주세요',
     price: 6900,
     description: '프로필 사진 후보가 몇 장 있는데 객관적으로 뭐가 제일 나은지 모르겠어요. 자연스럽고 호감 가는 사진으로 골라주시고 이유도 짧게 알려주세요.',
@@ -261,8 +225,6 @@ const posts = [
   },
   {
     no: 19,
-    category: '조언해줘',
-    categoryDetail: '연애',
     title: '연애상담 진지하게 해주실 분 찾습니다',
     price: 31000,
     description: '썸인지 아닌지 헷갈리는 상황이 오래돼서 진지하게 얘기해보고 싶어요. 카톡 흐름이랑 실제 만났을 때 분위기까지 설명드릴 테니 객관적으로 봐주세요.',
@@ -274,8 +236,6 @@ const posts = [
   },
   {
     no: 20,
-    category: '일해줘',
-    categoryDetail: '기타',
     title: '강아지 산책 한 번만 부탁드려요',
     price: 26000,
     description: '오늘 일정이 꼬여서 강아지 산책을 못 시킬 것 같아요. 40분 정도 동네 산책해주시고 중간에 사진 한 장 보내주시면 감사하겠습니다.',
@@ -287,8 +247,6 @@ const posts = [
   },
   {
     no: 21,
-    category: '대신해줘',
-    categoryDetail: '기타',
     title: '환불 문의 전화 대신 해주실 분',
     price: 8500,
     description: '환불 문의를 해야 하는데 고객센터 전화가 너무 귀찮고 부담돼요. 주문 정보랑 상황 정리해서 보내드릴 테니 대신 전화하고 결과만 알려주세요.',
@@ -300,8 +258,6 @@ const posts = [
   },
   {
     no: 22,
-    category: '불러줘',
-    categoryDetail: '생일축하',
     title: '사투리로 축하 멘트 녹음해주실 분ㅋㅋ',
     price: 11000,
     description: '친구한테 장난으로 보낼 축하 멘트가 필요해요. 부산/대구/전라도/충청도 사투리 자연스럽게 가능하신 분이면 좋겠습니다. 15초 정도면 돼요.',
@@ -313,8 +269,6 @@ const posts = [
   },
   {
     no: 23,
-    category: '놀아줘',
-    categoryDetail: '같이 게임',
     title: '보드게임 카페 같이 가주실 분',
     price: 34000,
     description: '보드게임 카페 가보고 싶은데 혼자 가긴 애매해서요. 2시간 정도 같이 놀아주시고, 룰 잘 아시면 설명도 부탁드려요.',
@@ -326,8 +280,6 @@ const posts = [
   },
   {
     no: 24,
-    category: '조언해줘',
-    categoryDetail: '커리어',
     title: '자기소개서 이상한지 봐주실 분',
     price: 28000,
     description: '자소서 다 쓰긴 했는데 읽어보면 뭔가 어색해요. 문장 흐름이랑 설득력 약한 부분 위주로 가볍게 피드백해주실 분 찾습니다.',
@@ -339,8 +291,6 @@ const posts = [
   },
   {
     no: 25,
-    category: '깨워줘',
-    categoryDetail: null,
     title: '시험날 아침 진짜 깨워주세요',
     price: 14000,
     description: '중요한 시험인데 제가 알람을 진짜 잘 끕니다. 아침에 전화해주시고 제가 완전히 일어났는지 한 번 더 확인해주실 분 찾습니다.',
@@ -352,8 +302,6 @@ const posts = [
   },
   {
     no: 26,
-    category: '골라줘',
-    categoryDetail: '데이트 코스',
     title: '데이트 코스 짜주실 분 구해요',
     price: 23000,
     description: '주말 데이트 코스를 못 정하겠어요. 지역이랑 예산, 좋아하는 분위기 알려드릴 테니 밥집, 카페, 산책 코스까지 자연스럽게 짜주세요.',
@@ -365,8 +313,6 @@ const posts = [
   },
   {
     no: 27,
-    category: '놀아줘',
-    categoryDetail: '전화 수다',
     title: '혼코노 같이 가주실 분 있나요',
     price: 18500,
     description: '코인노래방 가고 싶은데 혼자 가면 금방 나올 것 같아서요. 노래 잘 못해도 괜찮고 그냥 편하게 같이 놀아주실 분 찾습니다.',
@@ -378,8 +324,6 @@ const posts = [
   },
   {
     no: 28,
-    category: '일해줘',
-    categoryDetail: '기타',
     title: '고양이 밥이랑 물 챙겨주실 분',
     price: 37000,
     description: '하루 집을 비우게 돼서 고양이 밥이랑 물만 챙겨주실 분 찾습니다. 가능하면 화장실 상태도 간단히 봐주시고 사진 보내주시면 좋아요.',
@@ -391,8 +335,6 @@ const posts = [
   },
   {
     no: 29,
-    category: '대신해줘',
-    categoryDetail: '현장확인',
     title: '중고거래 같이 가주실 분 구해요',
     price: 32000,
     description: '직거래를 해야 하는데 혼자 나가기가 조금 불안해요. 거래 장소까지 같이 가주시고 물건 확인할 때 옆에 있어주실 분 찾습니다.',
@@ -404,8 +346,6 @@ const posts = [
   },
   {
     no: 30,
-    category: '불러줘',
-    categoryDetail: '자장가',
     title: 'ASMR 느낌으로 책 한 문단 읽어주세요',
     price: 19000,
     description: '잠들기 전에 들을 짧은 음성이 필요해요. 제가 보내드리는 짧은 글을 조용하고 차분한 톤으로 읽어서 녹음해주실 분 찾습니다.',
@@ -575,8 +515,6 @@ async function createPost(db, post, creatorId, creatorProfileId, createdAt) {
       creator_profile_id,
       post_type,
       title,
-      category,
-      category_detail,
       description,
       mode,
       price,
@@ -605,8 +543,6 @@ async function createPost(db, post, creatorId, creatorProfileId, createdAt) {
       ${creatorProfileId},
       'request',
       ${post.title},
-      ${post.category},
-      ${post.categoryDetail},
       ${post.description},
       ${post.mode},
       ${post.price},

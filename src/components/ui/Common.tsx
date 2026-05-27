@@ -10,6 +10,7 @@ import {
   Bell,
   CheckCircle2,
   ChevronRight,
+  FileText,
   Flag,
   Funnel,
   Heart,
@@ -25,7 +26,7 @@ import {
   UserRound,
   X,
 } from 'lucide-react'
-import { categories, formatPrice, getCategoryIconSrc, type Category, type PostStatus, type RequestPost, type TradeStatus } from '@/data/mockData'
+import { formatPrice, type PostStatus, type RequestPost, type TradeStatus } from '@/data/mockData'
 import { fetchAuthSession, fetchConversations, type ApiConversation } from '@/lib/manwonApi'
 
 export type TabKey = 'home' | 'chat' | 'register' | 'activity' | 'my'
@@ -343,47 +344,6 @@ export function SectionHeader({ title, action }: SectionHeaderProps) {
   )
 }
 
-interface CategoryScrollerProps {
-  selectedId: string
-  onSelect: (id: string) => void
-  compact?: boolean
-  includeAll?: boolean
-}
-
-export function CategoryScroller({ selectedId, onSelect, compact = false, includeAll = true }: CategoryScrollerProps) {
-  const visibleCategories = includeAll ? categories : categories.filter((category) => category.id !== 'all')
-
-  return (
-    <div className={`category-scroller ${compact ? 'is-compact' : ''}`}>
-      {visibleCategories.map((category) => (
-        <CategoryCard
-          key={category.id}
-          category={category}
-          selected={selectedId === category.id}
-          onSelect={() => onSelect(category.id)}
-        />
-      ))}
-    </div>
-  )
-}
-
-interface CategoryCardProps {
-  category: Category
-  selected: boolean
-  onSelect: () => void
-}
-
-export function CategoryCard({ category, selected, onSelect }: CategoryCardProps) {
-  return (
-    <button className={`category-card ${selected ? 'is-active' : ''}`} type="button" onClick={onSelect}>
-      <span className="category-icon-shell">
-        <Image className="category-icon-image" src={category.iconSrc} width={52} height={42} alt="" aria-hidden="true" quality={100} unoptimized />
-      </span>
-      <span>{category.label}</span>
-    </button>
-  )
-}
-
 interface StatusBadgeProps {
   status: TradeStatus | string
 }
@@ -412,16 +372,12 @@ export function RequestCard({ request, onPrimary, onOpen, onReport, reportDisabl
 
   return (
     <article className={`request-card request-card-${variant} ${statusBadge ? 'has-post-status-badge' : ''}`} onClick={onOpen}>
-      <CategoryImageFrame
-        categoryId={request.categoryId}
+      <PostImageFrame
         imageUrl={request.imageUrl}
         label={request.title}
         size={variant === 'preview' ? 'lg' : 'md'}
       />
       <div className="request-info">
-        <div className="request-meta-line">
-          <span className="request-category">{request.categoryDetail ?? request.category}</span>
-        </div>
         {statusBadge && <span className={`post-status-badge ${statusBadge.className}`}>{statusBadge.label}</span>}
         {variant !== 'preview' && <ReportIcon onReport={onReport} disabled={reportDisabled} />}
         <h3>{request.title}</h3>
@@ -480,41 +436,45 @@ function formatCount(value?: number | null) {
   return String(Math.max(0, Number(value ?? 0)))
 }
 
-export function CategoryImageFrame({
-  categoryId,
+export function PostImageFrame({
   imageUrl,
   label,
   size = 'md',
 }: {
-  categoryId: string
   imageUrl?: string | null
   label: string
   size?: 'sm' | 'md' | 'lg'
 }) {
   const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null)
   const isUploadedImage = Boolean(imageUrl && failedImageUrl !== imageUrl)
-  const src = getCategoryIconSrc(categoryId)
+  const uploadedImageUrl = isUploadedImage ? imageUrl! : null
   const sizes = size === 'lg' ? '(max-width: 430px) 100vw, 430px' : size === 'sm' ? '42px' : '(max-width: 370px) 104px, 112px'
 
   return (
     <div
-      className={`mock-image mock-image-${size} cached-image-frame ${isUploadedImage ? 'uploaded-image' : 'category-fallback-image'}`}
+      className={`mock-image mock-image-${size} cached-image-frame ${isUploadedImage ? 'uploaded-image' : 'post-fallback-image'}`}
       aria-label={label}
     >
-      <Image
-        className="cached-image-element"
-        src={isUploadedImage ? imageUrl ?? src : src}
-        alt=""
-        aria-hidden="true"
-        fill
-        sizes={sizes}
-        quality={100}
-        loading={size === 'sm' ? 'lazy' : 'eager'}
-        unoptimized
-        onError={() => {
-          if (imageUrl) setFailedImageUrl(imageUrl)
-        }}
-      />
+      {isUploadedImage ? (
+        <Image
+          className="cached-image-element"
+          src={uploadedImageUrl!}
+          alt=""
+          aria-hidden="true"
+          fill
+          sizes={sizes}
+          quality={100}
+          loading={size === 'sm' ? 'lazy' : 'eager'}
+          unoptimized
+          onError={() => {
+            if (uploadedImageUrl) setFailedImageUrl(uploadedImageUrl)
+          }}
+        />
+      ) : (
+        <span className="post-image-placeholder" aria-hidden="true">
+          <FileText size={size === 'sm' ? 18 : size === 'lg' ? 42 : 30} />
+        </span>
+      )}
     </div>
   )
 }

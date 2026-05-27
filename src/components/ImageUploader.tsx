@@ -52,12 +52,14 @@ export function useImagePreviewCleanup(images: ImageRecord[]) {
 export function ImageUploader({
   title,
   optional,
+  required,
   images,
   onChange,
   maxCount = 5,
 }: {
   title: string
   optional?: boolean
+  required?: boolean
   images: ImageRecord[]
   onChange: (images: ImageRecord[]) => void
   maxCount?: number
@@ -87,6 +89,11 @@ export function ImageUploader({
     }
   }
 
+  function openImageAdd() {
+    setUploadState('idle')
+    inputRef.current?.click()
+  }
+
   function removeImage(removeIndex: number) {
     const removed = sortedImages[removeIndex]
     if (removed?.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(removed.previewUrl)
@@ -98,6 +105,7 @@ export function ImageUploader({
       <div className="step-card-title">
         <h3>{title}</h3>
         {optional && <span>선택</span>}
+        {required && <span className="is-required">필수</span>}
       </div>
       <div className="image-uploader-list">
         {sortedImages.map((image, index) => (
@@ -108,7 +116,7 @@ export function ImageUploader({
           </span>
         ))}
         {images.length < maxCount && (
-          <button className="image-uploader-add-button" type="button" aria-label="이미지 추가" onClick={() => inputRef.current?.click()}>
+          <button className="image-uploader-add-button" type="button" aria-label="이미지 추가" onClick={openImageAdd}>
             <ImagePlus size={24} />
           </button>
         )}

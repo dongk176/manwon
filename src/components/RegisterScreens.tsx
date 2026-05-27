@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation'
 import {
   CalendarClock,
   Check,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Clock3,
@@ -21,12 +20,6 @@ import { NeighborhoodSelectSheet } from '@/components/location/LocationSheets'
 import { requestIOSPushPermission } from '@/components/NativeIOSBridge'
 import { PhoneVerificationOverlay } from '@/components/PhoneVerificationOverlay'
 import {
-  categoryDetailOptions,
-  customCategoryDetailMaxLength,
-  customCategoryDetailOption,
-  getCategoryLabel,
-  postCategories,
-  type Category,
   type RequestMode,
 } from '@/data/mockData'
 import {
@@ -54,12 +47,7 @@ type OfferStep = 1 | 2 | 3 | 4
 type PriceOption = '5000' | '10000' | '15000' | '20000' | 'custom'
 type DeadlineOption = 'asap' | 'custom'
 type AvailableTimeOption = 'now' | 'today' | 'weekday' | 'weekend' | 'custom'
-type GenderVisibility = 'private' | 'male' | 'female'
 type SheetKind =
-  | 'category'
-  | 'categoryCustom'
-  | 'categoryDetail'
-  | 'categoryDetailCustom'
   | 'requestMode'
   | 'requestDeadline'
   | 'offerMode'
@@ -94,7 +82,6 @@ const deadlineOptions = [
 const requestMinPrice = 1000
 const requestMaxPrice = 6000000
 const defaultRequestPrice = 10000
-const customCategoryMaxLength = 9
 const availableTimeMaxLength = 8
 const requiredFieldMessage = '필수 항목이에요.'
 const calendarWeekdays = ['일', '월', '화', '수', '목', '금', '토']
@@ -105,12 +92,6 @@ const availableTimeOptions = [
   { value: 'weekday', label: '평일 가능' },
   { value: 'weekend', label: '주말 가능' },
   { value: 'custom', label: '직접 입력' },
-] as const
-
-const genderVisibilityOptions = [
-  { value: 'private', label: '공개 안 함' },
-  { value: 'male', label: '남성' },
-  { value: 'female', label: '여성' },
 ] as const
 
 const responseTimeOptions = ['바로 답장 가능', '1시간 내 답장', '오늘 안에 답장', '일정 확인 후 답장'] as const
@@ -177,9 +158,6 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
   const [profileLoadState, setProfileLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
 
   const [title, setTitle] = useState('')
-  const [categoryId, setCategoryId] = useState('')
-  const [customCategory, setCustomCategory] = useState('')
-  const [categoryDetail, setCategoryDetail] = useState('')
   const [description, setDescription] = useState('')
   const [images, setImages] = useState<ImageRecord[]>([])
   const [mode, setMode] = useState<RequestMode | null>(null)
@@ -191,12 +169,9 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
   const [customDeadlineText, setCustomDeadlineText] = useState('')
 
   const isOffline = mode === 'nearby' || mode === 'both'
-  const selectedCategory = getCategory(categoryId)
-  const selectedCategoryLabel = getSelectedCategoryLabel(categoryId, customCategory)
-  const selectedCategoryDetails = getCategoryDetailOptions(categoryId)
   const price = getPriceValue(priceOption, customPrice)
   const deadlineText = getRequestDeadlineText(deadlineOption, customDeadlineText)
-  const isDirty = hasRequestInput({ title, categoryId, customCategory, categoryDetail, description, images, mode, customPrice, customDeadlineText })
+  const isDirty = hasRequestInput({ title, description, images, mode, customPrice, customDeadlineText })
 
   useImagePreviewCleanup(images)
 
@@ -233,10 +208,8 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
   function goNext() {
     const nextErrors = validateRequestStep(step, {
       title,
-      categoryId,
-      customCategory,
-      categoryDetail,
       description,
+      images,
       mode,
       locationRegion,
       priceOption,
@@ -258,10 +231,8 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
 
     const validation = validateRequestAll({
       title,
-      categoryId,
-      customCategory,
-      categoryDetail,
       description,
+      images,
       mode,
       locationRegion,
       priceOption,
@@ -283,8 +254,6 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
         profileId: selectedProfileId,
         postType: 'request',
         title: title.trim(),
-        category: getSelectedCategoryLabel(categoryId, customCategory) || getCategoryLabel(categoryId),
-        categoryDetail: nullableText(categoryDetail),
         description: description.trim(),
         mode: mode ?? 'nearby',
         price,
@@ -390,23 +359,6 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
           <>
             <StepPageTitle title="어떤 부탁이 필요한가요?" />
             <InlineTextField label="제목" value={title} onChange={setTitle} placeholder="제목을 짧게 적어주세요" maxLength={30} error={errors.title} />
-            <SelectionRow
-              label="카테고리"
-              value={selectedCategoryLabel || (categoryId === 'etc' ? '기타 카테고리를 입력해주세요' : '카테고리를 선택해주세요')}
-              icon={selectedCategory ? <CategoryIcon category={selectedCategory} /> : null}
-              placeholder={!selectedCategoryLabel}
-              error={errors.categoryId}
-              onClick={() => setSheet('category')}
-            />
-            {selectedCategoryDetails.length > 0 && (
-              <SelectionRow
-                label="세부 카테고리"
-                value={categoryDetail || '세부 카테고리를 선택해주세요'}
-                placeholder={!categoryDetail}
-                error={errors.categoryDetail}
-                onClick={() => setSheet('categoryDetail')}
-              />
-            )}
             <StepCard title="상세 설명">
               <TextAreaInput
                 value={description}
@@ -417,7 +369,16 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
                 error={errors.description}
               />
             </StepCard>
-            <ImageUploader title="사진 첨부" optional images={images} onChange={setImages} />
+            <ImageUploader
+              title="사진 첨부"
+              required
+              images={images}
+              onChange={(nextImages) => {
+                setImages(nextImages)
+                clearStepError(setErrors, 'images')
+              }}
+            />
+            {errors.images && <p className="inline-status is-error">{errors.images}</p>}
           </>
         )}
 
@@ -478,13 +439,6 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
             <PreviewCard
               rows={[
                 { label: '제목', value: title, onEdit: () => setStep(1) },
-                {
-                  label: '카테고리',
-                  value: selectedCategoryLabel || '-',
-                  icon: selectedCategory ? <CategoryIcon category={selectedCategory} /> : null,
-                  onEdit: () => setStep(1),
-                },
-                { label: '세부 카테고리', value: categoryDetail || '-', onEdit: () => setStep(1) },
                 { label: '진행 방식', value: mode ? getModeLabel(mode) : '-', icon: mode ? getModeIcon(mode) : null, onEdit: () => setStep(2) },
                 {
                   label: '위치',
@@ -510,60 +464,6 @@ export function RequestRegistrationFlow({ onExit, onRegistered }: { onExit: () =
       />
 
       {errors.submit && <ToastMessage message={errors.submit} />}
-      {sheet === 'category' && (
-        <CategoryBottomSheet
-          selectedId={categoryId}
-          onClose={() => setSheet(null)}
-          onSelect={(nextCategoryId) => {
-            setCategoryId(nextCategoryId)
-            setCustomCategory('')
-            setCategoryDetail('')
-            setSheet(nextCategoryId === 'etc' ? 'categoryCustom' : getCategoryDetailOptions(nextCategoryId).length > 0 ? 'categoryDetail' : null)
-          }}
-        />
-      )}
-      {sheet === 'categoryCustom' && (
-        <CustomTextBottomSheet
-          title="기타 카테고리 입력"
-          value={customCategory}
-          placeholder="예: 행사"
-          onClose={() => setSheet(null)}
-          onSave={(nextValue) => {
-            setCustomCategory(nextValue)
-            setSheet(getCategoryDetailOptions(categoryId).length > 0 ? 'categoryDetail' : null)
-          }}
-        />
-      )}
-      {sheet === 'categoryDetail' && (
-        <CategoryDetailBottomSheet
-          categoryId={categoryId}
-          selectedValue={categoryDetail}
-          onClose={() => setSheet(null)}
-          onSelect={(nextCategoryDetail) => {
-            if (nextCategoryDetail === customCategoryDetailOption) {
-              setCategoryDetail('')
-              setSheet('categoryDetailCustom')
-              return
-            }
-            setCategoryDetail(nextCategoryDetail)
-            setSheet(null)
-          }}
-        />
-      )}
-      {sheet === 'categoryDetailCustom' && (
-        <CustomTextBottomSheet
-          title="세부 카테고리 직접 입력"
-          value={isCustomCategoryDetail(categoryId, categoryDetail) ? categoryDetail : ''}
-          placeholder="예: 동행"
-          maxLength={customCategoryDetailMaxLength}
-          helperText={`${customCategoryDetailMaxLength}자 이내로 입력해주세요.`}
-          onClose={() => setSheet(null)}
-          onSave={(nextValue) => {
-            setCategoryDetail(nextValue)
-            setSheet(null)
-          }}
-        />
-      )}
       {sheet === 'requestMode' && (
         <ModeBottomSheet
           title="진행 방식을 선택해주세요"
@@ -636,9 +536,6 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
   const [profileLoadState, setProfileLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
 
   const [title, setTitle] = useState('')
-  const [categoryId, setCategoryId] = useState('')
-  const [customCategory, setCustomCategory] = useState('')
-  const [categoryDetail, setCategoryDetail] = useState('')
   const [mode, setMode] = useState<RequestMode | null>(null)
   const [activityRegion, setActivityRegion] = useState<LocationRegion | null>(null)
   const [availableTimeOption, setAvailableTimeOption] = useState<AvailableTimeOption | null>(null)
@@ -653,17 +550,13 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
   const [portfolioUrl, setPortfolioUrl] = useState('')
   const [postImages, setPostImages] = useState<ImageRecord[]>([])
   const [sampleImages, setSampleImages] = useState<ImageRecord[]>([])
-  const [genderVisibility, setGenderVisibility] = useState<GenderVisibility>('private')
   const [responseTime, setResponseTime] = useState('')
 
-  const selectedCategory = getCategory(categoryId)
-  const selectedCategoryLabel = getSelectedCategoryLabel(categoryId, customCategory)
-  const selectedCategoryDetails = getCategoryDetailOptions(categoryId)
   const isOffline = mode === 'nearby' || mode === 'both'
   const price = getPriceValue(priceOption, customPrice)
   const availableTimeText = getAvailableTimeText(availableTimeOption, customAvailableTime)
   const portfolioLinks = getPortfolioLinks(portfolioTitle, portfolioUrl)
-  const isDirty = hasOfferInput({ title, categoryId, customCategory, categoryDetail, mode, customAvailableTime, customPrice, description, careerSummary, portfolioUrl, postImages, sampleImages, responseTime })
+  const isDirty = hasOfferInput({ title, mode, customAvailableTime, customPrice, description, careerSummary, portfolioUrl, postImages, sampleImages, responseTime })
 
   useImagePreviewCleanup(postImages)
   useImagePreviewCleanup(sampleImages)
@@ -697,13 +590,11 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
         if (cancelled) return
         const trustCareer = stringFromProfile(profile, 'trustCareerSummary') || stringFromProfile(profile, 'trustExperienceSummary')
         const trustResponseTime = stringFromProfile(profile, 'trustResponseTime') || stringFromProfile(profile, 'trustResponseTimeText')
-        const trustGender = stringFromProfile(profile, 'trustGenderVisibility')
         const trustLinks = portfolioLinksFromProfile(profile)
         const trustImages = trustImagesFromProfile(profile)
 
         if (trustCareer) setCareerSummary(trustCareer)
         if (trustResponseTime) setResponseTime(trustResponseTime)
-        if (trustGender === 'male' || trustGender === 'female' || trustGender === 'private') setGenderVisibility(trustGender)
         if (trustLinks.length > 0) {
           setShowPortfolioForm(true)
           setPortfolioTitle(trustLinks[0]?.title ?? '포트폴리오')
@@ -730,9 +621,7 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
   function goNext() {
     const nextErrors = validateOfferStep(step, {
       title,
-      categoryId,
-      customCategory,
-      categoryDetail,
+      postImages,
       mode,
       activityRegion,
       availableTimeOption,
@@ -756,9 +645,7 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
 
     const validation = validateOfferAll({
       title,
-      categoryId,
-      customCategory,
-      categoryDetail,
+      postImages,
       mode,
       activityRegion,
       availableTimeOption,
@@ -782,8 +669,6 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
         profileId: selectedProfileId,
         postType: 'offer',
         title: title.trim(),
-        category: getSelectedCategoryLabel(categoryId, customCategory) || getCategoryLabel(categoryId),
-        categoryDetail: nullableText(categoryDetail),
         description: description.trim(),
         mode: mode ?? 'online',
         price,
@@ -797,7 +682,7 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
         responseTime: nullableText(responseTime),
         capacityType: 'unlimited',
         capacityLimit: null,
-        genderVisibility,
+        genderVisibility: 'private',
         addressText: isOffline ? activityRegion?.addressText ?? null : null,
         region1Depth: isOffline ? activityRegion?.region1Depth ?? null : null,
         region2Depth: isOffline ? activityRegion?.region2Depth ?? null : null,
@@ -897,23 +782,6 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
           <>
             <StepPageTitle title="어떤 일을 해줄 수 있나요?" />
             <InlineTextField label="제목" value={title} onChange={setTitle} placeholder="제목을 짧게 적어주세요" maxLength={30} error={errors.title} />
-            <SelectionRow
-              label="카테고리"
-              value={selectedCategoryLabel || (categoryId === 'etc' ? '기타 카테고리를 입력해주세요' : '카테고리를 선택해주세요')}
-              icon={selectedCategory ? <CategoryIcon category={selectedCategory} /> : null}
-              placeholder={!selectedCategoryLabel}
-              error={errors.categoryId}
-              onClick={() => setSheet('category')}
-            />
-            {selectedCategoryDetails.length > 0 && (
-              <SelectionRow
-                label="세부 카테고리"
-                value={categoryDetail || '세부 카테고리를 선택해주세요'}
-                placeholder={!categoryDetail}
-                error={errors.categoryDetail}
-                onClick={() => setSheet('categoryDetail')}
-              />
-            )}
             <InlineTextField
               label="금액"
               value={customPrice}
@@ -935,7 +803,16 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
                 error={errors.description}
               />
             </StepCard>
-            <ImageUploader title="사진 첨부" optional images={postImages} onChange={setPostImages} />
+            <ImageUploader
+              title="사진 첨부"
+              required
+              images={postImages}
+              onChange={(nextImages) => {
+                setPostImages(nextImages)
+                clearStepError(setErrors, 'images')
+              }}
+            />
+            {errors.images && <p className="inline-status is-error">{errors.images}</p>}
           </>
         )}
 
@@ -994,9 +871,6 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
               )}
             </StepCard>
             <ImageUploader title="작업 예시 이미지" optional maxCount={5} images={sampleImages} onChange={setSampleImages} />
-            <StepCard title="성별 공개" optional>
-              <OptionGrid value={genderVisibility} onChange={(value) => setGenderVisibility(value as GenderVisibility)} options={genderVisibilityOptions} columns={3} />
-            </StepCard>
             <StepCard title="응답 가능 시간" optional>
               <OptionGrid value={responseTime} onChange={setResponseTime} options={responseTimeOptions.map((label) => ({ value: label, label }))} columns={2} />
             </StepCard>
@@ -1009,13 +883,6 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
             <PreviewCard
               rows={[
                 { label: '제목', value: title, onEdit: () => setStep(1) },
-                {
-                  label: '카테고리',
-                  value: selectedCategoryLabel || '-',
-                  icon: selectedCategory ? <CategoryIcon category={selectedCategory} /> : null,
-                  onEdit: () => setStep(1),
-                },
-                { label: '세부 카테고리', value: categoryDetail || '-', onEdit: () => setStep(1) },
                 { label: '가능한 방식', value: mode ? getModeLabel(mode) : '-', icon: mode ? getModeIcon(mode) : null, onEdit: () => setStep(2) },
                 { label: '활동 지역', value: isOffline && activityRegion ? activityRegion.addressText : '온라인', icon: <MapPin size={18} />, onEdit: () => setStep(2) },
                 { label: '가능한 시간', value: availableTimeText || '-', icon: <CalendarClock size={18} />, onEdit: () => setStep(2) },
@@ -1023,7 +890,6 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
                 { label: '상세 설명', value: getFirstLine(description) || '-', onEdit: () => setStep(1) },
                 { label: '경력', value: careerSummary || '미입력', onEdit: () => setStep(3) },
                 { label: '포트폴리오 링크', value: portfolioLinks[0]?.url ?? '미입력', link: Boolean(portfolioLinks[0]?.url), onEdit: () => setStep(3) },
-                { label: '성별 공개', value: getGenderVisibilityLabel(genderVisibility), onEdit: () => setStep(3) },
                 { label: '응답 가능 시간', value: responseTime || '미입력', onEdit: () => setStep(3) },
               ]}
               description={description}
@@ -1039,67 +905,13 @@ export function OfferRegistrationFlow({ onExit, onRegistered }: { onExit: () => 
 
       <StepFooter
         secondaryLabel={step === 1 ? undefined : step === 3 ? '건너뛰기' : step === 4 ? '수정하기' : '이전'}
-        primaryLabel={step === 4 ? (saveState === 'saving' ? '등록 중' : '해줄게요 등록하기') : '다음'}
+        primaryLabel={step === 4 ? (saveState === 'saving' ? '등록 중' : '지금바로 시작하기') : '다음'}
         onSecondary={step === 3 ? () => setStep(4) : step === 4 ? () => setStep(1) : () => setStep((current) => (current - 1) as OfferStep)}
         onPrimary={step === 4 ? () => void submitPost() : goNext}
         primaryDisabled={saveState === 'saving'}
       />
 
       {errors.submit && <ToastMessage message={errors.submit} />}
-      {sheet === 'category' && (
-        <CategoryBottomSheet
-          selectedId={categoryId}
-          onClose={() => setSheet(null)}
-          onSelect={(nextCategoryId) => {
-            setCategoryId(nextCategoryId)
-            setCustomCategory('')
-            setCategoryDetail('')
-            setSheet(nextCategoryId === 'etc' ? 'categoryCustom' : getCategoryDetailOptions(nextCategoryId).length > 0 ? 'categoryDetail' : null)
-          }}
-        />
-      )}
-      {sheet === 'categoryCustom' && (
-        <CustomTextBottomSheet
-          title="기타 카테고리 입력"
-          value={customCategory}
-          placeholder="예: 행사"
-          onClose={() => setSheet(null)}
-          onSave={(nextValue) => {
-            setCustomCategory(nextValue)
-            setSheet(getCategoryDetailOptions(categoryId).length > 0 ? 'categoryDetail' : null)
-          }}
-        />
-      )}
-      {sheet === 'categoryDetail' && (
-        <CategoryDetailBottomSheet
-          categoryId={categoryId}
-          selectedValue={categoryDetail}
-          onClose={() => setSheet(null)}
-          onSelect={(nextCategoryDetail) => {
-            if (nextCategoryDetail === customCategoryDetailOption) {
-              setCategoryDetail('')
-              setSheet('categoryDetailCustom')
-              return
-            }
-            setCategoryDetail(nextCategoryDetail)
-            setSheet(null)
-          }}
-        />
-      )}
-      {sheet === 'categoryDetailCustom' && (
-        <CustomTextBottomSheet
-          title="세부 카테고리 직접 입력"
-          value={isCustomCategoryDetail(categoryId, categoryDetail) ? categoryDetail : ''}
-          placeholder="예: 동행"
-          maxLength={customCategoryDetailMaxLength}
-          helperText={`${customCategoryDetailMaxLength}자 이내로 입력해주세요.`}
-          onClose={() => setSheet(null)}
-          onSave={(nextValue) => {
-            setCategoryDetail(nextValue)
-            setSheet(null)
-          }}
-        />
-      )}
       {sheet === 'offerMode' && (
         <ModeBottomSheet
           title="가능한 방식을 선택해주세요"
@@ -1436,98 +1248,6 @@ function InlineNotice({ icon, title, description, compact = false }: { icon: Rea
   )
 }
 
-function CategoryBottomSheet({
-  selectedId,
-  onSelect,
-  onClose,
-}: {
-  selectedId: string
-  onSelect: (id: string) => void
-  onClose: () => void
-}) {
-  return (
-    <BottomSheet title="카테고리를 선택해주세요" onClose={onClose}>
-      <div className="category-sheet-grid">
-        {postCategories.map((category) => (
-          <button
-            key={category.id}
-            className={selectedId === category.id ? 'is-selected' : ''}
-            type="button"
-            onClick={() => onSelect(category.id)}
-          >
-            <CategoryIcon category={category} />
-            <span>{category.label}</span>
-          </button>
-        ))}
-      </div>
-    </BottomSheet>
-  )
-}
-
-function CategoryDetailBottomSheet({
-  categoryId,
-  selectedValue,
-  onSelect,
-  onClose,
-}: {
-  categoryId: string
-  selectedValue: string
-  onSelect: (value: string) => void
-  onClose: () => void
-}) {
-  const options = getCategoryDetailOptions(categoryId)
-  return (
-    <BottomSheet title="세부 카테고리를 선택해주세요" onClose={onClose}>
-      <div className="mode-sheet-list compact">
-        {options.map((option) => {
-          const selected = selectedValue === option || (option === customCategoryDetailOption && isCustomCategoryDetail(categoryId, selectedValue))
-          return (
-            <button className={selected ? 'is-selected' : ''} key={option} type="button" onClick={() => onSelect(option)}>
-              <span>
-                <CheckCircle2 size={22} />
-              </span>
-              <strong>{option}</strong>
-              <i>{selected && <Check size={16} />}</i>
-            </button>
-          )
-        })}
-      </div>
-    </BottomSheet>
-  )
-}
-
-function CustomTextBottomSheet({
-  title,
-  value,
-  placeholder,
-  maxLength = customCategoryMaxLength,
-  helperText = '10자 미만으로 입력해주세요.',
-  onSave,
-  onClose,
-}: {
-  title: string
-  value: string
-  placeholder: string
-  maxLength?: number
-  helperText?: string
-  onSave: (value: string) => void
-  onClose: () => void
-}) {
-  const [draft, setDraft] = useState(value)
-  const trimmed = draft.trim()
-  return (
-    <BottomSheet title={title} onClose={onClose}>
-      <div className="custom-category-input">
-        <TextInput value={draft} onChange={setDraft} placeholder={placeholder} maxLength={maxLength} error={!trimmed ? requiredFieldMessage : undefined} />
-        <p>{helperText}</p>
-        <button className="address-modal-confirm" type="button" disabled={!trimmed} onClick={() => onSave(trimmed)}>
-          확인
-        </button>
-      </div>
-    </BottomSheet>
-  )
-}
-
 function ModeBottomSheet({
   title,
   variant,
@@ -1611,7 +1331,7 @@ function CustomTextOverlay({
 
   return (
     <CenterOverlay title={title} onClose={onClose}>
-      <div className="custom-category-input">
+      <div className="custom-text-input">
         <TextInput value={draft} onChange={setDraft} placeholder={placeholder} maxLength={maxLength} error={!trimmed ? requiredFieldMessage : undefined} />
         <p>{helperText}</p>
         <button className="address-modal-confirm" type="button" disabled={!trimmed} onClick={() => onSave(trimmed)}>
@@ -1833,43 +1553,6 @@ function ToastMessage({ message }: { message: string }) {
   return <p className="registration-toast">{message}</p>
 }
 
-function CategoryIcon({ category }: { category: Category }) {
-  return <Image src={category.iconSrc} width={36} height={36} alt="" aria-hidden="true" />
-}
-
-function getCategory(categoryId: string) {
-  return postCategories.find((category) => category.id === categoryId) ?? null
-}
-
-function getCategoryDetailOptions(categoryId: string) {
-  return categoryDetailOptions[categoryId] ?? []
-}
-
-function getSelectedCategoryLabel(categoryId: string, customCategory: string) {
-  if (!categoryId) return ''
-  if (categoryId === 'etc') return customCategory.trim()
-  return getCategoryLabel(categoryId)
-}
-
-function isCustomCategoryDetail(categoryId: string, value: string) {
-  const trimmed = value.trim()
-  return Boolean(trimmed && !getCategoryDetailOptions(categoryId).includes(trimmed))
-}
-
-function getCustomTextError(value: string, label: string) {
-  const trimmed = value.trim()
-  if (!trimmed) return requiredFieldMessage
-  if (trimmed.length >= 10) return `${label}는 10자 미만으로 입력해주세요.`
-  return ''
-}
-
-function getCustomCategoryDetailError(value: string) {
-  const trimmed = value.trim()
-  if (!trimmed) return requiredFieldMessage
-  if (trimmed.length > customCategoryDetailMaxLength) return `세부 카테고리는 ${customCategoryDetailMaxLength}자 이내로 입력해주세요.`
-  return ''
-}
-
 function getModeLabel(mode: RequestMode) {
   return modeOptions.find((option) => option.value === mode)?.label ?? ''
 }
@@ -1971,10 +1654,6 @@ function isFastDeadlineText(value: string) {
   return value.trim() === '가능한 빠르게'
 }
 
-function getGenderVisibilityLabel(value: GenderVisibility) {
-  return genderVisibilityOptions.find((item) => item.value === value)?.label ?? '공개 안 함'
-}
-
 function getFirstLine(value: string) {
   return value.trim().split('\n').find(Boolean) ?? ''
 }
@@ -2002,9 +1681,6 @@ function isValidUrl(value: string) {
 
 function hasRequestInput(input: {
   title: string
-  categoryId: string
-  customCategory: string
-  categoryDetail: string
   description: string
   images: ImageRecord[]
   mode: RequestMode | null
@@ -2013,9 +1689,6 @@ function hasRequestInput(input: {
 }) {
   return Boolean(
     input.title.trim() ||
-      input.categoryId ||
-      input.customCategory.trim() ||
-      input.categoryDetail ||
       input.description.trim() ||
       input.images.length > 0 ||
       input.mode ||
@@ -2026,9 +1699,6 @@ function hasRequestInput(input: {
 
 function hasOfferInput(input: {
   title: string
-  categoryId: string
-  customCategory: string
-  categoryDetail: string
   mode: RequestMode | null
   customAvailableTime: string
   customPrice: string
@@ -2041,9 +1711,6 @@ function hasOfferInput(input: {
 }) {
   return Boolean(
     input.title.trim() ||
-      input.categoryId ||
-      input.customCategory.trim() ||
-      input.categoryDetail ||
       input.mode ||
       input.customAvailableTime.trim() ||
       input.customPrice.trim() ||
@@ -2060,10 +1727,8 @@ function validateRequestStep(
   step: RequestStep,
   input: {
     title: string
-    categoryId: string
-    customCategory: string
-    categoryDetail: string
     description: string
+    images: ImageRecord[]
     mode: RequestMode | null
     locationRegion: LocationRegion | null
     priceOption: PriceOption
@@ -2076,20 +1741,8 @@ function validateRequestStep(
   const errors: StepErrors = {}
   if (step === 1) {
     if (!input.title.trim()) errors.title = requiredFieldMessage
-    if (!input.categoryId) errors.categoryId = requiredFieldMessage
-    else if (input.categoryId === 'etc') {
-      const categoryError = getCustomTextError(input.customCategory, '카테고리')
-      if (categoryError) errors.categoryId = categoryError
-    }
-    if (input.categoryId && getCategoryDetailOptions(input.categoryId).length > 0) {
-      if (!input.categoryDetail) errors.categoryDetail = requiredFieldMessage
-      else if (input.categoryDetail === customCategoryDetailOption) errors.categoryDetail = requiredFieldMessage
-      else if (isCustomCategoryDetail(input.categoryId, input.categoryDetail)) {
-        const detailError = getCustomCategoryDetailError(input.categoryDetail)
-        if (detailError) errors.categoryDetail = detailError
-      }
-    }
     if (!input.description.trim()) errors.description = requiredFieldMessage
+    if (input.images.length < 1) errors.images = '사진을 1장 이상 추가해주세요.'
   }
   if (step === 2) {
     if (!input.mode) errors.mode = requiredFieldMessage
@@ -2121,9 +1774,7 @@ function validateOfferStep(
   step: OfferStep,
   input: {
     title: string
-    categoryId: string
-    customCategory: string
-    categoryDetail: string
+    postImages: ImageRecord[]
     mode: RequestMode | null
     activityRegion: LocationRegion | null
     availableTimeOption: AvailableTimeOption | null
@@ -2138,19 +1789,7 @@ function validateOfferStep(
   const errors: StepErrors = {}
   if (step === 1) {
     if (!input.title.trim()) errors.title = requiredFieldMessage
-    if (!input.categoryId) errors.categoryId = requiredFieldMessage
-    else if (input.categoryId === 'etc') {
-      const categoryError = getCustomTextError(input.customCategory, '카테고리')
-      if (categoryError) errors.categoryId = categoryError
-    }
-    if (input.categoryId && getCategoryDetailOptions(input.categoryId).length > 0) {
-      if (!input.categoryDetail) errors.categoryDetail = requiredFieldMessage
-      else if (input.categoryDetail === customCategoryDetailOption) errors.categoryDetail = requiredFieldMessage
-      else if (isCustomCategoryDetail(input.categoryId, input.categoryDetail)) {
-        const detailError = getCustomCategoryDetailError(input.categoryDetail)
-        if (detailError) errors.categoryDetail = detailError
-      }
-    }
+    if (input.postImages.length < 1) errors.images = '사진을 1장 이상 추가해주세요.'
     const price = getPriceValue(input.priceOption, input.customPrice)
     if (price <= 0) errors.customPrice = '금액을 입력해주세요.'
     else if (price < requestMinPrice) errors.customPrice = '최소 1,000원'
@@ -2181,6 +1820,15 @@ function validateOfferAll(input: Parameters<typeof validateOfferStep>[1]) {
     if (Object.keys(errors).length > 0) return { step, errors }
   }
   return { step: null, errors: {} }
+}
+
+function clearStepError(setErrors: (updater: (current: StepErrors) => StepErrors) => void, key: string) {
+  setErrors((current) => {
+    if (!current[key]) return current
+    const next = { ...current }
+    delete next[key]
+    return next
+  })
 }
 
 function stringFromProfile(profile: Record<string, unknown>, key: string) {

@@ -1,6 +1,6 @@
 'use client'
 
-import { categories, type IllustrationType, type PostStatus, type RequestMode, type RequestPost, type TradeStatus } from '@/data/mockData'
+import { type IllustrationType, type PostStatus, type RequestMode, type RequestPost, type TradeStatus } from '@/data/mockData'
 import type { LocationPermissionState } from '@/lib/location'
 
 export interface ApiTaskPost {
@@ -9,8 +9,6 @@ export interface ApiTaskPost {
   creatorProfileId?: string | null
   postType: 'request' | 'offer'
   title: string
-  category: string
-  categoryDetail: string | null
   description: string
   mode: RequestMode
   price: number
@@ -78,8 +76,6 @@ export interface CreateTaskPostPayload {
   profileId: string
   postType: 'request' | 'offer'
   title: string
-  category: string
-  categoryDetail?: string | null
   description: string
   mode: RequestMode
   price: number
@@ -124,7 +120,6 @@ export interface ApiConversation {
   lastMessage: string | null
   lastMessageAt: string | null
   postTitle?: string | null
-  postCategory?: string | null
   postPrice?: number | null
   postStatus?: ApiTaskPost['status'] | null
   postCreatorId?: string | null
@@ -377,8 +372,6 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 export async function fetchTaskPosts(params: {
   postType?: 'request' | 'offer'
   statusScope?: 'open' | 'public'
-  category?: string
-  categoryDetail?: string
   mode?: RequestMode
   nearby?: boolean
   lat?: number
@@ -389,8 +382,6 @@ export async function fetchTaskPosts(params: {
   const query = new URLSearchParams()
   if (params.postType) query.set('post_type', params.postType)
   if (params.statusScope) query.set('status_scope', params.statusScope)
-  if (params.category && params.category !== '전체') query.set('category', params.category)
-  if (params.categoryDetail) query.set('category_detail', params.categoryDetail)
   if (params.mode) query.set('mode', params.mode)
   if (params.nearby) query.set('nearby', 'true')
   if (params.lat !== undefined) query.set('lat', String(params.lat))
@@ -439,6 +430,13 @@ export async function createTaskPost(payload: CreateTaskPostPayload) {
   return apiFetch<ApiTaskPost>('/api/task-posts', {
     method: 'POST',
     body: JSON.stringify(payload),
+  })
+}
+
+export async function generateOnboardingBioDraft() {
+  return apiFetch<{ bio: string }>('/api/onboarding/bio-draft', {
+    method: 'POST',
+    body: JSON.stringify({}),
   })
 }
 
@@ -958,9 +956,6 @@ export function mapApiPostToRequestPost(post: ApiTaskPost): RequestPost {
   return {
     id: post.id,
     postType: post.postType,
-    categoryId: inferCategoryId(post.category),
-    category: post.category,
-    categoryDetail: post.categoryDetail ?? undefined,
     title: post.title,
     location: publicLocation,
     listLocation,
@@ -969,7 +964,7 @@ export function mapApiPostToRequestPost(post: ApiTaskPost): RequestPost {
     price: post.price,
     mode: post.mode,
     distance: post.distanceMeters ? `${Math.round(post.distanceMeters)}m` : post.mode === 'online' ? '온라인' : undefined,
-    image: inferIllustration(post.category),
+    image: inferIllustration(post),
     imageUrl: getDisplayImageUrl(firstImage),
     postStatus: post.status,
     capacityType: post.capacityType,
@@ -1001,53 +996,10 @@ function trimAddressToNeighborhood(address: string) {
   return address
 }
 
-function inferCategoryId(category: string) {
-  const map: Record<string, string> = {
-    깨워줘: 'wake',
-    들어줘: 'listen',
-    조언해줘: 'advice',
-    불러줘: 'call',
-    놀아줘: 'play',
-    골라줘: 'choose',
-    대신해줘: 'proxy',
-    일해줘: 'work',
-    '동네 심부름': 'proxy',
-    '집안 도움': 'proxy',
-    '문서·자료': 'work',
-    '문서 · 자료': 'work',
-    '디자인·콘텐츠': 'work',
-    디자인: 'work',
-    '영상·사진': 'work',
-    '사진·영상': 'work',
-    '개발 · IT': 'work',
-    레슨: 'advice',
-    '대신 찾아줘': 'choose',
-    반려동물: 'play',
-    기타: 'work',
-  }
-  return categories.find((item) => item.label === category)?.id ?? map[category] ?? 'work'
-}
-
-function inferIllustration(category: string): IllustrationType {
-  const matchedCategory = categories.find((item) => item.label === category)
-  if (matchedCategory) return matchedCategory.icon
-
-  const map: Record<string, IllustrationType> = {
-    '동네 심부름': 'store',
-    '집안 도움': 'home',
-    '문서·자료': 'document',
-    '문서 · 자료': 'document',
-    '디자인·콘텐츠': 'design',
-    디자인: 'design',
-    '영상·사진': 'camera',
-    '사진·영상': 'camera',
-    '개발 · IT': 'document',
-    레슨: 'book',
-    '대신 찾아줘': 'find',
-    반려동물: 'pet',
-    기타: 'document',
-  }
-  return map[category] ?? 'document'
+function inferIllustration(post: ApiTaskPost): IllustrationType {
+  if (post.postType === 'offer') return 'profile'
+  if (post.mode === 'nearby' || post.mode === 'both') return 'store'
+  return 'document'
 }
 
 function mapApiStatus(status: ApiTaskPost['status']): TradeStatus {

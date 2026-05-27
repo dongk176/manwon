@@ -13,7 +13,6 @@ import {
 } from 'lucide-react'
 import {
   BrandButton,
-  CategoryScroller,
   ChipGroup,
   SectionHeader,
 } from '@/components/ui/Common'
@@ -23,7 +22,7 @@ import {
   LocationPermissionSheet,
   NeighborhoodSelectSheet,
 } from '@/components/location/LocationSheets'
-import { formatPrice, getCategoryLabel, getUser, type RequestPost } from '@/data/mockData'
+import { formatPrice, getUser, type RequestPost } from '@/data/mockData'
 import {
   fetchMyPage,
   fetchTaskPost,
@@ -45,7 +44,7 @@ import {
 } from '@/lib/location'
 
 type DistanceFilter = '500m' | '1km' | '3km' | '5km'
-type QuickFilter = 'now' | 'under' | 'category'
+type QuickFilter = 'now' | 'under'
 type NearbyPanelState = 'collapsed' | 'peek' | 'expanded'
 
 interface NearbyPost {
@@ -86,7 +85,6 @@ export function NearbyScreens() {
   const [showNeighborhoodSheet, setShowNeighborhoodSheet] = useState(false)
   const [distance, setDistance] = useState<DistanceFilter>('1km')
   const [quickFilter, setQuickFilter] = useState<QuickFilter | null>(null)
-  const [categoryId, setCategoryId] = useState('all')
   const [selectedRegion, setSelectedRegion] = useState<LocationRegion | null>(null)
   const [permissionState, setPermissionState] = useState<LocationPermissionState>('unknown')
   const [locationBusy, setLocationBusy] = useState(false)
@@ -150,7 +148,6 @@ export function NearbyScreens() {
       lat: activeRegion.latitude,
       lng: activeRegion.longitude,
       radiusM,
-      category: categoryId === 'all' ? undefined : getCategoryLabel(categoryId),
       maxPrice: quickFilter === 'under' ? 10000 : undefined,
     })
       .then((posts) => {
@@ -169,18 +166,17 @@ export function NearbyScreens() {
     return () => {
       cancelled = true
     }
-  }, [activeRegion.latitude, activeRegion.longitude, categoryId, quickFilter, radiusM])
+  }, [activeRegion.latitude, activeRegion.longitude, quickFilter, radiusM])
 
   const displayPosts = useMemo(() => {
     const source = apiPostsToNearbyPosts(apiPosts)
     return source.filter((post) => {
-      if (categoryId !== 'all' && post.request.categoryId !== categoryId) return false
       if (quickFilter === 'under' && post.request.price > 10000) return false
       if (quickFilter === 'now' && !/지금|오늘/.test(post.request.deadline)) return false
       if (!withinDistance(post.request.distance, distance)) return false
       return true
     })
-  }, [apiPosts, categoryId, distance, quickFilter])
+  }, [apiPosts, distance, quickFilter])
 
   const selectedPost = displayPosts.find((post) => post.request.id === selectedPostId) ?? displayPosts[0] ?? null
 
@@ -337,7 +333,7 @@ export function NearbyScreens() {
             ) : (
               <div className="empty-state compact">
                 <strong>조건에 맞는 주변 부탁이 없어요</strong>
-                <span>거리나 카테고리 조건을 넓혀보세요.</span>
+                <span>거리나 상태 조건을 넓혀보세요.</span>
               </div>
             )}
             {displayPosts.length > 0 && (
@@ -363,10 +359,8 @@ export function NearbyScreens() {
         <FilterSheet
           distance={distance}
           quickFilter={quickFilter}
-          categoryId={categoryId}
           onDistanceChange={setDistance}
           onQuickFilterChange={setQuickFilter}
-          onCategoryChange={setCategoryId}
           onClose={() => setShowFilter(false)}
         />
       )}
@@ -613,7 +607,6 @@ function NearbySummaryCard({ post, onOpen }: { post: NearbyPost; onOpen: () => v
     <article className="nearby-summary-card">
       <button type="button" onClick={onOpen}>
         <div>
-          <span>{request.category}</span>
           <strong>{request.title}</strong>
           <p>
             <MapPin size={15} />
@@ -646,7 +639,6 @@ function NearbyListCard({
 
   return (
     <button className={`nearby-list-card ${selected ? 'is-selected' : ''}`} type="button" onClick={onSelect}>
-      <span>{request.category}</span>
       <strong>{request.title}</strong>
       <p>
         <MapPin size={14} />
@@ -672,7 +664,6 @@ function NearbyDetail({ post, region, onBack }: { post: NearbyPost; region: Loca
       <NearbyMap posts={[post]} selectedPostId={request.id} center={region} compact onSelectPost={() => undefined} onLocate={() => undefined} />
       <div className="nearby-detail-card">
         <div className="detail-tags">
-          <span>{request.category}</span>
           <span>
             <MapPin size={14} />
             내 주변
@@ -750,18 +741,14 @@ function ChipButton({ children, active = false, onClick }: { children: React.Rea
 function FilterSheet({
   distance,
   quickFilter,
-  categoryId,
   onDistanceChange,
   onQuickFilterChange,
-  onCategoryChange,
   onClose,
 }: {
   distance: DistanceFilter
   quickFilter: QuickFilter | null
-  categoryId: string
   onDistanceChange: (value: DistanceFilter) => void
   onQuickFilterChange: (value: QuickFilter | null) => void
-  onCategoryChange: (value: string) => void
   onClose: () => void
 }) {
   return (
@@ -775,8 +762,6 @@ function FilterSheet({
         <div className="filter-sheet-content">
           <SectionHeader title="거리 선택" />
           <ChipGroup options={distanceOptions} value={distance} onChange={onDistanceChange} />
-          <SectionHeader title="카테고리" />
-          <CategoryScroller selectedId={categoryId} onSelect={onCategoryChange} compact />
           <SectionHeader title="상태" />
           <div className="nearby-filter-row in-sheet">
             {quickFilters.map((option) => (
@@ -797,7 +782,6 @@ function FilterSheet({
             onClick={() => {
               onDistanceChange('1km')
               onQuickFilterChange(null)
-              onCategoryChange('all')
             }}
           >
             초기화

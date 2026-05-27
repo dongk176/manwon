@@ -198,8 +198,6 @@ struct TaskPost: Codable, Identifiable {
     let creatorProfileId: String?
     let postType: String?
     let title: String
-    let category: String?
-    let categoryDetail: String?
     let description: String?
     let mode: RequestMode?
     let price: Int
@@ -215,8 +213,6 @@ struct TaskPost: Codable, Identifiable {
     let creatorNickname: String?
     let creatorAvatarUrl: String?
     let creatorBio: String?
-    let creatorMainCategories: [String]?
-    let creatorSubCategories: [String]?
     let creatorGender: String?
     let creatorPhoneVerified: Bool?
     let creatorIdentityVerified: Bool?
@@ -264,7 +260,6 @@ struct Conversation: Codable, Identifiable, Hashable {
     let lastMessage: String?
     let lastMessageAt: String?
     let postTitle: String?
-    let postCategory: String?
     let postPrice: Int?
     let postStatus: PostStatus?
     let postCreatorId: String?
@@ -294,16 +289,10 @@ struct Conversation: Codable, Identifiable, Hashable {
     let helperAvatarUrl: String?
     let requesterBio: String?
     let helperBio: String?
-    let requesterMainCategories: [String]?
-    let helperMainCategories: [String]?
-    let requesterSubCategories: [String]?
-    let helperSubCategories: [String]?
     let otherUserId: String?
     let otherNickname: String?
     let otherAvatarUrl: String?
     let otherBio: String?
-    let otherMainCategories: [String]?
-    let otherSubCategories: [String]?
     let otherGender: String?
     let otherRatingAvg: Double?
     let otherReviewCount: Int?

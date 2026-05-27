@@ -25,8 +25,6 @@ const portfolioLinkInputSchema = z.object({
 export const listPostsSchema = z.object({
   post_type: postTypeSchema.optional(),
   status_scope: z.enum(['open', 'public']).default('open'),
-  category: z.string().min(1).optional(),
-  category_detail: z.string().min(1).optional(),
   mode: taskModeSchema.optional(),
   max_price: z.coerce.number().int().nonnegative().optional(),
   deadline_before: z.string().datetime().optional(),
@@ -58,11 +56,9 @@ const createPostBaseSchema = z.object({
   profileId: z.string().uuid(),
   postType: postTypeSchema,
   title: z.string().trim().min(1).max(80),
-  category: z.string().trim().min(1).max(40),
-  categoryDetail: z.string().trim().min(1).max(60).nullable().optional(),
   description: z.string().trim().min(1).max(1200),
   mode: taskModeSchema,
-  price: z.number().int().min(1).max(6000000),
+  price: z.number().int().min(1000, '최소 1,000원').max(6000000),
   deadlineAt: z.string().datetime().nullable().optional(),
   deadlineText: z.string().trim().max(80).nullable().optional(),
   availableTimeText: z.string().trim().max(80).nullable().optional(),
@@ -90,8 +86,8 @@ const createPostBaseSchema = z.object({
   distanceVisible: z.boolean().default(true),
   images: z
     .array(imageRecordInputSchema)
-    .max(5)
-    .default([]),
+    .min(1, '사진을 1장 이상 추가해주세요.')
+    .max(5),
   trustExampleImages: z.array(imageRecordInputSchema).max(5).default([]),
   workSampleImages: z.array(imageRecordInputSchema).max(5).default([]),
 })
@@ -200,7 +196,7 @@ export const activityProfileSchema = z.object({
   avatarUrl: z.string().url().nullable().optional(),
   defaultAvatarKey: z.string().trim().max(40).nullable().optional(),
   nickname: z.string().trim().min(2).max(12),
-  bio: z.string().trim().min(1).max(40),
+  bio: z.string().trim().min(1).max(60),
   activityMode: taskModeSchema,
   addressText: z.string().trim().max(120).nullable().optional(),
   region1Depth: z.string().trim().max(40).nullable().optional(),

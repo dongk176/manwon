@@ -70,7 +70,6 @@ create table if not exists manwon_happiness.task_posts (
   creator_id uuid not null references manwon_happiness.profiles(id) on delete cascade,
   post_type manwon_happiness.post_type not null,
   title text not null check (char_length(title) between 1 and 80),
-  category text not null,
   description text not null default '',
   mode manwon_happiness.task_mode not null,
   price integer not null check (price >= 0),
@@ -223,7 +222,7 @@ create table if not exists manwon_happiness.notification_events (
 );
 
 create index if not exists profiles_is_blocked_idx on manwon_happiness.profiles (is_blocked);
-create index if not exists task_posts_public_list_idx on manwon_happiness.task_posts (status, post_type, category, mode, created_at desc);
+create index if not exists task_posts_public_list_idx on manwon_happiness.task_posts (status, post_type, mode, created_at desc);
 create index if not exists task_posts_creator_idx on manwon_happiness.task_posts (creator_id, created_at desc);
 create index if not exists task_posts_location_idx on manwon_happiness.task_posts (latitude, longitude) where latitude is not null and longitude is not null;
 create index if not exists task_posts_price_idx on manwon_happiness.task_posts (price);

@@ -306,7 +306,7 @@ class NearbyView(
             topMargin = context.dp(10)
         })
         card.addView(TextView(context).apply {
-            text = "${post.distanceText} · ${post.categoryDetail ?: post.category ?: "부탁"}"
+            text = post.distanceText
             styleText(12f, ManwonColors.MUTED, Typeface.BOLD, 1)
         }, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
             topMargin = context.dp(4)
