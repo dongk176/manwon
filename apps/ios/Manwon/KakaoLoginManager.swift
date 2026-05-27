@@ -6,7 +6,6 @@ import UIKit
 
 enum KakaoLoginError: LocalizedError {
     case missingNativeAppKey
-    case kakaoTalkUnavailable
     case missingAccessToken
     case failed(String)
 
@@ -14,8 +13,6 @@ enum KakaoLoginError: LocalizedError {
         switch self {
         case .missingNativeAppKey:
             return "카카오 Native App Key가 설정되어 있지 않습니다."
-        case .kakaoTalkUnavailable:
-            return "카카오톡 설치 후 다시 시도해주세요."
         case .missingAccessToken:
             return "카카오 인증 토큰이 비어 있습니다."
         case .failed(let message):
@@ -41,12 +38,41 @@ final class KakaoLoginManager {
         guard AppConfig.kakaoNativeAppKey != nil else {
             throw KakaoLoginError.missingNativeAppKey
         }
-        guard UserApi.isKakaoTalkLoginAvailable() else {
-            throw KakaoLoginError.kakaoTalkUnavailable
+
+        if UserApi.isKakaoTalkLoginAvailable() {
+            do {
+                return try await requestKakaoTalkAccessToken()
+            } catch {
+                return try await requestKakaoAccountAccessToken()
+            }
         }
 
+        return try await requestKakaoAccountAccessToken()
+    }
+
+    @MainActor
+    private func requestKakaoTalkAccessToken() async throws -> String {
         return try await withCheckedThrowingContinuation { continuation in
             UserApi.shared.loginWithKakaoTalk { oauthToken, error in
+                if let error {
+                    continuation.resume(throwing: KakaoLoginError.failed(error.localizedDescription))
+                    return
+                }
+
+                guard let accessToken = oauthToken?.accessToken, !accessToken.isEmpty else {
+                    continuation.resume(throwing: KakaoLoginError.missingAccessToken)
+                    return
+                }
+
+                continuation.resume(returning: accessToken)
+            }
+        }
+    }
+
+    @MainActor
+    private func requestKakaoAccountAccessToken() async throws -> String {
+        return try await withCheckedThrowingContinuation { continuation in
+            UserApi.shared.loginWithKakaoAccount { oauthToken, error in
                 if let error {
                     continuation.resume(throwing: KakaoLoginError.failed(error.localizedDescription))
                     return

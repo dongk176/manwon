@@ -17,7 +17,7 @@ export default async function Page({
   if (tab === 'nearby' || tab === 'activity') redirect('/activity')
   if (tab === 'my') redirect('/my')
 
-  return <HomeScreen />
+  return <HomeScreen showOnboardingWelcome={getParam(params, 'welcome') === '1'} />
 }
 
 function getParam(params: Record<string, string | string[] | undefined> | undefined, key: string) {

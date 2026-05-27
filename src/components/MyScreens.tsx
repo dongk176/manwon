@@ -297,7 +297,7 @@ export function MyScreens({ section = 'main' }: { section?: MySection }) {
         userGender={userGender}
         profileDefaults={profileDefaults}
         onComplete={() => {
-          router.replace('/')
+          router.replace('/?welcome=1')
           router.refresh()
         }}
       />

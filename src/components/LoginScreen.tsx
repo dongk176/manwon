@@ -79,6 +79,11 @@ function normalizeNextPath(value: string | null | undefined) {
   return value
 }
 
+function normalizePostLoginPath(value: string | null | undefined) {
+  const path = normalizeNextPath(value)
+  return path === '/chat' || path.startsWith('/chat?') ? '/' : path
+}
+
 function normalizeLoginIdInput(value: string) {
   return value.replace(unsupportedLoginIdGlobalPattern, '').slice(0, LOGIN_ID_MAX_LENGTH)
 }
@@ -121,7 +126,7 @@ export function LoginScreen() {
         ? 'Apple 로그인에 실패했어요. 잠시 후 다시 시도해주세요.'
         : '',
   )
-  const requestedNextPath = normalizeNextPath(searchParams.get('next'))
+  const requestedNextPath = normalizePostLoginPath(searchParams.get('next'))
 
   const loginIdHint = loginIdInputHint || (loginId.length > 0 && loginId.length < LOGIN_ID_MIN_LENGTH ? `${LOGIN_ID_MIN_LENGTH}자 이상` : '')
   const passwordHint = password.length > 0 && password.length < PASSWORD_MIN_LENGTH ? `${PASSWORD_MIN_LENGTH}자 이상` : ''

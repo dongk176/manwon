@@ -1,12 +1,12 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState, type TouchEvent as ReactTouchEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type TouchEvent as ReactTouchEvent } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { setNativeOverlayState } from '@/components/NativeIOSBridge'
 import { PhoneVerificationOverlay } from '@/components/PhoneVerificationOverlay'
 import { NeighborhoodSelectSheet } from '@/components/location/LocationSheets'
-import { ActionGuideOverlay, AppHeader, CategoryScroller, ReportConfirmSheet, RequestCard, SegmentedControl } from '@/components/ui/Common'
+import { ActionGuideOverlay, AppHeader, BrandButton, CategoryScroller, ReportConfirmSheet, RequestCard } from '@/components/ui/Common'
 import { categoryDetailOptions, customCategoryDetailOption, getCategoryLabel, type RequestPost } from '@/data/mockData'
 import { createReport, fetchAuthSession, fetchMyPage, fetchTaskPosts, isPhoneVerificationRequired, mapApiPostToRequestPost, saveMyLocationPreference, type ApiTaskPost } from '@/lib/manwonApi'
 import {
@@ -22,19 +22,22 @@ import {
   type LocationRegion,
 } from '@/lib/location'
 
-type HomeMode = 'ask' | 'offer'
+type HomeMode = 'all' | 'ask' | 'offer'
 
 const homeModeOptions: Array<{ value: HomeMode; label: string }> = [
+  { value: 'all', label: '전체' },
   { value: 'ask', label: '해주세요' },
   { value: 'offer', label: '해줄게요' },
 ]
 const refreshHoldHeight = 64
 const refreshTriggerHeight = 58
+const onboardingWelcomeStoragePrefix = 'manwon_onboarding_welcome_cta_shown'
 
-export function HomeScreen() {
+export function HomeScreen({ showOnboardingWelcome = false }: { showOnboardingWelcome?: boolean }) {
   const router = useRouter()
-  const [mode, setMode] = useState<HomeMode>('ask')
+  const [mode, setMode] = useState<HomeMode>('all')
   const [showRegionMenu, setShowRegionMenu] = useState(false)
+  const [showModeMenu, setShowModeMenu] = useState(false)
   const [showNeighborhoodSheet, setShowNeighborhoodSheet] = useState(false)
   const [currentRegion, setCurrentRegion] = useState<LocationRegion | null>(null)
   const [permissionState, setPermissionState] = useState<LocationPermissionState>('unknown')
@@ -54,7 +57,10 @@ export function HomeScreen() {
   const [reportError, setReportError] = useState(false)
   const [reportVerificationInput, setReportVerificationInput] = useState<{ reason: string; description: string } | null>(null)
   const [guideOverlay, setGuideOverlay] = useState<{ title: string; description: string; note: string } | null>(null)
+  const [showWelcomeCta, setShowWelcomeCta] = useState(false)
+  const welcomeStorageKeyRef = useRef(`${onboardingWelcomeStoragePrefix}:unknown`)
   const regionMenuRef = useRef<HTMLDivElement | null>(null)
+  const modeMenuRef = useRef<HTMLDivElement | null>(null)
   const feedScrollRef = useRef<HTMLDivElement | null>(null)
   const loadRunRef = useRef(0)
   const pullStartYRef = useRef<number | null>(null)
@@ -63,8 +69,17 @@ export function HomeScreen() {
   const detailFilterOptions = ['전체', ...detailOptions]
   const showDetailOptions = categoryId !== 'all' && detailOptions.length > 0
   const currentRegionLabel = formatRegionShort(currentRegion)
+  const currentModeLabel = homeModeOptions.find((option) => option.value === mode)?.label ?? '전체'
   const refreshIndicatorHeight = isRefreshing ? refreshHoldHeight : pullDistance
   const isRefreshArmed = !isRefreshing && pullDistance >= refreshTriggerHeight
+  const removeWelcomeQuery = useCallback(() => {
+    if (typeof window === 'undefined') return
+    const url = new URL(window.location.href)
+    if (!url.searchParams.has('welcome')) return
+    url.searchParams.delete('welcome')
+    const nextPath = `${url.pathname}${url.search}${url.hash}` || '/'
+    router.replace(nextPath)
+  }, [router])
 
   useEffect(() => {
     let cancelled = false
@@ -147,11 +162,61 @@ export function HomeScreen() {
   }, [showRegionMenu])
 
   useEffect(() => {
-    setNativeOverlayState(Boolean(reportTarget || guideOverlay || showNeighborhoodSheet))
+    if (!showModeMenu) return
+
+    function closeOnOutside(event: Event) {
+      const target = event.target
+      if (target instanceof Node && !modeMenuRef.current?.contains(target)) {
+        setShowModeMenu(false)
+      }
+    }
+
+    document.addEventListener('mousedown', closeOnOutside)
+    document.addEventListener('touchstart', closeOnOutside)
+
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutside)
+      document.removeEventListener('touchstart', closeOnOutside)
+    }
+  }, [showModeMenu])
+
+  useEffect(() => {
+    setNativeOverlayState(Boolean(reportTarget || guideOverlay || showNeighborhoodSheet || showWelcomeCta))
     return () => {
       setNativeOverlayState(false)
     }
-  }, [guideOverlay, reportTarget, showNeighborhoodSheet])
+  }, [guideOverlay, reportTarget, showNeighborhoodSheet, showWelcomeCta])
+
+  useEffect(() => {
+    if (!showOnboardingWelcome) return
+
+    let cancelled = false
+
+    fetchAuthSession()
+      .then((session) => {
+        if (cancelled) return
+        if (!session.authenticated) {
+          removeWelcomeQuery()
+          return
+        }
+        const storageKey = `${onboardingWelcomeStoragePrefix}:${session.userId ?? 'unknown'}`
+        welcomeStorageKeyRef.current = storageKey
+        try {
+          if (window.localStorage.getItem(storageKey) === 'shown') {
+            removeWelcomeQuery()
+            return
+          }
+        } catch {
+          // localStorage is optional for this one-time guide.
+        }
+        setShowWelcomeCta(true)
+      })
+      .catch(() => undefined)
+
+    return () => {
+      cancelled = true
+    }
+  }, [removeWelcomeQuery, showOnboardingWelcome])
 
   async function refreshHomePosts() {
     if (isRefreshing || loadState === 'loading') return
@@ -274,7 +339,8 @@ export function HomeScreen() {
   }, [categoryId, dbPosts, detailCategory])
 
   function openPost(postId: string) {
-    const postType = mode === 'ask' ? 'request' : 'offer'
+    const post = dbPosts.find((item) => item.id === postId)
+    const postType = post?.postType ?? (mode === 'offer' ? 'offer' : 'request')
     router.push(`/posts/${encodeURIComponent(postId)}?postType=${postType}`)
   }
 
@@ -326,6 +392,31 @@ export function HomeScreen() {
     }
   }
 
+  function markWelcomeCtaShown() {
+    try {
+      window.localStorage.setItem(welcomeStorageKeyRef.current, 'shown')
+    } catch {
+      // The URL flag is still cleared, so the sheet will not loop in this session.
+    }
+    setShowWelcomeCta(false)
+  }
+
+  function dismissWelcomeCta() {
+    markWelcomeCtaShown()
+    removeWelcomeQuery()
+  }
+
+  function openRequestRegistration() {
+    markWelcomeCtaShown()
+    router.push('/register/request')
+  }
+
+  function browseHelpRequests() {
+    setMode('ask')
+    dismissWelcomeCta()
+    feedScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   return (
     <section className={`screen home-screen ${showDetailOptions ? 'has-detail-category' : 'is-category-all'}`}>
       <AppHeader
@@ -358,9 +449,41 @@ export function HomeScreen() {
             )}
           </div>
         }
+        actionContent={
+          <div className="home-mode-dropdown" ref={modeMenuRef}>
+            <button
+              className="home-mode-button"
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={showModeMenu}
+              onClick={() => setShowModeMenu((value) => !value)}
+            >
+              <span>{currentModeLabel}</span>
+              <ChevronDown size={17} />
+            </button>
+            {showModeMenu && (
+              <div className="home-mode-menu" role="menu">
+                {homeModeOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    className={mode === option.value ? 'is-active' : ''}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={mode === option.value}
+                    onClick={() => {
+                      setMode(option.value)
+                      setShowModeMenu(false)
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        }
       />
 
-      <SegmentedControl value={mode} onChange={setMode} options={homeModeOptions} />
       <CategoryScroller selectedId={categoryId} onSelect={handleCategorySelect} />
 
       <div className={`home-detail-filter ${showDetailOptions ? 'is-open' : 'is-closed'}`} aria-hidden={!showDetailOptions}>
@@ -476,7 +599,47 @@ export function HomeScreen() {
           onClose={() => setGuideOverlay(null)}
         />
       )}
+      {showWelcomeCta && (
+        <WelcomeCtaSheet
+          onClose={dismissWelcomeCta}
+          onCreateRequest={openRequestRegistration}
+          onBrowseRequests={browseHelpRequests}
+        />
+      )}
     </section>
+  )
+}
+
+function WelcomeCtaSheet({
+  onClose,
+  onCreateRequest,
+  onBrowseRequests,
+}: {
+  onClose: () => void
+  onCreateRequest: () => void
+  onBrowseRequests: () => void
+}) {
+  return (
+    <div className="sheet-overlay home-welcome-overlay" role="presentation" onClick={onClose}>
+      <div className="home-welcome-sheet" role="dialog" aria-modal="true" aria-labelledby="home-welcome-title" onClick={(event) => event.stopPropagation()}>
+        <div className="home-welcome-copy">
+          <span>프로필 준비 완료</span>
+          <h2 id="home-welcome-title">환영해요! 이제 바로 시작해볼까요?</h2>
+          <p>필요한 일을 부탁하거나, 도와줄 수 있는 일을 찾아 첫 거래를 시작해보세요.</p>
+        </div>
+        <div className="home-welcome-actions">
+          <BrandButton size="lg" full onClick={onCreateRequest}>
+            부탁 올리기
+          </BrandButton>
+          <BrandButton variant="outline" size="lg" full onClick={onBrowseRequests}>
+            도와줄 일 찾아보기
+          </BrandButton>
+          <button className="home-welcome-later" type="button" onClick={onClose}>
+            나중에 할게요
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -485,12 +648,17 @@ function filteredCategoryLabel(categoryId: string) {
 }
 
 async function fetchHomePosts(mode: HomeMode, categoryId: string, detailCategory: string) {
-  const posts = await fetchTaskPosts({
-    postType: mode === 'ask' ? 'request' : 'offer',
+  const query = {
     statusScope: 'public',
     category: categoryId === 'all' ? undefined : filteredCategoryLabel(categoryId),
     categoryDetail: detailCategory || undefined,
-  })
+  } as const
+  const posts = mode === 'all'
+    ? (await Promise.all([
+      fetchTaskPosts({ ...query, postType: 'request' }),
+      fetchTaskPosts({ ...query, postType: 'offer' }),
+    ])).flat()
+    : await fetchTaskPosts({ ...query, postType: mode === 'ask' ? 'request' : 'offer' })
 
   return posts.map(mapApiPostToHomeRequestPost)
 }

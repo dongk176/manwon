@@ -477,6 +477,69 @@ html.native-ios-shell [role="button"] {
   color: var(--brand);
 }
 
+.home-mode-dropdown {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.home-mode-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 34px;
+  padding: 0 6px 0 0;
+  border-radius: 12px;
+  color: #111113;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.home-mode-button svg {
+  flex: 0 0 auto;
+  color: #6f6f74;
+  transition: transform 0.16s ease;
+}
+
+.home-mode-button[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.home-mode-menu {
+  position: absolute;
+  z-index: 90;
+  top: calc(100% + 10px);
+  right: 0;
+  display: grid;
+  min-width: 148px;
+  gap: 4px;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 16px 36px rgba(15, 15, 15, 0.14);
+}
+
+.home-mode-menu button {
+  display: flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 0 12px;
+  border-radius: 12px;
+  color: #303034;
+  font-size: 15px;
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.home-mode-menu button.is-active {
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+
 .app-header.is-centered .header-actions {
   position: absolute;
   right: 0;
@@ -887,6 +950,63 @@ html.native-ios-shell [role="button"] {
   display: grid;
   place-items: center;
   min-height: 156px;
+}
+
+.home-welcome-overlay {
+  z-index: 95;
+}
+
+.home-welcome-sheet {
+  width: min(100%, 430px);
+  padding: 24px 20px calc(20px + env(safe-area-inset-bottom));
+  border-radius: 24px 24px 0 0;
+  background: #fff;
+  box-shadow: 0 -18px 42px rgba(20, 20, 24, 0.16);
+}
+
+.home-welcome-copy {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 22px;
+}
+
+.home-welcome-copy span {
+  width: fit-content;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.home-welcome-copy h2 {
+  margin: 0;
+  color: #161618;
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.home-welcome-copy p {
+  margin: 0;
+  color: #696970;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+.home-welcome-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.home-welcome-later {
+  min-height: 42px;
+  border-radius: 12px;
+  color: #77777c;
+  font-size: 14px;
+  font-weight: 800;
 }
 
 .loading-spinner {

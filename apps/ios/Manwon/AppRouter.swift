@@ -135,7 +135,7 @@ final class AppRouter: ObservableObject {
 
     @discardableResult
     func finishSocialLogin(_ session: SessionState, nextPath: String?) -> String {
-        let destination = normalizeNextPath(nextPath)
+        let destination = normalizePostLoginPath(nextPath)
         updateSession(session)
 
         guard session.authenticated else {
@@ -444,16 +444,26 @@ final class AppRouter: ObservableObject {
     }
 
     private func loginPath(next: String?) -> String {
-        guard let next, !next.isEmpty, next != "/" else { return "/login" }
+        let destination = normalizePostLoginPath(next)
+        guard !destination.isEmpty, destination != "/" else { return "/login" }
         var components = URLComponents()
         components.path = "/login"
-        components.queryItems = [URLQueryItem(name: "next", value: next)]
+        components.queryItems = [URLQueryItem(name: "next", value: destination)]
         return components.string ?? "/login"
     }
 
     private func normalizeNextPath(_ path: String?) -> String {
         guard let path, path.hasPrefix("/"), !path.hasPrefix("//") else { return "/" }
         return path
+    }
+
+    private func normalizePostLoginPath(_ path: String?) -> String {
+        let normalized = normalizeNextPath(path)
+        return isRootChatPath(normalized) ? "/" : normalized
+    }
+
+    private func isRootChatPath(_ path: String) -> Bool {
+        path == "/chat" || path.hasPrefix("/chat?")
     }
 
     private func setSelectedTab(_ tab: AppTab) {

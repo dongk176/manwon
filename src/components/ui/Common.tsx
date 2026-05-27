@@ -50,6 +50,7 @@ interface AppHeaderProps {
   showSearch?: boolean
   showFilter?: boolean
   showSettings?: boolean
+  actionContent?: ReactNode
   onSettings?: () => void
   onMore?: () => void
 }
@@ -63,6 +64,7 @@ export function AppHeader({
   showSearch,
   showFilter,
   showSettings,
+  actionContent,
   onSettings,
   onMore,
 }: AppHeaderProps) {
@@ -70,7 +72,7 @@ export function AppHeader({
     'app-header',
     centered ? 'is-centered' : '',
     onBack ? 'has-back' : '',
-    showBell || showSearch || showFilter || showSettings || onMore ? 'has-actions' : '',
+    actionContent || showBell || showSearch || showFilter || showSettings || onMore ? 'has-actions' : '',
   ]
     .filter(Boolean)
     .join(' ')
@@ -91,6 +93,7 @@ export function AppHeader({
         )}
       </div>
       <div className="header-actions">
+        {actionContent}
         {showBell && (
           <button className="icon-button has-dot" type="button" aria-label="알림">
             <Bell size={23} />
